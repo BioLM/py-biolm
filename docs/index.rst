@@ -1,4 +1,4 @@
-Welcome to PyBioLM's documentation!
+Welcome to BioLM AI's documentation!
 ======================================
 
 .. toctree::

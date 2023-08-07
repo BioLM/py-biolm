@@ -10,7 +10,7 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = ['Click>=7.0', ]
+requirements = ['Click>=6.0', 'requests']
 
 test_requirements = ['pytest>=3', ]
 
@@ -21,29 +21,31 @@ setup(
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
+        'License :: OSI Approved :: Apache Software License',
         'Natural Language :: English',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
     ],
-    description="Python SDK for BioLM.ai",
+    description="Python client and SDK for https://biolm.ai",
     entry_points={
         'console_scripts': [
-            'pybiolm=pybiolm.cli:main',
+            'biolmai=biolmai.cli:main',
         ],
     },
     install_requires=requirements,
-    license="GNU General Public License v3",
+    license="Apache Software License 2.0",
     long_description=readme + '\n\n' + history,
     include_package_data=True,
-    keywords='pybiolm',
-    name='pybiolm',
-    packages=find_packages(include=['pybiolm', 'pybiolm.*']),
+    keywords='biolmai',
+    name='biolmai',
+    packages=find_packages(include=['biolmai', 'biolmai.*']),
     test_suite='tests',
     tests_require=test_requirements,
-    url='https://github.com/nsh87/pybiolm',
+    url='https://github.com/BioLM/py-biolm',
     version='0.1.0',
     zip_safe=False,
 )
