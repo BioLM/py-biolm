@@ -8,6 +8,45 @@ from click.testing import CliRunner
 
 from pybiolm import pybiolm
 from pybiolm import cli
+from pybiolm.pybiolm import get_api_token, api_call
+
+import logging
+log = logging.getLogger(__name__)
+
+
+def test_authentication():
+    """Test to make sure the environment variables for auth work, and
+    that you get tokens back from the site to use for requests."""
+    resp = get_api_token()
+    # Make sure we have access and refresh keys in dictionary response
+    assert 'access' in resp, log.warning(resp)
+    assert 'refresh' in resp, log.warning(resp)
+
+
+def test_arbitrary_api_call_inference():
+    seq = "QERLEUTGR<mask>SLGYNIVAT"
+    payload = {
+        "instances": [
+            {
+                "data": {
+                    "text": seq
+                }
+            }
+        ]
+    }
+    tokens = get_api_token()
+    access = tokens.get('access')
+    refresh = tokens.get('refresh')
+
+    resp = api_call(
+        model_name='esm1v_t33_650M_UR90S_1',
+        action='predict',
+        payload=payload,
+        access=access,
+        refresh=refresh
+    )
+
+    assert 'predictions' in response, log.warning(resp)
 
 
 @pytest.fixture
