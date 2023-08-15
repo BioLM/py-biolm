@@ -100,7 +100,7 @@ def api_call(model_name, action, payload, access, refresh):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
     # but for simplicity sake will do one at at time right now
-    url = 'https://api.biolm.ai/api/v1/models/{model_name}/{action}/'
+    url = f'https://biolm.ai/api/v1/models/{model_name}/{action}/'
 
     payload = json.dumps(payload)
 

@@ -24,29 +24,25 @@ def test_authentication():
 
 
 def test_arbitrary_api_call_inference():
-    seq = "QERLEUTGR<mask>SLGYNIVAT"
+    seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
     payload = {
-        "instances": [
-            {
-                "data": {
-                    "text": seq
-                }
-            }
-        ]
+      "instances": [{
+        "data": {"text": seq}
+      }]
     }
     tokens = get_api_token()
     access = tokens.get('access')
     refresh = tokens.get('refresh')
 
     resp = api_call(
-        model_name='esm1v_t33_650M_UR90S_1',
+        model_name='esmfold-singlechain',
         action='predict',
         payload=payload,
         access=access,
         refresh=refresh
     )
 
-    assert 'predictions' in response, log.warning(resp)
+    assert 'predictions' in resp, log.warning(resp)
 
 
 @pytest.fixture
