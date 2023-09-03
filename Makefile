@@ -65,6 +65,7 @@ coverage: ## check code coverage quickly with the default Python
 	$(BROWSER) htmlcov/index.html
 
 docs: ## generate Sphinx HTML documentation, including API docs
+	mkdir -p docs/_static
 	rm -f docs/pybiolm.rst
 	rm -f docs/modules.rst
 	sphinx-apidoc -o docs/ pybiolm
