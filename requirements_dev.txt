@@ -9,4 +9,4 @@ Sphinx==7.*
 twine==4.*
 Click==7.1.2
 pytest==6.2.4
-
+urllib3==1.26.6
