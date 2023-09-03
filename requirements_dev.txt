@@ -3,10 +3,10 @@ bump2version==0.5.11
 wheel==0.40.*
 watchdog==0.9.0
 flake8==3.7.8
-tox==3.14.0
+tox>=3.14.0
 coverage==7.*
 Sphinx<=7.*
-twine==4.*
+twine>=4.*
 Click==7.1.2
 pytest==6.2.4
 urllib3==1.26.6
