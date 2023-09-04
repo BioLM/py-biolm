@@ -2,8 +2,8 @@ language: python
 python:
 #- 3.8
 #- "3.10-dev"
-- 3.9
-#- 3.7
+# 3.9
+- 3.7
 #- 3.6
 install: pip install -U tox-travis
 script: tox
@@ -21,7 +21,7 @@ before_deploy:
 - sudo make install
 - sudo ln -s /usr/local/bin/openssl /usr/bin/openssl
 - which openssl
-- cd --
+- cd /home/travis/build/BioLM/py-biolm
 - pwd
 deploy:
   edge: true
@@ -30,7 +30,7 @@ deploy:
   skip_existing: true
   on:
     repo: BioLM/py-biolm
-    python: 3.9
+    python: 3.7
     branch: main
   username: "__token__"
   password:
