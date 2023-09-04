@@ -5,6 +5,11 @@ python:
 - 3.9
 #- 3.7
 #- 3.6
+before_install:
+  - sudo apt-get -y install libxml2-dev openssl libssl-dev
+addons:
+  apt:
+    update: true
 install: pip install -U tox-travis
 script: tox
 before_deploy:
