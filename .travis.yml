@@ -18,7 +18,7 @@ deploy:
   on:
     repo: BioLM/py-biolm
     python: 3.9
-    branch: production
+    branch: main
   username: "__token__"
   password:
     secure: yCDjiKw7Kro+qZNsG7L2GquPp9ZVAlFKtJKnCDy7LHobapSeGWe5dfZ9ez/E7EfSkOZMlqTJVsEgxZaU6x72mMBh3wUilCFLIQgU1aHcN8bw8LPPzSEdJINYTx4xQXr7IAPMF26VmtvfaTjW5HRn1NRuwMiORJd++uAwiKKMBt5TyqGDS7f3UqmbjXCgirm/eiwZ/FVuiBPOa7IM4DPLWCR48d8rZfuvcSMkdv4ofbw30eYwaJerEXGS4d+DyeHX46NYS65g8TZDvtvXMTw3gw42T/iUVU0jtziQIc8fpwEjijwwnFEQyegeBo6siUaRlBQSzhazpAfiGdMHtNJpmwjyNleQnECjwCEW4Hi0K0iXjr869ZAvMGErYEnMCsWFf/UMhrZ64H+T1cjqkwW05uv4zYK2t8AKDUu9PR3LkBiaah98goO/COp/uOmMlUDBkGAYEVgZuH0ezeDgSd83CbzSSs8cwrdPz3nYL/pcWpOATUIqu4uilOw0EFywiFfbOcKrphN9XRVriCC3jD++HPuY5mM7u7scMj+Rh8NQPkD6xBzLTN4Su1Htfeu2g1wo06NiHMxsWcrrdi42bDnvK5Xsfz3Bk5U+vKfMMtOes6OP6YYt/gd+57lHSXEHumlx/EIAns3SIo1sb+389LGZqQ1vPBOAR6lpXt+BGNkxcbI=
