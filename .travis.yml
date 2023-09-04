@@ -8,6 +8,7 @@ python:
 install: pip install -U tox-travis
 script: tox
 before_deploy:
+- lsb_release -d
 - pwd
 - echo "$PATH"
 - which openssl
