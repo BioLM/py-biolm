@@ -20,6 +20,7 @@ before_deploy:
 - sudo mv /usr/bin/openssl /usr/bin/openssl-1.1.1f
 - sudo ln -s /usr/local/bin/openssl /usr/bin/openssl
 deploy:
+  edge: true
   provider: pypi
   distributions: sdist bdist_wheel
   skip_existing: true
