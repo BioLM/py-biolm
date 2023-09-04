@@ -10,7 +10,7 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = ['Click>=7.0', ]
+requirements = ['Click>=6.0', 'requests']
 
 test_requirements = ['pytest>=3', ]
 
@@ -27,6 +27,8 @@ setup(
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
     ],
     description="Python SDK for BioLM.ai",
     entry_points={
@@ -43,7 +45,7 @@ setup(
     packages=find_packages(include=['pybiolm', 'pybiolm.*']),
     test_suite='tests',
     tests_require=test_requirements,
-    url='https://github.com/nsh87/pybiolm',
+    url='https://github.com/BioLM/pybiolm',
     version='0.1.0',
     zip_safe=False,
 )
