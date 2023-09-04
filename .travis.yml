@@ -17,7 +17,7 @@ deploy:
   on:
     repo: BioLM/py-biolm
     python: "3.9"
-    branch: main
+    branch: production
 env:
   global:
     - secure: en3cOLK1UYyOXN1Q4J4+OGHj1khenQ807D4/QUJBXHRCblg/GYei9XKMq3uBJvUit1B9JL2tULCziO1q9KDkFT9rrfbWSbvfl28GD9LFGBW9Gbqb4/26b2y8r8MU+QXByGbniDSAneArhDvtq4IUo8H9hkIiPseK1P+A0lvWnJiP6gFais5umGtlzt/faYaCQhLoOKXzbbnGsOcGfcmmBc4Ps2FFrVXr8Lp7bg7qte7rvLio4K2yK/v36oBJ25ZOQzJema+1eCBRtWOEmnh4ptaJ+55CAhjpssdBTSmaegqFLXBJmCHiZyR+Q9tUeHUFxL9iJlWaj8saK0qBo93HuCkaVuVes0V1fMwWgiIhgd6DrCj5bXENaMhaxKsuC1xqZiDfSipL+B4Goqut2heJoVPVgYM445mvmH1OqUv8++I8BghJ0RqPhRS8V6qL7nMazR+DF6ZDQF4YGVyYXMYVrGqwZ/xcArIRf6ehonXzDJewyJs+LfXQKQwGpQFclsKYHOsHbjGxWlKaBzdA+ZtE9u6wdknIzE7HCTKSgeu7VcpInw5WDfX7szehOFyH92t3u8KZFvQhRf4yIhOXJdrX/Zy/EvQjAJlJkm9E297BxCtEwwvIbjMyxnHqUvqoD2XnI2omoR+zjFvBkt9b6Rgb2IJvC5xb+3pJ++4CNL48+IM=
