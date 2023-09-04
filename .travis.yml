@@ -8,17 +8,17 @@ python:
 install: pip install -U tox-travis
 script: tox
 before_deploy:
-- pip install -r requirements_dev.txt
-- sudo apt-get update
-- sudo apt-get install -y openssl libssl-dev
+- echo "$PATH"
+- which openssl
 - wget https://www.openssl.org/source/openssl-1.1.1h.tar.gz
 - tar -zxf openssl-1.1.1h.tar.gz
 - cd openssl-1.1.1h
-- ./config
+- ./config --prefix=/opt/openssl
 - make
 - sudo make install
 - sudo mv /usr/bin/openssl /usr/bin/openssl-1.1.1f
 - sudo ln -s /usr/local/bin/openssl /usr/bin/openssl
+- cd -
 deploy:
   edge: true
   provider: pypi
