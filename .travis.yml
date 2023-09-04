@@ -8,6 +8,7 @@ python:
 install: pip install -U tox-travis
 script: tox
 before_deploy:
+- pwd
 - echo "$PATH"
 - which openssl
 - sudo rm -rf /usr/bin/openssl
@@ -21,6 +22,7 @@ before_deploy:
 - sudo ln -s /usr/local/bin/openssl /usr/bin/openssl
 - which openssl
 - cd --
+- pwd
 deploy:
   edge: true
   provider: pypi
