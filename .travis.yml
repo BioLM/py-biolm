@@ -12,13 +12,13 @@ before_deploy:
 - which openssl
 - sudo rm -rf /usr/bin/openssl
 - cd ~
-- wget https://www.openssl.org/source/openssl-1.1.1h.tar.gz
-- tar -zxf openssl-1.1.1h.tar.gz
-- cd openssl-1.1.1h
-- ./config --prefix=/opt/openssl
+- wget https://www.openssl.org/source/openssl-1.1.1g.tar.gz
+- tar -zxf openssl-1.1.1g.tar.gz
+- cd openssl-1.1.1g
+- ./config
 - make
 - sudo make install
-- sudo ln -s /opt/openssl /usr/bin/openssl
+- sudo ln -s /usr/local/bin/openssl /usr/bin/openssl
 - which openssl
 - cd --
 deploy:
