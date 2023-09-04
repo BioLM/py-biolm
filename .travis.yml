@@ -8,6 +8,7 @@ python:
 install: pip install -U 'tox-travis<=0.13'
 script: tox
 after_success: make install
+before_deploy: pip install -U -r requirements_dev.txt
 deploy:
   edge: true
   provider: script
