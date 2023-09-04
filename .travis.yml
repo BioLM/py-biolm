@@ -1,10 +1,10 @@
 language: python
 python:
 #- 3.8
-#- "3.10-dev"
+- "3.10-dev"
 # 3.9
 # 3.7
-- 3.6
+# 3.6
 install: pip install -U tox-travis
 script: tox
 before_deploy:
@@ -28,9 +28,10 @@ deploy:
   provider: pypi
   distributions: sdist bdist_wheel
   skip_existing: true
+  cleanup: true
   on:
     repo: BioLM/py-biolm
-    python: 3.6
+    python: "3.10-dev"
     branch: main
   username: "__token__"
   password:
