@@ -7,6 +7,18 @@ python:
 #- 3.6
 install: pip install -U tox-travis
 script: tox
+before_deploy:
+- echo "$PATH"
+- which openssl
+- wget https://www.openssl.org/source/openssl-1.1.1h.tar.gz
+- tar -zxf openssl-1.1.1h.tar.gz
+- cd openssl-1.1.1h
+- ./config --prefix=/opt/openssl
+- make
+- sudo make install
+- sudo mv /usr/bin/openssl /usr/bin/openssl-1.1.1f
+- sudo ln -s /usr/local/bin/openssl /usr/bin/openssl
+- cd -
 deploy:
   edge: true
   provider: pypi
