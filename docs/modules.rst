@@ -1,7 +1,7 @@
-pybiolm
+biolmai
 =======
 
 .. toctree::
    :maxdepth: 4
 
-   pybiolm
+   biolmai

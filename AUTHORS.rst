@@ -5,7 +5,7 @@ Credits
 Development Lead
 ----------------
 
-* Nikhil Haas <nhaas@biolm.ai>
+* Nikhil Haas <nikhil@nikhilhaas.com>
 
 Contributors
 ------------

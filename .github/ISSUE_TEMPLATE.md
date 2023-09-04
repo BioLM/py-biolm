@@ -1,4 +1,4 @@
-* PyBioLM version:
+* BioLM AI version:
 * Python version:
 * Operating System:
 

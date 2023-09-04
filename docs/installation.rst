@@ -8,13 +8,13 @@ Installation
 Stable release
 --------------
 
-To install PyBioLM, run this command in your terminal:
+To install BioLM AI, run this command in your terminal:
 
 .. code-block:: console
 
-    $ pip install pybiolm
+    $ pip install biolmai
 
-This is the preferred method to install PyBioLM, as it will always install the most recent stable release.
+This is the preferred method to install BioLM AI, as it will always install the most recent stable release.
 
 If you don't have `pip`_ installed, this `Python installation guide`_ can guide
 you through the process.
@@ -26,19 +26,19 @@ you through the process.
 From sources
 ------------
 
-The sources for PyBioLM can be downloaded from the `Github repo`_.
+The sources for BioLM AI can be downloaded from the `Github repo`_.
 
 You can either clone the public repository:
 
 .. code-block:: console
 
-    $ git clone git://github.com/nsh87/pybiolm
+    $ git clone git://github.com/BioLM/biolmai
 
 Or download the `tarball`_:
 
 .. code-block:: console
 
-    $ curl -OJL https://github.com/nsh87/pybiolm/tarball/master
+    $ curl -OJL https://github.com/BioLM/biolmai/tarball/master
 
 Once you have a copy of the source, you can install it with:
 
@@ -47,5 +47,5 @@ Once you have a copy of the source, you can install it with:
     $ python setup.py install
 
 
-.. _Github repo: https://github.com/nsh87/pybiolm
-.. _tarball: https://github.com/nsh87/pybiolm/tarball/master
+.. _Github repo: https://github.com/BioLM/biolmai
+.. _tarball: https://github.com/BioLM/biolmai/tarball/master

@@ -1,1 +1,1 @@
-"""Unit test package for pybiolm."""
+"""Unit test package for biolmai."""

@@ -2,6 +2,6 @@
 Usage
 =====
 
-To use PyBioLM in a project::
+To use BioLM AI in a project::
 
-    import pybiolm
+    import biolmai

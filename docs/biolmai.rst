@@ -1,21 +1,21 @@
-pybiolm package
+biolmai package
 ===============
 
 Submodules
 ----------
 
-pybiolm.cli module
-------------------
+biolmai.biolmai module
+----------------------
 
-.. automodule:: pybiolm.cli
+.. automodule:: biolmai.biolmai
    :members:
    :undoc-members:
    :show-inheritance:
 
-pybiolm.pybiolm module
-----------------------
+biolmai.cli module
+------------------
 
-.. automodule:: pybiolm.pybiolm
+.. automodule:: biolmai.cli
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ pybiolm.pybiolm module
 Module contents
 ---------------
 
-.. automodule:: pybiolm
+.. automodule:: biolmai
    :members:
    :undoc-members:
    :show-inheritance:
