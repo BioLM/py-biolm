@@ -11,6 +11,15 @@ before_deploy:
 - pip install -r requirements_dev.txt
 - sudo apt-get update
 - sudo apt-get install -y openssl libssl-dev
+- wget https://www.openssl.org/source/openssl-1.1.1h.tar.gz
+- tar -zxf openssl-1.1.1h.tar.gz
+- cd openssl-1.1.1h
+- ./config
+- make
+- make test
+- sudo make install
+- sudo mv /usr/bin/openssl /usr/bin/openssl-1.1.1f
+- sudo ln -s /usr/local/bin/openssl /usr/bin/openssl
 deploy:
   provider: pypi
   distributions: sdist bdist_wheel
