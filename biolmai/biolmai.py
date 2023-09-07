@@ -41,10 +41,11 @@ def requests_retry_session(
 
 def retry_minutes(sess, URL, HEADERS, dat, timeout, mins):
     """Retry for N minutes."""
+    attempts, max_attempts = 0, 5
     try:
         now = datetime.datetime.now()
         try_until = now + datetime.timedelta(minutes=mins)
-        while datetime.datetime.now() < try_until:
+        while datetime.datetime.now() < try_until and attempts < max_attempts:
             response = None
             try:
                 log.info('Trying {}'.format(datetime.datetime.now()))
@@ -64,6 +65,7 @@ def retry_minutes(sess, URL, HEADERS, dat, timeout, mins):
                 if response:
                     log.warning(response.text)
                 time.sleep(5)  # Wait 5 seconds between tries
+            attempts += 1
         if response is None:
             err = "Got Nonetype response"
             raise ValueError(err)

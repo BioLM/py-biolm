@@ -53,8 +53,6 @@ def test_esmfold_singlechain_predict():
     print(resp)
 
 
-
-
 @pytest.fixture
 def response():
     """Sample pytest fixture.
