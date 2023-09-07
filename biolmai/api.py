@@ -5,9 +5,23 @@ from biolmai import biolmai
 import inspect
 from biolmai.const import BASE_DOMAIN, MULTIPROCESS_THREADS
 from functools import lru_cache
+from biolmai.validate import UnambiguousAA
 
 BASE_API_URL = f'{BASE_DOMAIN}/api/v1'
 
+def validate_endpoint_payload(f):
+    # Extract sequences or other data to be used in JSON POST payload
+    def wrapper(*args, **kwargs):
+        class_obj_self = args[0]
+        input_data = args[1]
+        if not isinstance(input_data, str):
+            err = "Input sequence must be a DNA or protein string"
+            raise ValueError(err)
+
+        for c in class_obj_self.seq_classes:
+            c()(input_data)  # Validate input data against regex
+        return f(*args, **kwargs)
+    return wrapper
 
 
 @lru_cache(maxsize=64)
@@ -42,14 +56,8 @@ def validate_endpoint_action(f):
                 )
                 raise AssertionError(err)
 
-        # Extract sequences or other data to be used in JSON POST payload
-        input_data = args[1]
-        if not isinstance(input_data, str):
-            err = "Input sequence must be a DNA or protein string"
-            raise ValueError(err)
 
-
-        return f(*args)
+        return f(*args, **kwargs)
     return wrapper
 
 
@@ -102,12 +110,13 @@ class FinetuneAction(object):
 class ESMFoldSingleChain(APIEndpoint):
     slug = 'esmfold-singlechain'
     action_classes = (PredictAction, )
-    # seq_classes =
+    seq_classes = (UnambiguousAA, )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     @validate_endpoint_action
+    @validate_endpoint_payload
     def predict(self, dat):
         payload = {"instances": [{"data": {"text": dat}}]}
         resp = biolmai.api_call(
