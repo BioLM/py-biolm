@@ -5,6 +5,8 @@ from biolmai import biolmai
 import inspect
 from biolmai.const import BASE_DOMAIN, MULTIPROCESS_THREADS
 from functools import lru_cache
+
+from biolmai.payloads import INST_DAT_TXT
 from biolmai.validate import UnambiguousAA
 
 BASE_API_URL = f'{BASE_DOMAIN}/api/v1'
@@ -20,6 +22,7 @@ def validate_endpoint_action(allowed_classes, method_name, api_class_name):
         )
         raise AssertionError(err)
 
+
 def validate(f):
     def wrapper(*args, **kwargs):
         # Get class instance at runtime, so you can access not just
@@ -31,6 +34,7 @@ def validate(f):
         except:
             is_method = False
 
+        # Is the function we decorated a class method?
         if is_method:
             name = '{}.{}.{}'.format(f.__module__, args[0].__class__.__name__,
                                      f.__name__)
@@ -38,7 +42,7 @@ def validate(f):
             name = '{}.{}'.format(f.__module__, f.__name__)
 
         if is_method:
-            # Splits e.g. 'biolmai.api.ESMFoldSingleChain.predict'
+            # Splits name, e.g. 'biolmai.api.ESMFoldSingleChain.predict'
             action_method_name = name.split('.')[-1]
             validate_endpoint_action(
                 class_obj_self.action_class_strings,
@@ -46,6 +50,7 @@ def validate(f):
                 class_obj_self.__class__.__name__
             )
 
+        # Get the user-input data argument to the decorated function
         input_data = args[1]
         if not isinstance(input_data, str):
             err = "Input sequence must be a DNA or protein string"
@@ -54,15 +59,8 @@ def validate(f):
         for c in class_obj_self.seq_classes:
             c()(input_data)  # Validate input data against regex
         res = f(*args, **kwargs)
+
         return res.json()
-    return wrapper
-
-
-def validate_endpoint_payload(f):
-    # Extract sequences or other data to be used in JSON POST payload
-    def wrapper(*args, **kwargs):
-        class_obj_self = args[0]
-        return f(*args, **kwargs)
     return wrapper
 
 
@@ -83,7 +81,7 @@ class APIEndpoint(object):
 
     @validate
     def predict(self, dat):
-        payload = {"instances": [{"data": {"text": dat}}]}
+        payload = INST_DAT_TXT(dat)
         resp = biolmai.api_call(
             model_name=self.slug,
             headers=self.auth_headers,  # From APIEndpoint base class
