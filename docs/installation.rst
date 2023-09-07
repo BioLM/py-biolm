@@ -32,13 +32,13 @@ You can either clone the public repository:
 
 .. code-block:: console
 
-    $ git clone git://github.com/BioLM/biolmai
+    $ git clone git://github.com/BioLM/py-biolm
 
 Or download the `tarball`_:
 
 .. code-block:: console
 
-    $ curl -OJL https://github.com/BioLM/biolmai/tarball/master
+    $ curl -OJL https://github.com/BioLM/py-biolm/tarball/production
 
 Once you have a copy of the source, you can install it with:
 
@@ -47,5 +47,5 @@ Once you have a copy of the source, you can install it with:
     $ python setup.py install
 
 
-.. _Github repo: https://github.com/BioLM/biolmai
-.. _tarball: https://github.com/BioLM/biolmai/tarball/master
+.. _Github repo: https://github.com/BioLM/py-biolm
+.. _tarball: https://github.com/BioLM/py-biolm/tarball/production

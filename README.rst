@@ -6,11 +6,11 @@ BioLM AI
 .. image:: https://img.shields.io/pypi/v/biolmai.svg
         :target: https://pypi.python.org/pypi/biolmai
 
-.. image:: https://img.shields.io/travis/BioLM/biolmai.svg
-        :target: https://travis-ci.com/BioLM/biolmai
+.. image:: https://api.travis-ci.com/BioLM/py-biolm.svg?branch=production
+        :target: https://travis-ci.org/github/BioLM/py-biolm
 
-.. image:: https://readthedocs.org/projects/biolmai/badge/?version=latest
-        :target: https://biolmai.readthedocs.io/en/latest/?version=latest
+.. image:: https://readthedocs.org/projects/biolm-ai/badge/?version=latest
+        :target: https://biolm-ai.readthedocs.io/en/latest/?version=latest
         :alt: Documentation Status
 
 
@@ -20,7 +20,7 @@ Python client and SDK for https://biolm.ai
 
 
 * Free software: Apache Software License 2.0
-* Documentation: https://biolmai.readthedocs.io.
+* Documentation: https://biolm-ai.readthedocs.io.
 
 
 Features
