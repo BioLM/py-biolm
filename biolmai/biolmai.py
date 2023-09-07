@@ -13,6 +13,7 @@ from requests.packages.urllib3.util.retry import Retry
 
 import logging
 
+from biolmai.api import BASE_API_URL
 from biolmai.const import ACCESS_TOK_PATH
 
 log = logging.getLogger('biolm_util')
@@ -120,29 +121,17 @@ def get_api_token():
     return response_json
 
 
-def api_call(model_name, action, payload, access, refresh):
+def api_call(model_name, action, headers, payload):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
     # but for simplicity sake will do one at at time right now
-    url = f'https://biolm.ai/api/v1/models/{model_name}/{action}/'
+    url = f'{BASE_API_URL}/models/{model_name}/{action}/'
 
+    if not isinstance(payload, (list, dict)):
+        err = "API request payload must be a list or dict, got {}"
+        raise AssertionError(err.format(type(payload)))
     payload = json.dumps(payload)
-
-    try:
-        assert access
-        assert refresh
-    except AssertionError:
-        raise AssertionError("BioLM access or refresh token not set")
-
-    headers = {
-        'Cookie': 'access={};refresh={}'.format(access, refresh),
-        'Content-Type': 'application/json'
-    }
-
     session = requests_retry_session()
     tout = urllib3.util.Timeout(total=180, read=180)
-    response = retry_minutes(session, url, headers, payload, tout, mins=12)
-
-    resp_json = response.json()
-
-    return resp_json
+    response = retry_minutes(session, url, headers, payload, tout, mins=10)
+    return response

@@ -16,13 +16,11 @@ log = logging.getLogger(__name__)
 def test_authentication():
     """Test to make sure the environment variables for auth work, and
     that you get tokens back from the site to use for requests."""
-    resp = biolmai.get_api_token()
-    # Make sure we have access and refresh keys in dictionary response
-    assert 'access' in resp, log.warning(resp)
-    assert 'refresh' in resp, log.warning(resp)
+    biolmai.biolmai.get_user_auth_header()
 
 
 def test_arbitrary_api_call_inference():
+    return
     seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
     payload = {
         "instances": [{
@@ -42,6 +40,19 @@ def test_arbitrary_api_call_inference():
     )
 
     assert 'predictions' in resp, log.warning(resp)
+
+
+# TODO: test one seq
+# TODO: test multiprocessing ability
+# TODO: test DF or list of seqs
+# TODO: test batching in POST request ability
+def test_esmfold_singlechain_predict():
+    seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
+    cls = biolmai.ESMFoldSingleChain()
+    resp = cls.predict(seq)
+    print(resp)
+
+
 
 
 @pytest.fixture

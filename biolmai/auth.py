@@ -22,10 +22,7 @@ def validate_user_auth(api_token=None, access=None, refresh=None):
             'Content-Type': 'application/json'
         }
     try:
-        # click.echo(headers)
         r = requests.post(url=url, headers=headers)
-        # click.echo('Printing')
-        # click.echo(r.text)
         json_response = r.json()
         pretty_json = pprint.pformat(json_response, indent=2)
         click.echo(pretty_json)
@@ -46,16 +43,17 @@ def refresh_access_token(refresh):
     }
     r = requests.post(url=url, headers=headers)
     json_response = r.json()
-    if r.status_code != 200:
+    if r.status_code != 200 or (r.status_code == 200 and 'code' in r.json()):
         pretty_json = pprint.pformat(json_response, indent=2)
         click.echo(pretty_json)
         click.echo(f"Token refresh failed! Please login by "
                    "running `biolmai login`.\n")
+        return False
     else:
-        click.echo("User access token successfully refreshed. Saving credentials...")
         access_refresh_dict = {'access': json_response['access'],
                                'refresh': refresh}
         save_access_refresh_token(access_refresh_dict)
+        return True
 
 
 def get_auth_status():
@@ -72,12 +70,15 @@ def get_auth_status():
         access = access_refresh_dict.get('access')
         refresh = access_refresh_dict.get('refresh')
         resp = validate_user_auth(access=access, refresh=refresh)
-        if resp.status_code != 200:
+        if resp.status_code != 200 or (resp.status_code == 200 and 'code' in resp.json()):
             click.echo("Access token validation failed. Attempting to refresh token...")
             # Attempt to use the 'refresh' token to get a new 'access' token
-            refresh_access_token(refresh)
+            if not refresh_access_token(refresh):
+                click.echo("Unexpected refresh token error.")
+            else:
+                click.echo("Access token refresh was successful.")
     else:
-        msg = f"No https://biolm.ai login credentials found. Please " \
+        msg = f"No https://biolm.ai credentials found. Please " \
               f"set the environment variable BIOLMAI_TOKEN to a token from {GEN_TOKEN_URL}, or login by " \
               "running `biolmai login`."
         click.echo(msg)
@@ -121,7 +122,6 @@ def save_access_refresh_token(access_refresh_dict):
         json.dump(access_refresh_dict, f)
     os.chmod(ACCESS_TOK_PATH, stat.S_IRUSR | stat.S_IWUSR)
     # Validate token and print user info
-    # click.echo(access_refresh_dict)
     access = access_refresh_dict.get('access')
     refresh = access_refresh_dict.get('refresh')
     validate_user_auth(access=access, refresh=refresh)
