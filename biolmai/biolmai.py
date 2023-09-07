@@ -13,6 +13,8 @@ from requests.packages.urllib3.util.retry import Retry
 
 import logging
 
+from biolmai.const import ACCESS_TOK_PATH
+
 log = logging.getLogger('biolm_util')
 
 
@@ -73,6 +75,28 @@ def retry_minutes(sess, URL, HEADERS, dat, timeout, mins):
         raise
     else:
         return response
+
+
+def get_user_auth_header():
+    """Returns a dict with the appropriate Authorization header, either using
+    an API token from BIOLMAI_TOKEN environment variable, or by reading the
+    credentials file at ~/.biolmai/credntials next."""
+    api_token = os.environ.get('BIOLMAI_TOKEN', None)
+    if api_token:
+        headers = {'Authorization': f'Token {api_token}'}
+    elif os.path.exists(ACCESS_TOK_PATH):
+        with open(ACCESS_TOK_PATH, 'r') as f:
+            access_refresh_dict = json.load(f)
+        access = access_refresh_dict.get('access')
+        refresh = access_refresh_dict.get('refresh')
+        headers = {
+            'Cookie': 'access={};refresh={}'.format(access, refresh),
+            'Content-Type': 'application/json'
+        }
+    else:
+        AssertionError("No https://biolm.ai credentials found. Please run "
+                       "`biolmai status` to debug.")
+    return headers
 
 
 def get_api_token():

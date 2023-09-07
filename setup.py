@@ -33,7 +33,7 @@ setup(
     description="Python client and SDK for https://biolm.ai",
     entry_points={
         'console_scripts': [
-            'biolmai=biolmai.cli:main',
+            'biolmai=biolmai.cli:cli',
         ],
     },
     install_requires=requirements,
