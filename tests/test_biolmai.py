@@ -102,6 +102,7 @@ def test_esmfold_singlechain_predict_good_and_bad_sequences():
     assert all([len(r['predictions']) == 1 for r in resp if 'predictions' in r])
     assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp if 'predictions' in r])
 
+
 def test_esmfold_multichain_predict_good_and_bad_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
