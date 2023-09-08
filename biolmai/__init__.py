@@ -4,13 +4,12 @@ __email__ = 'nikhil@biolm.ai'
 __version__ = '0.1.1'
 
 from biolmai.biolmai import get_api_token, api_call
-from biolmai.api import ESMFoldSingleChain
+from biolmai.api import ESMFoldSingleChain, ESMFoldMultiChain
 
 
 __all__ = [
     "get_api_token",
     "api_call",
-    "ESMFoldSingleChain"
+    "ESMFoldSingleChain",
+    "ESMFoldMultiChain",
 ]
-
-

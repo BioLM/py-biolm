@@ -3,6 +3,10 @@
 """Tests for `biolmai` package."""
 
 import pytest
+import random
+import copy
+
+random.seed(54)
 
 from click.testing import CliRunner
 
@@ -12,6 +16,8 @@ from biolmai import cli
 import logging
 log = logging.getLogger(__name__)
 
+N = 5
+
 
 def test_authentication():
     """Test to make sure the environment variables for auth work, and
@@ -19,27 +25,52 @@ def test_authentication():
     biolmai.biolmai.get_user_auth_header()
 
 
-def test_arbitrary_api_call_inference():
-    return
-    seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
-    payload = {
-        "instances": [{
-            "data": {"text": seq}
-        }]
-    }
-    tokens = biolmai.get_api_token()
-    access = tokens.get('access')
-    refresh = tokens.get('refresh')
+def return_shuffle(l):
+    c = copy.copy(l)
+    random.shuffle(c)
+    return c
 
-    resp = biolmai.api_call(
-        model_name='esmfold-singlechain',
-        action='predict',
-        payload=payload,
-        access=access,
-        refresh=refresh
-    )
 
-    assert 'predictions' in resp, log.warning(resp)
+def test_esmfold_singlechain_predict_many():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
+    cls = biolmai.ESMFoldSingleChain()
+    resp = cls.predict(seqs)
+    assert all([r.startswith('PARENT ') for r in resp])
+
+
+def test_esmfold_singlechain_predict_all_bad_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(N)]
+    cls = biolmai.ESMFoldSingleChain()
+    with pytest.raises(Exception) as e_info:
+        resp = cls.predict(bad_seqs)
+        assert 'no valid sequences' in str(e_info).lower()
+
+
+def test_esmfold_singlechain_predict_good_and_bad_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(int(N / 2))]
+    bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(int(N / 2))]
+    all_seqs = seqs + bad_seqs
+    random.shuffle(all_seqs)
+    cls = biolmai.ESMFoldSingleChain()
+    resp = cls.predict(all_seqs)
+    # assert 'predictions' in resp
+
+def test_esmfold_multichain_predict_good_and_bad_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(int(N / 2))]
+    bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(int(N / 2))]
+    all_seqs = seqs + bad_seqs
+    random.shuffle(all_seqs)
+    cls = biolmai.ESMFoldMultiChain()
+    resp = cls.predict(all_seqs)
+    assert isinstance(resp, list)
 
 
 # TODO: test one seq
@@ -50,23 +81,23 @@ def test_esmfold_singlechain_predict():
     seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
     cls = biolmai.ESMFoldSingleChain()
     resp = cls.predict(seq)
-    print(resp)
+    # assert 'predictions' in resp
 
 
-@pytest.fixture
-def response():
-    """Sample pytest fixture.
-
-    See more at: http://doc.pytest.org/en/latest/fixture.html
-    """
-    # import requests
-    # return requests.get('https://github.com/audreyr/cookiecutter-pypackage')
+def test_esmfold_singlechain_predict_bad_sequence():
+    bad_seq = "Nota Real sequence"
+    cls = biolmai.ESMFoldSingleChain()
+    with pytest.raises(Exception) as e_info:
+        resp = cls.predict(bad_seq)
+        assert 'ambiguous residues' in str(e_info)
 
 
-def test_content(response):
-    """Sample pytest test function with the pytest fixture as an argument."""
-    # from bs4 import BeautifulSoup
-    # assert 'GitHub' in BeautifulSoup(response.content).title.string
+def test_esmfold_singlechain_bad_action():
+    seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
+    cls = biolmai.ESMFoldSingleChain()
+    with pytest.raises(Exception) as e_info:
+        resp = cls.tokenize(seq)
+        assert 'Only' in str(e_info) and 'supported on' in str(e_info)
 
 
 def test_command_line_interface():
