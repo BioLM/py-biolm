@@ -6,8 +6,6 @@ import pytest
 import random
 import copy
 
-random.seed(54)
-
 from click.testing import CliRunner
 
 import biolmai
