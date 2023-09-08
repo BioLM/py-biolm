@@ -19,13 +19,17 @@ from biolmai.validate import UnambiguousAA
 
 
 def predict_resp_many_in_one_to_many_singles(resp_json, status_code,
-                                             batch_id, local_err):
+                                             batch_id, local_err, batch_size):
     expected_root_key = 'predictions'
     to_ret = []
-    if not local_err:
+    if not local_err and status_code and status_code == 200:
         list_of_individual_seq_results = resp_json[expected_root_key]
-    else:
+    elif local_err:
         list_of_individual_seq_results = [{'error': resp_json}]
+    elif status_code and status_code != 200 and isinstance(resp_json, dict):
+        list_of_individual_seq_results = [resp_json] * batch_size
+    else:
+        raise ValueError("Unexpected response in parser")
     for idx, item in enumerate(list_of_individual_seq_results):
         d = {'status_code': status_code,
              'batch_id': batch_id,
@@ -49,8 +53,9 @@ def api_call_wrapper(df, args):
     api_resp = api_call(model_name, action, headers, payload, response_key)
     resp_json = api_resp.json()
     batch_id = int(df.batch.iloc[0])
+    batch_size = df.shape[0]
     response = predict_resp_many_in_one_to_many_singles(
-        resp_json, api_resp.status_code, batch_id, None)
+        resp_json, api_resp.status_code, batch_id, None, batch_size)
     return response
 
 
@@ -179,8 +184,8 @@ class APIEndpoint(object):
         keep_batches = dat.loc[~dat.batch.isnull(), ['text', 'batch']]
         if keep_batches.shape[0] == 0:
             err = "No inputs found following local validation"
-            raise AssertionError(err)
-        if self.multiprocess_threads:
+            # raise AssertionError(err)
+        elif self.multiprocess_threads:
             api_resps = keep_batches.groupby('batch').parallel_apply(
                 api_call_wrapper,
                 (
@@ -200,28 +205,28 @@ class APIEndpoint(object):
                     'predictions'
                 ),
             )
-        batch_res = api_resps.explode('api_resp')  # Should be lists of results
-        orig_request_rows = keep_batches.shape[0]
-        if batch_res.shape[0] != orig_request_rows:
-            err = "Response rows ({}) mismatch with input rows ({})"
-            err = err.format(batch_res.shape[0], orig_request_rows)
-            raise AssertionError(err)
+        if keep_batches.shape[0] > 0:
+            batch_res = api_resps.explode('api_resp')  # Should be lists of results
+            orig_request_rows = keep_batches.shape[0]
+            if batch_res.shape[0] != orig_request_rows:
+                err = "Response rows ({}) mismatch with input rows ({})"
+                err = err.format(batch_res.shape[0], orig_request_rows)
+                raise AssertionError(err)
 
-        # Stack the results horizontally w/ original rows of batches
-        keep_batches.reset_index(drop=False, inplace=True, names='prev_idx')
-        batch_res.reset_index(drop=True, inplace=True)
-        keep_batches['api_resp'] = batch_res
-        keep_batches.set_index('prev_idx', inplace=True)
+            # Stack the results horizontally w/ original rows of batches
+            keep_batches.reset_index(drop=False, inplace=True, names='prev_idx')
+            batch_res.reset_index(drop=True, inplace=True)
+            keep_batches['api_resp'] = batch_res
+            keep_batches.set_index('prev_idx', inplace=True)
+            dat = dat.join(keep_batches.reindex(['api_resp'], axis=1))
+        else:
+            dat['api_resp'] = None
 
-        def pred_local_val_fail_resp(err):
-            return {'status_code': None, }
-
-        dat = dat.join(keep_batches.reindex(['api_resp'], axis=1))
         dat.loc[
             dat.api_resp.isnull(), 'api_resp'
         ] = dat.loc[~dat.validation.isnull(), 'validation'].apply(
             predict_resp_many_in_one_to_many_singles,
-            args=(None, None, True)).explode()
+            args=(None, None, True, None)).explode()
 
         return dat.api_resp.replace(np.nan, None).tolist()
 

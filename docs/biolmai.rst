@@ -52,6 +52,22 @@ biolmai.ltc module
    :undoc-members:
    :show-inheritance:
 
+biolmai.payloads module
+-----------------------
+
+.. automodule:: biolmai.payloads
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.validate module
+-----------------------
+
+.. automodule:: biolmai.validate
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 

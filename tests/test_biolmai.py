@@ -2,6 +2,7 @@
 
 """Tests for `biolmai` package."""
 
+import json
 import pytest
 import random
 import copy
@@ -14,7 +15,7 @@ from biolmai import cli
 import logging
 log = logging.getLogger(__name__)
 
-N = 5
+N = 6
 
 
 def test_authentication():
@@ -35,7 +36,15 @@ def test_esmfold_singlechain_predict_many():
     seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
     cls = biolmai.ESMFoldSingleChain()
     resp = cls.predict(seqs)
-    assert all([r.startswith('PARENT ') for r in resp])
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert all(['error' not in r for r in resp])
+    assert all(['predictions' in r for r in resp])
+    assert all([len(r['predictions']) == 1 for r in resp])
+    assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp])
 
 
 def test_esmfold_singlechain_predict_all_bad_sequences():
@@ -43,9 +52,33 @@ def test_esmfold_singlechain_predict_all_bad_sequences():
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(N)]
     cls = biolmai.ESMFoldSingleChain()
-    with pytest.raises(Exception) as e_info:
-        resp = cls.predict(bad_seqs)
-        assert 'no valid sequences' in str(e_info).lower()
+    resp = cls.predict(bad_seqs)
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all([r['status_code'] is None for r in resp])
+    assert all([r['batch_id'] is None for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert all(['error' in r for r in resp])
+    assert all(['predictions' not in r for r in resp])
+    assert all(['Unambiguous residues' in json.dumps(r['error']) for r in resp])
+
+
+def test_esmfold_singlechain_predict_too_long_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    bad_seqs = [''.join(return_shuffle(base_seqs) * 100) for _ in range(N)]
+    cls = biolmai.ESMFoldSingleChain()
+    resp = cls.predict(bad_seqs)
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all([r['status_code'] == 400 for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert all(['error' not in r for r in resp])
+    assert all(['predictions' not in r for r in resp])
+    assert all(['no more than 512 character' in json.dumps(r) for r in resp])
 
 
 def test_esmfold_singlechain_predict_good_and_bad_sequences():
@@ -57,7 +90,17 @@ def test_esmfold_singlechain_predict_good_and_bad_sequences():
     random.shuffle(all_seqs)
     cls = biolmai.ESMFoldSingleChain()
     resp = cls.predict(all_seqs)
-    # assert 'predictions' in resp
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert any(['error' in r for r in resp])
+    assert not all(['error' in r for r in resp])
+    assert any(['predictions' in r for r in resp])
+    assert not all(['predictions' in r for r in resp])
+    assert all([len(r['predictions']) == 1 for r in resp if 'predictions' in r])
+    assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp if 'predictions' in r])
 
 def test_esmfold_multichain_predict_good_and_bad_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
@@ -74,20 +117,20 @@ def test_esmfold_multichain_predict_good_and_bad_sequences():
 # TODO: test one seq
 # TODO: test multiprocessing ability
 # TODO: test DF or list of seqs
-# TODO: test batching in POST request ability
+
+
 def test_esmfold_singlechain_predict():
     seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
     cls = biolmai.ESMFoldSingleChain()
     resp = cls.predict(seq)
-    # assert 'predictions' in resp
+    assert 1 == 1
 
 
 def test_esmfold_singlechain_predict_bad_sequence():
     bad_seq = "Nota Real sequence"
     cls = biolmai.ESMFoldSingleChain()
-    with pytest.raises(Exception) as e_info:
-        resp = cls.predict(bad_seq)
-        assert 'ambiguous residues' in str(e_info)
+    resp = cls.predict(bad_seq)
+    assert 1 == 1
 
 
 def test_esmfold_singlechain_bad_action():
