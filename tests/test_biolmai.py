@@ -30,7 +30,7 @@ def return_shuffle(l):
     return c
 
 
-def test_esmfold_singlechain_predict_many():
+def test_esmfold_singlechain_predict_all_valid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
@@ -47,7 +47,7 @@ def test_esmfold_singlechain_predict_many():
     assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp])
 
 
-def test_esmfold_singlechain_predict_all_bad_sequences():
+def test_esmfold_singlechain_predict_all_locally_invalid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(N)]
@@ -64,7 +64,7 @@ def test_esmfold_singlechain_predict_all_bad_sequences():
     assert all(['Unambiguous residues' in json.dumps(r['error']) for r in resp])
 
 
-def test_esmfold_singlechain_predict_too_long_sequences():
+def test_esmfold_singlechain_predict_all_api_too_long_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     bad_seqs = [''.join(return_shuffle(base_seqs) * 100) for _ in range(N)]
@@ -81,7 +81,7 @@ def test_esmfold_singlechain_predict_too_long_sequences():
     assert all(['no more than 512 character' in json.dumps(r) for r in resp])
 
 
-def test_esmfold_singlechain_predict_good_and_bad_sequences():
+def test_esmfold_singlechain_predict_good_and_locally_invalid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(int(N / 2))]
@@ -103,7 +103,51 @@ def test_esmfold_singlechain_predict_good_and_bad_sequences():
     assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp if 'predictions' in r])
 
 
-def test_esmfold_multichain_predict_good_and_bad_sequences():
+def test_esmfold_singlechain_predict_ruin_all_api_batches():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(int(N / 2))]
+    bad_seqs = [''.join(return_shuffle(base_seqs)) * 100 for _ in range(int(N / 2))]
+    ruined_api_batches = []
+    for a, b in list(zip(seqs, bad_seqs)):
+        ruined_api_batches.extend([a, b])
+    cls = biolmai.ESMFoldSingleChain()
+    resp = cls.predict(ruined_api_batches)
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert not any(['error' in r for r in resp])
+    assert not any(['predictions' in r for r in resp])
+    # TODO: make some assertion about format
+    assert all([len(r['predictions']) == 1 for r in resp if 'predictions' in r])
+    assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp if 'predictions' in r])
+
+
+def test_esmfold_singlechain_predict_good_and_api_too_long_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(int(N / 2))]
+    bad_seqs = [''.join(return_shuffle(base_seqs)) * 100 for _ in range(int(N / 2))]
+    all_seqs = [seqs[0], seqs[1], bad_seqs[0], bad_seqs[1],
+                seqs[2], bad_seqs[2]]
+    random.shuffle(all_seqs)
+    cls = biolmai.ESMFoldSingleChain()
+    resp = cls.predict(all_seqs)
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert not any(['error' in r for r in resp])
+    assert any(['predictions' in r for r in resp])
+    assert not all(['predictions' in r for r in resp])
+    assert all([len(r['predictions']) == 1 for r in resp if 'predictions' in r])
+    assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp if 'predictions' in r])
+
+
+def test_esmfold_multichain_predict_good_and_locally_invalid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(int(N / 2))]
