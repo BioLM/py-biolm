@@ -42,6 +42,7 @@ def requests_retry_session(
 
 def retry_minutes(sess, URL, HEADERS, dat, timeout, mins):
     """Retry for N minutes."""
+    HEADERS.update({'Content-Type': 'application/json'})
     attempts, max_attempts = 0, 5
     try:
         now = datetime.datetime.now()
