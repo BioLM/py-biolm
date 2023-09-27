@@ -4,6 +4,7 @@ python:
 - 3.9
 - 3.8
 - 3.7
+- 3.6
 install: pip install -U 'tox-travis<=0.13'
 script: tox
 after_success: make install
