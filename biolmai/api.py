@@ -1,7 +1,7 @@
 """References to API endpoints."""
 from __future__ import annotations
 
-from biolmai import api_call, biolmai
+from biolmai import biolmai
 import inspect
 import pandas as pd
 import numpy as np
@@ -50,7 +50,8 @@ def api_call_wrapper(df, args):
     model_name, action, payload_maker, response_key = args
     payload = payload_maker(df)
     headers = get_user_auth_header()  # Need to pull each time
-    api_resp = api_call(model_name, action, headers, payload, response_key)
+    api_resp = biolmai.api_call(model_name, action, headers, payload,
+                                response_key)
     resp_json = api_resp.json()
     batch_id = int(df.batch.iloc[0])
     batch_size = df.shape[0]

@@ -30,7 +30,28 @@ def return_shuffle(l):
     return c
 
 
+def test_async():
+    pass
+
+
 def test_esmfold_singlechain_predict_all_valid_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
+    cls = biolmai.ESMFoldSingleChain()
+    resp = cls.predict(seqs)
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert all(['error' not in r for r in resp])
+    assert all(['predictions' in r for r in resp])
+    assert all([len(r['predictions']) == 1 for r in resp])
+    assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp])
+
+
+def test_esmfold_multichain_predict_all_valid_singlechain_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
@@ -132,7 +153,6 @@ def test_esmfold_singlechain_predict_good_and_api_too_long_sequences():
     bad_seqs = [''.join(return_shuffle(base_seqs)) * 100 for _ in range(int(N / 2))]
     all_seqs = [seqs[0], seqs[1], bad_seqs[0], bad_seqs[1],
                 seqs[2], bad_seqs[2]]
-    random.shuffle(all_seqs)
     cls = biolmai.ESMFoldSingleChain()
     resp = cls.predict(all_seqs)
     assert isinstance(resp, list)

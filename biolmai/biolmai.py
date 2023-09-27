@@ -123,7 +123,6 @@ def get_api_token():
     return response_json
 
 
-
 def api_call(model_name, action, headers, payload, response_key=None):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
