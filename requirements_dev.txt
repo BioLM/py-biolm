@@ -16,4 +16,4 @@ furo<=2023.9.10
 git+https://github.com/BioLM/pytest-randomly.git@main
 sphinx-design<=0.5.0
 pandas>=1.8.3
-importlib-metadata==6.8.0
+importlib-metadata==4.8.0
