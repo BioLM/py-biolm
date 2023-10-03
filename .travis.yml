@@ -14,6 +14,7 @@ before_install:
 - sudo apt-get install -y python3.7-distutils || true
 - sudo apt-get install -y python3.6-distutils || true
 install:
+- pip install docutils
 - pip install -U 'tox-travis<=0.13' setuptools wheel
 - pip install -U -r requirements_dev.txt
 script: tox
