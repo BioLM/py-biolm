@@ -1,6 +1,6 @@
 language: python
 python:
-- "3.10-dev"
+- 3.10
 - 3.9
 - 3.8
 - 3.7
@@ -19,7 +19,6 @@ install:
 - pip install -r requirements_dev.txt
 - make install
 script: RS=118 make test
-before_deploy: pip install -U -r requirements_dev.txt
 deploy:
   edge: true
   provider: script
