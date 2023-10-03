@@ -6,7 +6,7 @@ python:
 - 3.7
 - 3.6
 before_install:
-- source deactivate
+- deactivate
 - sudo apt-get install -y python-dev || true
 - sudo apt-get install -y python3-dev python-dev
 - sudo apt-get install -y python-distutils || true
