@@ -5,7 +5,8 @@ python:
 - 3.8
 - 3.7
 - 3.6
-install: sudo apt-get install python3-dev && pip install -U 'tox-travis<=0.13' setuptools wheel && pip install -U -r requirements_dev.txt
+install: sudo apt-get install python3-dev python3-distutils && pip install -U
+    'tox-travis<=0.13' setuptools wheel && pip install -U -r requirements_dev.txt
 script: tox
 after_success: make install
 before_deploy: pip install -U -r requirements_dev.txt
