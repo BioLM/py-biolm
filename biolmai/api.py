@@ -215,7 +215,8 @@ class APIEndpoint(object):
                 raise AssertionError(err)
 
             # Stack the results horizontally w/ original rows of batches
-            keep_batches.reset_index(drop=False, inplace=True, names='prev_idx')
+            keep_batches['prev_idx'] = keep_batches.index
+            keep_batches.reset_index(drop=False, inplace=True)
             batch_res.reset_index(drop=True, inplace=True)
             keep_batches['api_resp'] = batch_res
             keep_batches.set_index('prev_idx', inplace=True)
