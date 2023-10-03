@@ -97,8 +97,8 @@ def get_user_auth_header():
             'Content-Type': 'application/json'
         }
     else:
-        AssertionError("No https://biolm.ai credentials found. Please run "
-                       "`biolmai status` to debug.")
+        err = "No https://biolm.ai credentials found. Please run `biolmai status` to debug."
+        raise AssertionError(err)
     return headers
 
 
