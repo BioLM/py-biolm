@@ -7,11 +7,10 @@ python:
 - 3.7
 - 3.6
 install:
-- pip install docutils
 - pip install 'tox-travis<=0.13' setuptools wheel
 - pip install -r requirements_dev.txt
 - make install
-script: RS=118 make test
+script: tox
 deploy:
   edge: true
   provider: script
