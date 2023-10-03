@@ -17,7 +17,7 @@ install:
 - pip install docutils
 - pip install -U 'tox-travis<=0.13' setuptools wheel
 - pip install -U -r requirements_dev.txt
-script: tox
+script: RS=118 make test
 after_success: make install
 before_deploy: pip install -U -r requirements_dev.txt
 deploy:
