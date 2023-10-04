@@ -1,11 +1,11 @@
 language: python
 dist: focal
 python:
+- "3.11-dev"
 - "3.10-dev"
 - 3.9
 - 3.8
 - 3.7
-- 3.6
 cache: pip
 before_cache:
   - rm -f $HOME/.cache/pip/log/debug.log
