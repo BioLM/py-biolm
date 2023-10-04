@@ -1,14 +1,19 @@
 language: python
+dist: focal
 python:
-#- 3.8
-# "3.10-dev"
+- "3.11-dev"
+- "3.10-dev"
 - 3.9
-# 3.7
-# 3.6
-install: pip install -U 'tox-travis<=0.13'
+- 3.8
+- 3.7
+cache: pip
+before_cache:
+  - rm -f $HOME/.cache/pip/log/debug.log
+install:
+- pip install 'tox-travis<=0.13' setuptools wheel
+- pip install -r requirements_dev.txt
+- make install
 script: tox
-after_success: make install
-before_deploy: pip install -U -r requirements_dev.txt
 deploy:
   edge: true
   provider: script

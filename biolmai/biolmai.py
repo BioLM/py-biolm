@@ -2,6 +2,7 @@
 import json
 import os
 import requests
+import random
 
 import json, os, requests
 import urllib3
@@ -13,7 +14,8 @@ from requests.packages.urllib3.util.retry import Retry
 
 import logging
 
-from biolmai.const import ACCESS_TOK_PATH
+from biolmai.auth import get_auth_status, refresh_access_token
+from biolmai.const import ACCESS_TOK_PATH, BASE_API_URL
 
 log = logging.getLogger('biolm_util')
 
@@ -40,10 +42,12 @@ def requests_retry_session(
 
 def retry_minutes(sess, URL, HEADERS, dat, timeout, mins):
     """Retry for N minutes."""
+    HEADERS.update({'Content-Type': 'application/json'})
+    attempts, max_attempts = 0, 5
     try:
         now = datetime.datetime.now()
         try_until = now + datetime.timedelta(minutes=mins)
-        while datetime.datetime.now() < try_until:
+        while datetime.datetime.now() < try_until and attempts < max_attempts:
             response = None
             try:
                 log.info('Trying {}'.format(datetime.datetime.now()))
@@ -53,7 +57,8 @@ def retry_minutes(sess, URL, HEADERS, dat, timeout, mins):
                     data=dat,
                     timeout=timeout
                 )
-                response.raise_for_status()
+                if response.status_code not in (400, 404):
+                    response.raise_for_status()
                 if 'error' in response.json():
                     raise ValueError(response.json().dumps())
                 else:
@@ -63,18 +68,16 @@ def retry_minutes(sess, URL, HEADERS, dat, timeout, mins):
                 if response:
                     log.warning(response.text)
                 time.sleep(5)  # Wait 5 seconds between tries
+            attempts += 1
         if response is None:
             err = "Got Nonetype response"
             raise ValueError(err)
         elif 'Server Error' in response.text:
             err = "Got Server Error"
             raise ValueError(err)
-        else:
-            response.raise_for_status()
     except Exception as e:
-        raise
-    else:
         return response
+    return response
 
 
 def get_user_auth_header():
@@ -94,8 +97,8 @@ def get_user_auth_header():
             'Content-Type': 'application/json'
         }
     else:
-        AssertionError("No https://biolm.ai credentials found. Please run "
-                       "`biolmai status` to debug.")
+        err = "No https://biolm.ai credentials found. Please run `biolmai status` to debug."
+        raise AssertionError(err)
     return headers
 
 
@@ -120,29 +123,31 @@ def get_api_token():
     return response_json
 
 
-def api_call(model_name, action, payload, access, refresh):
+def api_call(model_name, action, headers, payload, response_key=None):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
     # but for simplicity sake will do one at at time right now
-    url = f'https://biolm.ai/api/v1/models/{model_name}/{action}/'
+    url = f'{BASE_API_URL}/models/{model_name}/{action}/'
 
+    if not isinstance(payload, (list, dict)):
+        err = "API request payload must be a list or dict, got {}"
+        raise AssertionError(err.format(type(payload)))
     payload = json.dumps(payload)
-
-    try:
-        assert access
-        assert refresh
-    except AssertionError:
-        raise AssertionError("BioLM access or refresh token not set")
-
-    headers = {
-        'Cookie': 'access={};refresh={}'.format(access, refresh),
-        'Content-Type': 'application/json'
-    }
-
     session = requests_retry_session()
     tout = urllib3.util.Timeout(total=180, read=180)
-    response = retry_minutes(session, url, headers, payload, tout, mins=12)
-
-    resp_json = response.json()
-
-    return resp_json
+    response = retry_minutes(session, url, headers, payload, tout, mins=10)
+    # If token expired / invalid, attempt to refresh.
+    if response.status_code == 401 and os.path.exists(ACCESS_TOK_PATH):
+        # Add jitter to slow down in case we're multiprocessing so all threads
+        # don't try to re-authenticate at once
+        time.sleep(random.random() * 4)
+        with open(ACCESS_TOK_PATH, 'r') as f:
+            access_refresh_dict = json.load(f)
+        refresh = access_refresh_dict.get('refresh')
+        if not refresh_access_token(refresh):
+            err = "Unauthenticated! Please run `biolmai status` to debug or " \
+                  "`biolmai login`."
+            raise AssertionError(err)
+        headers = get_user_auth_header()  # Need to re-get these now
+        response = retry_minutes(session, url, headers, payload, tout, mins=10)
+    return response

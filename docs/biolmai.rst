@@ -4,6 +4,22 @@ biolmai package
 Submodules
 ----------
 
+biolmai.api module
+------------------
+
+.. automodule:: biolmai.api
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.auth module
+-------------------
+
+.. automodule:: biolmai.auth
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 biolmai.biolmai module
 ----------------------
 
@@ -16,6 +32,38 @@ biolmai.cli module
 ------------------
 
 .. automodule:: biolmai.cli
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.const module
+--------------------
+
+.. automodule:: biolmai.const
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.ltc module
+------------------
+
+.. automodule:: biolmai.ltc
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.payloads module
+-----------------------
+
+.. automodule:: biolmai.payloads
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.validate module
+-----------------------
+
+.. automodule:: biolmai.validate
    :members:
    :undoc-members:
    :show-inheritance:
