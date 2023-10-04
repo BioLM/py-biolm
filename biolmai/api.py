@@ -1,6 +1,4 @@
 """References to API endpoints."""
-from __future__ import annotations
-
 from biolmai import biolmai
 import inspect
 import pandas as pd
