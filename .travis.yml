@@ -15,7 +15,6 @@ install:
 script:
 - tox
 after_script:
-- make install
 - ./ci_docs_test.sh
 deploy:
   edge: true
