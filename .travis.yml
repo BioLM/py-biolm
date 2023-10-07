@@ -12,6 +12,7 @@ before_cache:
 install:
 - pip install 'tox-travis<=0.13' setuptools wheel
 - make install
+- echo "$TRAVIS_PYTHON_VERSION"
 script:
 - tox
 - ./ci_docs_test.sh
