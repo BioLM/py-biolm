@@ -13,7 +13,9 @@ if MULTIPROCESS_THREADS:
 from functools import lru_cache
 
 from biolmai.payloads import INST_DAT_TXT
-from biolmai.validate import UnambiguousAA
+from biolmai.validate import ExtendedAAPlusExtra, SingleOccurrenceOf, \
+    UnambiguousAA, \
+    UnambiguousAAPlusExtra
 
 
 def predict_resp_many_in_one_to_many_singles(resp_json, status_code,
@@ -138,7 +140,7 @@ def validate(f):
 
 def convert_input(f):
     def wrapper(*args, **kwargs):
-    # Get the user-input data argument to the decorated function
+        # Get the user-input data argument to the decorated function
         class_obj_self = args[0]
         input_data = args[1]
         # Make sure we have expected input types
@@ -287,5 +289,72 @@ class ESMFoldSingleChain(APIEndpoint):
 class ESMFoldMultiChain(APIEndpoint):
     slug = 'esmfold-multichain'
     action_classes = (PredictAction, )
-    seq_classes = (UnambiguousAA, )
+    seq_classes = (ExtendedAAPlusExtra(extra=[':']), )
     batch_size = 2
+
+
+class ESM2Embeddings(APIEndpoint):
+    """Example.
+
+    ```python
+    {
+      "instances": [{
+        "data": {"text": "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQ"}
+      }]
+    }
+    ```
+    """
+    slug = 'esm2_t33_650M_UR50D'
+    action_classes = (PredictAction, )
+    seq_classes = (UnambiguousAA, )
+    batch_size = 3
+
+
+class ESM1v1(APIEndpoint):
+    """Example.
+
+    ```python
+    {
+      "instances": [{
+        "data": {"text": "QERLEUTGR<mask>SLGYNIVAT"}
+      }]
+    }
+    ```
+    """
+    slug = 'esm1v_t33_650M_UR90S_1'
+    action_classes = (PredictAction, )
+    seq_classes = (SingleOccurrenceOf('<mask>'),
+                   ExtendedAAPlusExtra(extra=['<mask>']))
+    batch_size = 5
+
+
+class ESM1v2(APIEndpoint):
+    slug = 'esm1v_t33_650M_UR90S_2'
+    action_classes = (PredictAction, )
+    seq_classes = (SingleOccurrenceOf('<mask>'),
+                   ExtendedAAPlusExtra(extra=['<mask>']))
+    batch_size = 5
+
+
+class ESM1v3(APIEndpoint):
+    slug = 'esm1v_t33_650M_UR90S_3'
+    action_classes = (PredictAction, )
+    seq_classes = (SingleOccurrenceOf('<mask>'),
+                   ExtendedAAPlusExtra(extra=['<mask>']))
+    batch_size = 5
+
+
+class ESM1v4(APIEndpoint):
+    slug = 'esm1v_t33_650M_UR90S_4'
+    action_classes = (PredictAction, )
+    seq_classes = (SingleOccurrenceOf('<mask>'),
+                   ExtendedAAPlusExtra(extra=['<mask>']))
+    batch_size = 5
+
+
+class ESM1v5(APIEndpoint):
+    slug = 'esm1v_t33_650M_UR90S_5'
+    action_classes = (PredictAction, )
+    seq_classes = (SingleOccurrenceOf('<mask>'),
+                   ExtendedAAPlusExtra(extra=['<mask>']))
+    batch_size = 5
