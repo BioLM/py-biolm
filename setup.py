@@ -10,7 +10,8 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = ['Click>=6.0', 'requests']
+requirements = ['Click>=6.0', 'requests', 'pandarallel<=1.6.5', 'pandas',
+                'aiohttp', 'aiodns']
 
 test_requirements = ['pytest>=3', ]
 
@@ -24,11 +25,11 @@ setup(
         'License :: OSI Approved :: Apache Software License',
         'Natural Language :: English',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
     ],
     description="Python client and SDK for https://biolm.ai",
     entry_points={
@@ -46,6 +47,6 @@ setup(
     test_suite='tests',
     tests_require=test_requirements,
     url='https://github.com/BioLM/py-biolm',
-    version='0.1.1',
+    version='0.1.3',
     zip_safe=False,
 )

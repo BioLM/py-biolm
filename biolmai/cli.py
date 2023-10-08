@@ -4,7 +4,7 @@ import click
 import os
 from biolmai.auth import generate_access_token, \
     get_auth_status, save_access_refresh_token
-from biolmai.const import ACCESS_TOK_PATH
+from biolmai.const import ACCESS_TOK_PATH, MULTIPROCESS_THREADS, BASE_API_URL
 
 
 @click.command()
@@ -22,8 +22,22 @@ def cli(debug):
     pass
 
 
+def echo_env_vars():
+    env_var_tok = os.environ.get('BIOLMAI_TOKEN', '')[:6]
+    if env_var_tok and len(env_var_tok) == 6:
+        env_var_tok += '*****************'
+    s = '\n'.join([
+        "BIOLMAI_TOKEN={}".format(env_var_tok),
+        f"BIOLMAI_ACCESS_CRED={ACCESS_TOK_PATH}",
+        "BIOLMAI_THREADS={}".format(MULTIPROCESS_THREADS or ''),
+        f"BIOLMAI_BASE_API_URL={BASE_API_URL}"
+    ])
+    click.echo(s)
+
+
 @cli.command()  # @cli, not @click!
 def status():
+    echo_env_vars()
     get_auth_status()
 
 

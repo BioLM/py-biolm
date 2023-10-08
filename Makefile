@@ -53,10 +53,13 @@ lint/flake8: ## check style with flake8
 lint: lint/flake8 ## check style
 
 test: ## run tests quickly with the default Python
-	pytest
+	pytest --durations=5 --randomly-seed="$$RS"
 
 test-all: ## run tests on every Python version with tox
 	tox
+
+test-parallel: ## run tests on every Python version with tox
+	tox --parallel 6
 
 coverage: ## check code coverage quickly with the default Python
 	coverage run --source biolmai -m pytest
