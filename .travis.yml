@@ -11,9 +11,10 @@ before_cache:
   - rm -f $HOME/.cache/pip/log/debug.log
 install:
 - pip install 'tox-travis<=0.13' setuptools wheel
-- pip install -r requirements_dev.txt
-- make install
-script: tox
+script:
+- tox
+after_script:
+- ./ci_docs_test.sh
 deploy:
   edge: true
   provider: script

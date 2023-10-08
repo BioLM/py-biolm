@@ -12,6 +12,14 @@ biolmai.api module
    :undoc-members:
    :show-inheritance:
 
+biolmai.async module
+--------------------
+
+.. automodule:: biolmai.async
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 biolmai.auth module
 -------------------
 
@@ -32,6 +40,14 @@ biolmai.cli module
 ------------------
 
 .. automodule:: biolmai.cli
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.cls module
+------------------
+
+.. automodule:: biolmai.cls
    :members:
    :undoc-members:
    :show-inheritance:

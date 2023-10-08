@@ -34,7 +34,11 @@ import biolmai
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.viewcode',
-    'sphinx_design'
+    'sphinx_copybutton',
+    'sphinx_inline_tabs',
+    'sphinxext.opengraph',
+    'sphinx_design',
+    'myst_parser'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -95,6 +99,9 @@ html_theme = 'furo'
 #
 html_theme_options = {
     "top_of_page_button": None,
+    "sidebar_hide_name": True,
+    "light_logo": "biolm_docs_logo_light.png",
+    "dark_logo": "biolm_docs_logo_dark.png",
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
