@@ -257,10 +257,10 @@ class GenerateAction(object):
     def __str__(self):
         return 'GenerateAction'
 
-class TokenizeAction(object):
+class TransformAction(object):
 
     def __str__(self):
-        return 'TokenizeAction'
+        return 'TransformAction'
 
 class ExplainAction(object):
 
@@ -305,7 +305,7 @@ class ESM2Embeddings(APIEndpoint):
     ```
     """
     slug = 'esm2_t33_650M_UR50D'
-    action_classes = (PredictAction, )
+    action_classes = (TransformAction,)
     seq_classes = (UnambiguousAA, )
     batch_size = 3
 
