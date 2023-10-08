@@ -265,8 +265,9 @@ class APIEndpoint(object):
     def infer(self, dat):
         return self.predict(dat)
 
+    @convert_input
     @validate
-    def tokenize(self, dat):
+    def transform(self, dat):
         payload = {"instances": [{"data": {"text": dat}}]}
         resp = biolmai.api_call(
             model_name=self.slug,
