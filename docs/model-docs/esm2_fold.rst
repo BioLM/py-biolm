@@ -178,6 +178,13 @@ Graph of average RPS for varying number of sequences
 
    The legend consists of all elements after the caption.
 
+.. note::
+   The duration for folding predominantly depends on sequence length.
+
+   A sequence of length 60 might fold in 6 seconds, however a sequence of
+   length 500 might fold in 400 seconds. Above, we plot the performance of a
+   single sequence length.
+
 ----------
 Chat Agent
 ----------
