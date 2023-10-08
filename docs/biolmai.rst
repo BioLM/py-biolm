@@ -12,10 +12,10 @@ biolmai.api module
    :undoc-members:
    :show-inheritance:
 
-biolmai.async module
---------------------
+biolmai.asynch module
+---------------------
 
-.. automodule:: biolmai.async
+.. automodule:: biolmai.asynch
    :members:
    :undoc-members:
    :show-inheritance:
