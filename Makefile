@@ -58,6 +58,9 @@ test: ## run tests quickly with the default Python
 test-all: ## run tests on every Python version with tox
 	tox
 
+test-parallel: ## run tests on every Python version with tox
+	tox --parallel 6
+
 coverage: ## check code coverage quickly with the default Python
 	coverage run --source biolmai -m pytest
 	coverage report -m
