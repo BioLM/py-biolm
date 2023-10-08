@@ -43,6 +43,7 @@ def predict_resp_many_in_one_to_many_singles(resp_json, status_code,
         to_ret.append(d)
     return to_ret
 
+
 def api_call_wrapper(df, args):
     """Wrap API calls to assist with sequence validation as a pre-cursor to
     each API call.
@@ -113,9 +114,9 @@ def validate(f):
         for c in class_obj_self.seq_classes:
             # Validate input data against regex
             if class_obj_self.multiprocess_threads:
-                validation = input_data.text.parallel_apply(text_validator, args=(c(), ))
+                validation = input_data.text.parallel_apply(text_validator, args=(c, ))
             else:
-                validation = input_data.text.apply(text_validator, args=(c(), ))
+                validation = input_data.text.apply(text_validator, args=(c, ))
             if 'validation' not in input_data.columns:
                 input_data['validation'] = validation
             else:
@@ -241,7 +242,7 @@ class APIEndpoint(object):
         resp = biolmai.api_call(
             model_name=self.slug,
             headers=self.auth_headers,  # From APIEndpoint base class
-            action='tokenize',
+            action='transform',
             payload=payload
         )
         return resp
@@ -252,20 +253,24 @@ class PredictAction(object):
     def __str__(self):
         return 'PredictAction'
 
+
 class GenerateAction(object):
 
     def __str__(self):
         return 'GenerateAction'
+
 
 class TransformAction(object):
 
     def __str__(self):
         return 'TransformAction'
 
+
 class ExplainAction(object):
 
     def __str__(self):
         return 'ExplainAction'
+
 
 class SimilarityAction(object):
 
@@ -282,7 +287,7 @@ class FinetuneAction(object):
 class ESMFoldSingleChain(APIEndpoint):
     slug = 'esmfold-singlechain'
     action_classes = (PredictAction, )
-    seq_classes = (UnambiguousAA, )
+    seq_classes = (UnambiguousAA(), )
     batch_size = 2
 
 
@@ -306,7 +311,7 @@ class ESM2Embeddings(APIEndpoint):
     """
     slug = 'esm2_t33_650M_UR50D'
     action_classes = (TransformAction,)
-    seq_classes = (UnambiguousAA, )
+    seq_classes = (UnambiguousAA(), )
     batch_size = 3
 
 
