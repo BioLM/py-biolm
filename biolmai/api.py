@@ -53,12 +53,12 @@ def async_api_call_wrapper(grouped_df, slug, action, payload_maker,
     """
     model_name = slug
     # payload = payload_maker(grouped_df)
-    init_ploads = grouped_df.groupby('batch').apply(payload_maker)
+    init_ploads = grouped_df.groupby('batch').apply(payload_maker, include_batch_size=True)
+    ploads = init_ploads.to_list()
     init_ploads = init_ploads.to_frame(name='pload')
     init_ploads['batch'] = init_ploads.index
     init_ploads = init_ploads.reset_index(drop=True)
-    ploads = grouped_df.groupby('batch').apply(payload_maker).to_list()
-    # TODO: don't think this is right on the b value
+    assert len(ploads) == init_ploads.shape[0]
     for inst, b in zip(ploads, init_ploads['batch'].to_list()):
         inst['batch'] = b
 

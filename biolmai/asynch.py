@@ -8,10 +8,6 @@ from typing import List
 import json
 import asyncio
 
-connector = aiohttp.TCPConnector(limit=2,
-                                 resolver=aiohttp.resolver.AsyncResolver,
-                                 ttl_dns_cache=60)
-
 from asyncio import create_task, gather, run, sleep
 
 
@@ -41,6 +37,7 @@ async def get_one_biolm(session: ClientSession,
                         response_key: str = None) -> None:
     print("Requesting", url)
     pload_batch = pload.pop('batch')
+    pload_batch_size = pload.pop('batch_size')
     async with session.post(url, headers=headers, json=pload) as resp:
         resp_json = await resp.json()
         resp_json['batch'] = pload_batch
@@ -51,8 +48,8 @@ async def get_one_biolm(session: ClientSession,
             list_of_individual_seq_results = resp_json[expected_root_key]
         # elif local_err:
         #     list_of_individual_seq_results = [{'error': resp_json}]
-        # elif status_code and status_code != 200 and isinstance(resp_json, dict):
-        #     list_of_individual_seq_results = [resp_json] * batch_size
+        elif status_code and status_code != 200 and isinstance(resp_json, dict):
+            list_of_individual_seq_results = [resp_json] * pload_batch_size
         # else:
         #     raise ValueError("Unexpected response in parser")
         for idx, item in enumerate(list_of_individual_seq_results):
@@ -81,11 +78,13 @@ async def async_range(count):
         await asyncio.sleep(0.0)
 
 
-async def get_all(urls: list[str], num_concurrent: int) -> List:
+async def get_all(urls: List[str], num_concurrent: int) -> List:
     url_iterator = iter(urls)
     keep_going = True
     results = []
-    async with ClientSession() as session:
+    connector = aiohttp.TCPConnector(limit=100,
+                                     ttl_dns_cache=60)
+    async with ClientSession(connector=connector) as session:
         while keep_going:
             tasks = []
             for _ in range(num_concurrent):
