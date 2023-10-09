@@ -3,13 +3,11 @@ from biolmai import biolmai
 import inspect
 import pandas as pd
 import numpy as np
+from asyncio import create_task, gather, run, sleep
+from biolmai.asynch import async_main, async_api_calls
 
 from biolmai.biolmai import get_user_auth_header
 from biolmai.const import MULTIPROCESS_THREADS
-if MULTIPROCESS_THREADS:
-    from pandarallel import pandarallel
-    pandarallel.initialize(progress_bar=False,
-                           nb_workers=int(MULTIPROCESS_THREADS), verbose=2)
 from functools import lru_cache
 
 from biolmai.payloads import INST_DAT_TXT
@@ -42,6 +40,44 @@ def predict_resp_many_in_one_to_many_singles(resp_json, status_code,
             d[expected_root_key].append(item)
         to_ret.append(d)
     return to_ret
+
+
+def async_api_call_wrapper(grouped_df, slug, action, payload_maker,
+                           response_key):
+    """Wrap API calls to assist with sequence validation as a pre-cursor to
+    each API call.
+    """
+    model_name = slug
+    # payload = payload_maker(grouped_df)
+    init_ploads = grouped_df.groupby('batch').apply(payload_maker, include_batch_size=True)
+    ploads = init_ploads.to_list()
+    init_ploads = init_ploads.to_frame(name='pload')
+    init_ploads['batch'] = init_ploads.index
+    init_ploads = init_ploads.reset_index(drop=True)
+    assert len(ploads) == init_ploads.shape[0]
+    for inst, b in zip(ploads, init_ploads['batch'].to_list()):
+        inst['batch'] = b
+
+    headers = get_user_auth_header()  # Need to pull each time
+    urls = [
+        "https://github.com",
+        "https://stackoverflow.com",
+        "https://python.org",
+    ]
+    # concurrency = 3
+    api_resp = run(async_api_calls(model_name, action, headers,
+                                   ploads, response_key))
+    api_resp = [item for sublist in api_resp for item in sublist]
+    api_resp = sorted(api_resp, key=lambda x: x['batch_id'])
+    # print(api_resp)
+    # api_resp = biolmai.api_call(model_name, action, headers, payload,
+    #                             response_key)
+    # resp_json = api_resp.json()
+    # batch_id = int(grouped_df.batch.iloc[0])
+    # batch_size = grouped_df.shape[0]
+    # response = predict_resp_many_in_one_to_many_singles(
+    #     resp_json, api_resp.status_code, batch_id, None, batch_size)
+    return api_resp
 
 
 def api_call_wrapper(df, args):
@@ -114,7 +150,7 @@ def validate(f):
         for c in class_obj_self.seq_classes:
             # Validate input data against regex
             if class_obj_self.multiprocess_threads:
-                validation = input_data.text.parallel_apply(text_validator, args=(c, ))
+                validation = input_data.text.apply(text_validator, args=(c, ))
             else:
                 validation = input_data.text.apply(text_validator, args=(c, ))
             if 'validation' not in input_data.columns:
@@ -185,34 +221,27 @@ class APIEndpoint(object):
     def predict(self, dat):
         keep_batches = dat.loc[~dat.batch.isnull(), ['text', 'batch']]
         if keep_batches.shape[0] == 0:
-            err = "No inputs found following local validation"
+            pass  # Do nothing - we made nice JSON errors to return in the DF
+            # err = "No inputs found following local validation"
             # raise AssertionError(err)
-        elif self.multiprocess_threads:
-            api_resps = keep_batches.groupby('batch').parallel_apply(
-                api_call_wrapper,
-                (
-                    self.slug,
-                    'predict',
-                    INST_DAT_TXT,
-                    'predictions'
-                ),
-            )
-        else:
-            api_resps = keep_batches.groupby('batch').apply(
-                api_call_wrapper,
-                (
-                    self.slug,
-                    'predict',
-                    INST_DAT_TXT,
-                    'predictions'
-                ),
-            )
         if keep_batches.shape[0] > 0:
-            batch_res = api_resps.explode('api_resp')  # Should be lists of results
+            api_resps = async_api_call_wrapper(
+                keep_batches,
+                self.slug,
+                'predict',
+                INST_DAT_TXT,
+                'predictions'
+            )
+            if isinstance(api_resps, pd.DataFrame):
+                batch_res = api_resps.explode('api_resp')  # Should be lists of results
+                len_res = batch_res.shape[0]
+            else:
+                batch_res = pd.DataFrame({'api_resp': api_resps})
+                len_res = batch_res.shape[0]
             orig_request_rows = keep_batches.shape[0]
-            if batch_res.shape[0] != orig_request_rows:
+            if len_res != orig_request_rows:
                 err = "Response rows ({}) mismatch with input rows ({})"
-                err = err.format(batch_res.shape[0], orig_request_rows)
+                err = err.format(len_res, orig_request_rows)
                 raise AssertionError(err)
 
             # Stack the results horizontally w/ original rows of batches

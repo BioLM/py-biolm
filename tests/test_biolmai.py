@@ -6,6 +6,8 @@ import json
 import pytest
 import random
 import copy
+from asyncio import create_task, gather, run, sleep
+from biolmai.asynch import async_main
 
 from click.testing import CliRunner
 
@@ -31,7 +33,14 @@ def return_shuffle(l):
 
 
 def test_async():
-    pass
+    urls = [
+        "https://github.com",
+        "https://stackoverflow.com",
+        "https://python.org",
+    ]
+    concurrency = 3
+    resp = run(async_main(urls, concurrency))
+    print(resp)
 
 
 def test_esmfold_singlechain_predict_all_valid_sequences():
