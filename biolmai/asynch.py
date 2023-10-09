@@ -38,7 +38,15 @@ async def get_one_biolm(session: ClientSession,
     print("Requesting", url)
     pload_batch = pload.pop('batch')
     pload_batch_size = pload.pop('batch_size')
-    async with session.post(url, headers=headers, json=pload) as resp:
+    t = aiohttp.ClientTimeout(
+        total=1200,
+        # total timeout (time consists connection establishment for a new connection or waiting for a free connection from a pool if pool connection limits are exceeded) default value is 5 minutes, set to `None` or `0` for unlimited timeout
+        sock_connect=None,
+        # Maximal number of seconds for connecting to a peer for a new connection, not given from a pool. See also connect.
+        sock_read=None
+        # Maximal number of seconds for reading a portion of data from a peer
+    )
+    async with session.post(url, headers=headers, json=pload, timeout=t) as resp:
         resp_json = await resp.json()
         resp_json['batch'] = pload_batch
         status_code = resp.status
@@ -50,8 +58,8 @@ async def get_one_biolm(session: ClientSession,
         #     list_of_individual_seq_results = [{'error': resp_json}]
         elif status_code and status_code != 200 and isinstance(resp_json, dict):
             list_of_individual_seq_results = [resp_json] * pload_batch_size
-        # else:
-        #     raise ValueError("Unexpected response in parser")
+        else:
+            raise ValueError("Unexpected response in parser")
         for idx, item in enumerate(list_of_individual_seq_results):
             d = {'status_code': status_code,
                  'batch_id': pload_batch,
@@ -82,9 +90,7 @@ async def get_all(urls: List[str], num_concurrent: int) -> List:
     url_iterator = iter(urls)
     keep_going = True
     results = []
-    connector = aiohttp.TCPConnector(limit=100,
-                                     ttl_dns_cache=60)
-    async with ClientSession(connector=connector) as session:
+    async with ClientSession() as session:
         while keep_going:
             tasks = []
             for _ in range(num_concurrent):
@@ -108,7 +114,18 @@ async def get_all_biolm(url: str,
     ploads_iterator = iter(ploads)
     keep_going = True
     results = []
-    async with ClientSession() as session:
+    connector = aiohttp.TCPConnector(limit=100,
+                                     limit_per_host=50,
+                                     ttl_dns_cache=60)
+    ov_tout = aiohttp.ClientTimeout(
+        total=None,
+        # total timeout (time consists connection establishment for a new connection or waiting for a free connection from a pool if pool connection limits are exceeded) default value is 5 minutes, set to `None` or `0` for unlimited timeout
+        sock_connect=None,
+        # Maximal number of seconds for connecting to a peer for a new connection, not given from a pool. See also connect.
+        sock_read=None
+        # Maximal number of seconds for reading a portion of data from a peer
+    )
+    async with ClientSession(connector=connector, timeout=ov_tout) as session:
         while keep_going:
             tasks = []
             for _ in range(num_concurrent):
