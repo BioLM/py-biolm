@@ -8,10 +8,6 @@ from biolmai.asynch import async_main, async_api_calls
 
 from biolmai.biolmai import get_user_auth_header
 from biolmai.const import MULTIPROCESS_THREADS
-if MULTIPROCESS_THREADS:
-    from pandarallel import pandarallel
-    pandarallel.initialize(progress_bar=False,
-                           nb_workers=int(MULTIPROCESS_THREADS), verbose=2)
 from functools import lru_cache
 
 from biolmai.payloads import INST_DAT_TXT
@@ -154,7 +150,7 @@ def validate(f):
         for c in class_obj_self.seq_classes:
             # Validate input data against regex
             if class_obj_self.multiprocess_threads:
-                validation = input_data.text.parallel_apply(text_validator, args=(c, ))
+                validation = input_data.text.apply(text_validator, args=(c, ))
             else:
                 validation = input_data.text.apply(text_validator, args=(c, ))
             if 'validation' not in input_data.columns:
