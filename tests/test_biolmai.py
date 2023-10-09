@@ -56,7 +56,9 @@ def test_esm2_embeddings_predict_all_valid_sequences():
     assert all(['error' not in r for r in resp])
     assert all(['predictions' in r for r in resp])
     assert all([len(r['predictions']) == 1 for r in resp])
-    assert all([r['predictions'][0].startswith('PARENT N/A') for r in resp])
+    assert all(['33' in item['mean_representations'].keys()
+                for subitem in resp
+                for item in subitem['predictions']])
 
 
 def test_esmfold_singlechain_predict_all_valid_sequences():
