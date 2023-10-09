@@ -221,27 +221,17 @@ class APIEndpoint(object):
     def predict(self, dat):
         keep_batches = dat.loc[~dat.batch.isnull(), ['text', 'batch']]
         if keep_batches.shape[0] == 0:
-            err = "No inputs found following local validation"
+            pass  # Do nothing - we made nice JSON errors to return in the DF
+            # err = "No inputs found following local validation"
             # raise AssertionError(err)
-        elif self.multiprocess_threads:
-            api_resps = async_api_call_wrapper(
-                    keep_batches,
-                    self.slug,
-                    'predict',
-                    INST_DAT_TXT,
-                    'predictions'
-            )
-        else:
-            api_resps = keep_batches.groupby('batch').apply(
-                api_call_wrapper,
-                (
-                    self.slug,
-                    'predict',
-                    INST_DAT_TXT,
-                    'predictions'
-                ),
-            )
         if keep_batches.shape[0] > 0:
+            api_resps = async_api_call_wrapper(
+                keep_batches,
+                self.slug,
+                'predict',
+                INST_DAT_TXT,
+                'predictions'
+            )
             if isinstance(api_resps, pd.DataFrame):
                 batch_res = api_resps.explode('api_resp')  # Should be lists of results
                 len_res = batch_res.shape[0]
