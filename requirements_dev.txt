@@ -22,3 +22,4 @@ sphinx-inline-tabs
 sphinxext-opengraph
 sphinx-copybutton
 myst-parser
+virtualenv<19.0.0
