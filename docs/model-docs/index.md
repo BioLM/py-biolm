@@ -4,7 +4,7 @@
  ~ SPDX-License-Identifier: CC-BY-SA-4.0
  -->
 
-# Kitchen Sink
+# Documentation
 
 This section exists as a dump of all the things that Sphinx has.
 
@@ -15,6 +15,16 @@ Some of the content here builds upon [`sphinx-rtd-theme`'s demo documentation](h
 ```{toctree}
 :titlesonly:
 :glob:
+:maxdepth: 2
 
 *
 ```
+
+```{toctree}
+:titlesonly:
+:glob:
+:maxdepth: 2
+
+esm_suite/index
+```
+
