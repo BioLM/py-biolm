@@ -22,3 +22,4 @@ sphinx-inline-tabs
 sphinxext-opengraph
 sphinx-copybutton
 myst-parser
+watchdog==3.0.0
