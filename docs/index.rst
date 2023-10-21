@@ -1,3 +1,5 @@
+
+
 Welcome to BioLM AI's Docs
 ==========================
 
@@ -6,7 +8,8 @@ Welcome to BioLM AI's Docs
     .. grid-item-card::  Model Docs
        :margin: auto
        :text-align: center
-       :link: https://example.com
+       :link: model-docs-home
+       :link-type: ref
 
        .. image:: _static/model_docs_icon.png
           :scale: 10 %
@@ -15,7 +18,7 @@ Welcome to BioLM AI's Docs
     .. grid-item-card::  API Reference
        :margin: auto
        :text-align: center
-       :link: https://example.com
+       :link: https://api.biolm.ai
 
        .. image:: _static/api_reference_icon.png
           :scale: 10 %
@@ -26,7 +29,8 @@ Welcome to BioLM AI's Docs
     .. grid-item-card::  Python SDK
        :margin: auto
        :text-align: center
-       :link: https://example.com
+       :link: quickstart-sdk
+       :link-type: ref
 
        .. image:: _static/python_sdk_icon.png
           :scale: 10 %
@@ -35,7 +39,7 @@ Welcome to BioLM AI's Docs
     .. grid-item-card::  Bio-Chat Agents
        :margin: auto
        :text-align: center
-       :link: https://example.com
+       :link: https://biolm.ai/ui/chat-agents/
 
        .. image:: _static/chat_agents_icon.png
           :scale: 10 %
@@ -55,14 +59,14 @@ Welcome to BioLM AI's Docs
     .. grid-item-card::  Jupyter Notebooks
        :margin: auto
        :text-align: center
-       :link: https://example.com
+       :link: https://github.com/biolm/tutorials-and-guides
 
        .. image:: _static/jupyter_notebooks_icon.png
           :scale: 10 %
           :alt: alternate text
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :caption: Models:
 
    model-docs/index
