@@ -1,10 +1,4 @@
 
-..
-   Copyright (c) 2021 Pradyun Gedam
-   Licensed under Creative Commons Attribution-ShareAlike 4.0 International License
-   SPDX-License-Identifier: CC-BY-SA-4.0
-
-
 ==============
 ESM-1V Masking
 ==============
@@ -26,12 +20,13 @@ Description
 
     ESM-1v is a part of the ESM (Evolutionary Scale Modeling) series of Transformer-based protein language models, alongside others like ESM2, ESMFold​​.
     ESM-1v performs zero-shot prediction of the effects of mutations on protein function.
-    “Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins” -Meier et al., 2021.
-    Since these models were only trained on functional molecules, they are capable of assessing whether a new molecule might also be functional, or whether it has a disastrous mutation.
 
-    ESM-1v is a fill-in-the-blank model. It was trained by masking 15% of each sequence, and having the model-in-training predict the masked residue(s) in each sequence; the neural net weights update to try to make the model better at this during training.
-    The same inputs for training, as for getting new predictions: you provide a sequence with masked residue(s) and it will fill in the blank, and tell you how likely their prediction is.
-    Likelihood, in this case, correlates with purported functionality of a sequence (e.g. is the unmasked sequence a valid protein or not, on a scale of 0-1).
+“Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins” -Meier et al., 2021.
+Since these models were only trained on functional molecules, they are capable of assessing whether a new molecule might also be functional, or whether it has a disastrous mutation.
+
+ESM-1v is a fill-in-the-blank model. It was trained by masking 15% of each sequence, and having the model-in-training predict the masked residue(s) in each sequence; the neural net weights update to try to make the model better at this during training.
+The same inputs for training, as for getting new predictions: you provide a sequence with masked residue(s) and it will fill in the blank, and tell you how likely their prediction is.
+Likelihood, in this case, correlates with purported functionality of a sequence (e.g. is the unmasked sequence a valid protein or not, on a scale of 0-1).
 
 
 --------
