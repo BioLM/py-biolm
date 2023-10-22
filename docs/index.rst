@@ -1,40 +1,72 @@
+
+
 Welcome to BioLM AI's Docs
 ==========================
 
 .. grid:: 2
 
     .. grid-item-card::  Model Docs
-       :link: https://example.com
+       :margin: auto
+       :text-align: center
+       :link: model-docs-home
+       :link-type: ref
 
-       A
+       .. image:: _static/model_docs_icon.png
+          :scale: 10 %
+          :alt: alternate text
 
     .. grid-item-card::  API Reference
-       :link: https://example.com
+       :margin: auto
+       :text-align: center
+       :link: https://api.biolm.ai
 
-       B
+       .. image:: _static/api_reference_icon.png
+          :scale: 10 %
+          :alt: alternate text
+
+.. grid:: 2
 
     .. grid-item-card::  Python SDK
-       :link: https://example.com
+       :margin: auto
+       :text-align: center
+       :link: quickstart-sdk
+       :link-type: ref
 
-       B
+       .. image:: _static/python_sdk_icon.png
+          :scale: 10 %
+          :alt: alternate text
 
     .. grid-item-card::  Bio-Chat Agents
-       :link: https://example.com
+       :margin: auto
+       :text-align: center
+       :link: https://biolm.ai/ui/chat-agents/
 
-       B
+       .. image:: _static/chat_agents_icon.png
+          :scale: 10 %
+          :alt: alternate text
+
+.. grid:: 2
 
     .. grid-item-card::  Tutorials
+       :margin: auto
+       :text-align: center
        :link: https://example.com
 
-       B
+       .. image:: _static/tutorials_icon.png
+          :scale: 10 %
+          :alt: alternate text
 
     .. grid-item-card::  Jupyter Notebooks
-       :link: https://example.com
+       :margin: auto
+       :text-align: center
+       :link: https://github.com/biolm/tutorials-and-guides
 
-       B
+       .. image:: _static/jupyter_notebooks_icon.png
+          :scale: 10 %
+          :alt: alternate text
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 3
    :caption: Models:
 
    model-docs/index
@@ -66,6 +98,7 @@ Welcome to BioLM AI's Docs
    python-client/history.rst
    python-client/contributing.rst
    python-client/authors.rst
+
 
 Indices and tables
 ==================

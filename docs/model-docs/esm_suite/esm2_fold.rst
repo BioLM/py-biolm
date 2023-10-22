@@ -4,12 +4,12 @@
    SPDX-License-Identifier: CC-BY-SA-4.0
 
 
-=========
-ESM2 Fold
-=========
+=======
+ESMFold
+=======
 
 .. article-info::
-    :avatar: img/book_icon.png
+    :avatar: ../img/book_icon.png
     :author: Article Information
     :date: Jul 24, 2021
     :read-time: 5 min read
@@ -170,7 +170,7 @@ Performance
 
 Graph of average RPS for varying number of sequences
 
-.. figure:: img/esmfold_perf.png
+.. figure:: ../img/esmfold_perf.png
    :scale: 50 %
    :alt: map to buried treasure
 

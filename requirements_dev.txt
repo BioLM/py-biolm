@@ -1,7 +1,6 @@
 pip<=22.4.2
 bump2version~=0.5.11
 wheel>0.37.0,<=0.42.*
-watchdog==0.9.0
 flake8==3.7.8
 tox<=3.26.0
 coverage>6.0,<=7.3.0
@@ -22,3 +21,4 @@ sphinx-inline-tabs
 sphinxext-opengraph
 sphinx-copybutton
 myst-parser
+watchdog==3.0.0
