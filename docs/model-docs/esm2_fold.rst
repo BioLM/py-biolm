@@ -25,7 +25,7 @@ Recent computational protein folding capability enables myriad of applications
 from elucidating structures of novel proteins, , designing engineered proteins,
 modeling molecular interactions, evaluating impacts of mutations, and assembling
 multi-protein complexes. The BioLM API is democratizing access to 3D structural
-modeling, with its rapid esmfold API,  bringing the power of structural biology
+modeling, with its rapid ESMfold API,  bringing the power of structural biology
 to address diverse questions in protein science, biomedicine, synthetic biology,
 and beyond.
 
@@ -36,7 +36,7 @@ Benefits
 The API can be used by biologists, data scientists, engineers, etc. The key values of the BioLM API is speed, scalability and cost.
 
 * The API allows 1440 folds per minute, or 2M per day (Figure 1).
-* The BioLM API allows scientists to programmatically interact with esmfold,
+* The BioLM API allows scientists to programmatically interact with ESMfold,
   making it easier to integrate the model into their scientific workflows.
   The API accelerates workflow, allows for customization, and is designed to be
   highly scalable.
@@ -50,7 +50,7 @@ The API can be used by biologists, data scientists, engineers, etc. The key valu
 API Usage
 ---------
 
-This is the url to use when querying the BioLM esmfold Prediction Endpoint: https://biolm.ai/api/v1/models/esmfold-singlechain/predict/
+This is the url to use when querying the BioLM ESMfold Prediction Endpoint: https://biolm.ai/api/v1/models/esmfold-singlechain/predict/
 
 ^^^^^^^^^^^^^^^
 Making Requests
@@ -185,17 +185,6 @@ Graph of average RPS for varying number of sequences
    length 500 might fold in 400 seconds. Above, we plot the performance of a
    single sequence length.
 
-----------
-Chat Agent
-----------
-
-Tstin
-
--------------
-Web Pipelines
--------------
-
-Tstin
 
 ------------------
 ESMFold Background
