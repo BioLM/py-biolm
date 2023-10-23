@@ -1,13 +1,7 @@
 
-..
-   Copyright (c) 2021 Pradyun Gedam
-   Licensed under Creative Commons Attribution-ShareAlike 4.0 International License
-   SPDX-License-Identifier: CC-BY-SA-4.0
-
-
-=========
+==============
 ESM-1V Masking
-=========
+==============
 
 .. article-info::
     :avatar: img/book_icon.png
@@ -22,13 +16,16 @@ On this page, we will show and explain the use of ESM-1V. As well as document th
 Description
 -----------
 
-ESM-1v is a part of the ESM (Evolutionary Scale Modeling) series of Transformer-based protein language models, alongside others like ESM2, ESMFold​​. 
-ESM-1v performs zero-shot prediction of the effects of mutations on protein function. 
-*“Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins” -Meier et al., 2021.*
-Since these models were only trained on functional molecules, they are capable of assessing whether a new molecule might also be functional, or whether it has a disastrous mutation. 
+.. div:: sd-text-center
 
-ESM-1v is a fill-in-the-blank model. It was trained by masking 15% of each sequence, and having the model-in-training predict the masked residue(s) in each sequence; the neural net weights update to try to make the model better at this during training. 
-The same inputs for training, as for getting new predictions: you provide a sequence with masked residue(s) and it will fill in the blank, and tell you how likely their prediction is. 
+    ESM-1v is a part of the ESM (Evolutionary Scale Modeling) series of Transformer-based protein language models, alongside others like ESM2, ESMFold​​.
+    ESM-1v performs zero-shot prediction of the effects of mutations on protein function.
+
+“Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins” -Meier et al., 2021.
+Since these models were only trained on functional molecules, they are capable of assessing whether a new molecule might also be functional, or whether it has a disastrous mutation.
+
+ESM-1v is a fill-in-the-blank model. It was trained by masking 15% of each sequence, and having the model-in-training predict the masked residue(s) in each sequence; the neural net weights update to try to make the model better at this during training.
+The same inputs for training, as for getting new predictions: you provide a sequence with masked residue(s) and it will fill in the blank, and tell you how likely their prediction is.
 Likelihood, in this case, correlates with purported functionality of a sequence (e.g. is the unmasked sequence a valid protein or not, on a scale of 0-1).
 
 
@@ -46,35 +43,29 @@ Benefits
 
 * The benefit of having access to multiple GPUs is parallel processing.
 
----------
+-----------
 Performance
----------
+-----------
 
 Graph of average RPS for varying number of sequences
 
-.. figure:: 
-   :scale: 
-   :alt: 
-
-   This is the caption of the figure (a simple paragraph).
-
-   The legend consists of all elements after the caption.
-
 .. note::
-   This graph will be available soon. 
+
+   We are in the process of adding a graph.
 
 
 
 ---------
 API Usage
 ---------
-.. centered::
 
-This is the url to use when querying the BioLM ESM-1V Prediction Endpoint: https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/
+.. div:: sd-text-center
 
-The BioLM API endpoint has been customized to return the likelihoods for every AA unmasked at any <mask> position, so you can easily see how the likelihood of the sequence being functional with the wild-type residue compares to a single-AA mutation at that position. 
-The way to get a straight, “what is the likelihood of function of this sequence” out of this model, is to mask one AA, then get the WT probability for the WT AA, returned by the API. 
-Furthermore, the BioLM API has 5 endpoints, as there are five models trained randomly on the same data. Hence, the likelihoods coming out of each one for the same input are slightly different. 
+    This is the url to use when querying the BioLM ESM-1V Prediction Endpoint: https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/
+
+The BioLM API endpoint has been customized to return the likelihoods for every AA unmasked at any <mask> position, so you can easily see how the likelihood of the sequence being functional with the wild-type residue compares to a single-AA mutation at that position.
+The way to get a straight, “what is the likelihood of function of this sequence” out of this model, is to mask one AA, then get the WT probability for the WT AA, returned by the API.
+Furthermore, the BioLM API has 5 endpoints, as there are five models trained randomly on the same data. Hence, the likelihoods coming out of each one for the same input are slightly different.
 The best results are achieved by averaging the likelihoods given by all 5 models for a given AA at a given position.
 
 
@@ -82,28 +73,28 @@ The best results are achieved by averaging the likelihoods given by all 5 models
 
 -Request Keys:
 
-data: 
+data:
    Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
 
-text: 
+text:
    Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the amino acid sequence that the user wants to submit for structure prediction.
 
 
 -Response Keys:
 
-predictions: 
+predictions:
    This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
 
-Score: 
+Score:
    This represents the confidence or probability of the model's prediction for the masked token. A higher score indicates higher confidence.
 
-Token: 
+Token:
    The predicted token's identifier as per the model's tokenization scheme. It's an integer that corresponds to a particular token (in this case, a particular amino acid) in the model's vocabulary.
 
-Token_str: 
+Token_str:
    Represents the predicted token as a string. That is, the amino acid that was predicted to fill in the masked position in the sequence.
 
-Sequence:  
+Sequence:
    Represents the complete sequence with the masked position filled in by the predicted token.
 
 
@@ -126,14 +117,14 @@ Making Requests
                   "instances": [{
                      "data": {"text": "QERLKSIVRILE<mask>SLGYNIVAT"}
                   }]
-               }'       
+               }'
 
 
     .. tab-item:: Python Requests
         :sync: python
 
         .. code:: python
-            
+
             import requests
             import json
 
@@ -327,20 +318,22 @@ JSON Response
 ----------
 Related
 ----------
-ESMFold (singlechain): :ref:`docs/model-docs/esm2_fold.rst` 
+
+:doc:`/model-docs/esm2_fold`
 
 
 ------------------
 Model Background
 ------------------
 
+.. div:: sd-text-center
 
-ESM-1v, a transformer language model with 650 million parameters aimed at predicting variant effects, was trained on a vast dataset of 98 million diverse protein sequences spanning evolutionary variations. 
-The training was solely based on sequences, without incorporating any supervision from experimental functional measurements. The utilized dataset was Uniref90 2020-03, and the training employed the ESM-1b architecture alongside the masked language modeling approach as per Rives et a., 2020. 
+    ESM-1v, a transformer language model with 650 million parameters aimed at predicting variant effects, was trained on a vast dataset of 98 million diverse protein sequences spanning evolutionary variations.
+    The training was solely based on sequences, without incorporating any supervision from experimental functional measurements. The utilized dataset was Uniref90 2020-03, and the training employed the ESM-1b architecture alongside the masked language modeling approach as per Rives et a., 2020.
 
-“ESM-1v require no task-specific model training for inference. Moreover, ESM-1v does not require MSA generation.” -Meier et al., 2021.
-Utilizing ESM-1v for inference proves to be more efficient compared to prevailing state-of-the-art methods, owing to two crucial distinctions: (i) the impact of mutations can be directly deduced without the necessity for training a task-specific model; (ii) fitness landscapes can be anticipated with just a single forward pass (Meier et al., 2021).
-As mentioned, ESM-1v was pre-trained to output the probability for each possible amino acid at a masked position:
+    “ESM-1v require no task-specific model training for inference. Moreover, ESM-1v does not require MSA generation.” -Meier et al., 2021.
+    Utilizing ESM-1v for inference proves to be more efficient compared to prevailing state-of-the-art methods, owing to two crucial distinctions: (i) the impact of mutations can be directly deduced without the necessity for training a task-specific model; (ii) fitness landscapes can be anticipated with just a single forward pass (Meier et al., 2021).
+    As mentioned, ESM-1v was pre-trained to output the probability for each possible amino acid at a masked position:
 
 
 
