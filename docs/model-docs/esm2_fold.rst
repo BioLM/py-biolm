@@ -103,10 +103,16 @@ text
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
+    .. tab-item:: Biolmai SDK
         :sync: sdk
+       
+        .. code:: sdk
 
-        Content 2
+            import biolmai
+            seqs = ["MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFAQSQLHQQDRKWPRLPDYFAIGRTTALALHTVSGQKILYPQDREISEVLLQLPELQNIAGKRALILRGNGGRELIGDTLTARGAEVTFCECYQRCAIHYDGAEEAMRWQAREVTMVVVTSGEMLQQLWSLIPQWYREHWLLHCRLLVVSERLAKLARELGWQDIKVADNADNDALLRALQ""]
+
+            cls = biolmai.ESMFoldSingleChain()
+            resp = cls.predict(seqs)
 
     .. tab-item:: R
         :sync: r

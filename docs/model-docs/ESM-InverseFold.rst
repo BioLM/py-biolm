@@ -67,7 +67,6 @@ pdb:
     contains the atomic coordinates of proteins and other biological macromolecules.
 
 
-
 -Key Responses:
 
 predictions:  
@@ -139,10 +138,6 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
-        :sync: sdk
-
-        Content 2
 
     .. tab-item:: R
         :sync: r

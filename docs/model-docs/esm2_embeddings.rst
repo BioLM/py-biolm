@@ -138,10 +138,16 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
+    .. tab-item:: Biolmai SDK
         :sync: sdk
+       
+        .. code:: sdk
 
-        Content 2
+            import biolmai
+            seqs = [""MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFAQSQLHQQDRKWPRLPDYFAIGRTTALALHTVSGQKILYPQDREISEVLLQLPELQNIAGKRALILRGNGGRELIGDTLTARGAEVTFCECYQRCAIHYDGAEEAMRWQAREVTMVVVTSGEMLQQLWSLIPQWYREHWLLHCRLLVVSERLAKLARELGWQDIKVADNADNDALLRALQ"]
+
+            cls = biolmai.ESM2Embeddings()
+            resp = cls.Transform(seqs)
 
     .. tab-item:: R
         :sync: r
