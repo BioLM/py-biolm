@@ -22,15 +22,17 @@ ProteInfer EC
 Description
 -----------
 
-Proteins are highly diverse and can have a wide range of functions, and traditional methods for predicting protein function, such as homology-based approaches, can be limited by the availability of closely related sequences. ProteInfer, on the other hand, is able to learn patterns and relationships in protein sequences that are not based on homology, and it has been shown to be effective in predicting the function of proteins with limited homology to known sequences.
+Proteins exhibit vast diversity in sequences and functions. Homology-based approaches for functional prediction are inherently limited by availability of closely related sequences. ProteInfer, on the other hand, is able to learn patterns and relationships in protein sequences that are not based on homology, and it has been shown to be effective in predicting the function of proteins with limited homology to known sequences.
 
-““Here we introduce ProteInfer, which instead employs deep convolutional neural networks to directly predict a variety of protein functions – Enzyme Commission (EC) numbers and Gene Ontology (GO) terms – directly from an unaligned amino acid sequence.” *-Sanderson et al., 2023*
+*“Here we introduce ProteInfer, which instead employs deep convolutional neural networks to directly predict a variety of protein functions; Enzyme Commission (EC) numbers and Gene Ontology (GO) terms – directly from an unaligned amino acid sequence.” -Sanderson et al., 2023*
 
 The model uses a deep neural network with special convolutional layers (dilated convolutions) to process one-hot encoded protein sequences. The architecture allows the model to capture both local and global hierarchical features of the sequences, and through a series of transformations, including mean-pooling and passing through a fully connected layer, the model outputs probabilities for different functional classifications of the proteins. This architecture enables the model to make nuanced predictions about protein functions based on their amino acid sequences.
 
-ProteInfer EC refers to the aspect of the ProteInfer model that predicts the Enzyme Commission (EC) numbers of a given protein based on its amino acid sequence. The EC numbers are standard codes assigned to enzymes based on the reactions they catalyze, providing a systematic way of identifying enzymes and their functions. ProteInfer can model complex relationships within the protein sequence data to provide insightful functional predictions. ProteInfer's EC prediction feature helps in determining the enzymatic activities of proteins. By predicting the EC numbers, ProteInfer provides insights into the reactions a given protein can catalyze, which is crucial in understanding and studying enzyme function and interactions in biological systems.
+ProteInfer implements dilated convolutional layers to extract hierarchical local and global features from one-hot encoded input sequences. Through progressive transformations, including mean-pooling and fully connected layers, ProteInfer produces probabilistic predictions for enzyme commission numbers and gene ontology terms. This architecture enables nuanced modeling of sequence-function relationships beyond homology.
 
-The researchers also compared the performance of ProteInfer and BLASTp in protein function prediction. BLASTp has higher recall, while ProteInfer has higher precision. An ensemble approach, combining both methods, enhances overall performance, providing a synergy by leveraging the unique strengths of alignment-based and neural network-based strategies, especially in more challenging tasks involving remote homologies (dataset clustered based on UniRef50).
+A key component is ProteInfer EC, which predicts enzyme commission numbers from sequence. These standard codes classify enzyme-catalyzed reactions, enabling systematic identification of enzymes and functions. By predicting EC numbers, ProteInfer provides insights into the catalytic reactions and enzymatic roles of proteins, which is crucial for elucidating biological systems.
+
+Comparisons reveal ProteInfer has higher precision while BLASTp alignment shows greater recall. An ensemble approach combining both methods improves overall performance, synergistically integrating strengths of alignment-based homology detection and deep neural network sequence modeling, particularly for challenging remote homology scenarios (for example, the dataset clustered based on UniRef50).
 
 --------
 Benefits
@@ -147,10 +149,6 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
-        :sync: sdk
-
-        Content 2
 
     .. tab-item:: R
         :sync: r
@@ -229,31 +227,23 @@ JSON Response
 ----------
 Related 
 ----------
-* ProteIndfer GO: :ref:`` 
+:doc:`/model-docs/ProteInfer_GO`
 
 
 ------------------
 Model Background
 ------------------
 
-The model employs deep dilated convolutional networks to learn the mapping between full-length protein sequences and functional annotations. The resulting ProteInfer models take amino acid sequences as input and are trained on the well-curated portion of the protein universe annotated by Swiss-Prot (UniProt Consortium: https://academic.oup.com/nar/article/47/D1/D506/5160987)
+ProteInfer utilizes deep dilated convolutional neural networks to model mappings between full-length protein sequences and functional labels. As described by *Sanderson et al. (2023)*, ProteInfer models were trained on high-quality Swiss-Prot entries within UniProtKB (UniProt Consortium: https://academic.oup.com/nar/article/47/D1/D506/5160987), representing a well-curated subset of the known protein universe. Swiss-Prot contains 570,157 expertly annotated sequences from 294,587 unique references, totaling 206 million amino acids. Within UniProtKB, protein functions are captured via cross-references to ontologies like Enzyme Commission (EC) numbers, denoting enzymatic activity, and Gene Ontology (GO) terms, describing molecular function, biological process, and subcellular localization. By linking to standardized ontologies, UniProt systematically associates proteins with functional descriptors.
 
-The ProteInfer models accept amino acid sequences as input data. They were trained on high-quality protein sequences annotated by Swiss-Prot, representing a well-curated subset of known protein space. As of 2023, the Swiss-Prot section of the UniProtKB database contains 570,157 sequence entries. These entries are curated from 294,587 unique references and consist of a total of 206,173,379 amino acids.
-
-In the UniProt database, protein functional information is captured through cross-references to external ontologies. These cross-references connect a protein to descriptive labels like Enzyme Commission (EC) numbers denoting enzymatic function or Gene Ontology (GO) terms describing molecular function, biological process, and subcellular localization. By linking to standardized ontologies, UniProt associates each protein with functional annotations in a structured manner.
-
-The ProteInfer enzyme function prediction model utilizes a deep neural network to predict Enzyme Commission (EC) numbers for protein sequences. Proteins may have zero, one, or multiple associated EC numbers mapping to over 8,000 classified chemical reactions. (Note: The Enzyme Commission (EC) numbers and their associated chemical reactions are catalogued in specialized databases such as EC-IUBMB, ExplorEnz, and BRENDA).
-
-The optimized model design contains 5 residual blocks with 1100 filters per block, converging after 500,000 training steps. On a test set split randomly, it achieved an impressive maximum Fmax score of 0.977. This high ‘Fmax’ score indicates the model correctly predicted 96.7% of true EC labels with only a 1.4% false positive rate, demonstrating reliable performance in identifying enzymatic functions from sequence.
-
-Analysis of prediction efficacy across EC classes showed relatively consistent results, with minor variations in Fmax scores between categories like ligases and oxidoreductases. Precision exceeded recall at the optimal threshold, suggesting accurate positive predictions but some difficulty in capturing all true functional associations. Varying the confidence threshold allows trading off between precision and recall, providing flexibility based on application needs. While room for improvement remains, its robust performance could enable high-throughput annotation of uncharacterized protein sequences.
+The ProteInfer enzyme function predictor uses a deep neural network to predict EC numbers from sequence. Proteins may have multiple EC numbers mapping to over 8,000 classified reactions (EC-IUBMB, ExplorEnz, BRENDA databases). The optimized 5-block convolutional model achieves a maximum F1 score of 0.977 on randomly split test data, correctly predicting 96.7% of EC labels with a 1.4% false positive rate, indicating reliable EC number prediction from sequence alone. Performance was relatively consistent across EC classes, with minor variations in F1 scores between categories like ligases and oxidoreductases. Precision exceeded recall at optimal thresholds, suggesting accurate positive predictions but difficulty capturing all functional associations. Varying confidence thresholds enables balancing precision and recall based on use case. While improvements remain possible, ProteInfer EC exhibits robust sequence-based EC prediction that could enable high-throughput annotation of uncharacterized proteins.
 
 
------------------------
+-----------------------------
 Applications of ProteInfer EC
------------------------
+-----------------------------
 
-By linking protein sequence to catalytic function, ProtInfer EC could provide useful insights to guide rational design and accelerate characterization of engineered enzymes.
+By linking protein sequence to catalytic function, ProteInfer EC can provide useful insights to guide rational design and accelerate characterization of engineered enzymes.
 
 * Predicting function of engineered enzymes 
 
@@ -265,13 +255,9 @@ By linking protein sequence to catalytic function, ProtInfer EC could provide us
 
 * Systems and Synthetic Biology
 
-ProteInfer’s ability to identify regions within a protein sequence crucial for specific reactions. The model can be used to link sequence to function in multi-domain enzymes. A specific protein, "fol1" from Saccharomyces cerevisiae, which is not included in the training data, is highlighted as an important example due to its multiple domains that each perform different roles in tetrahydrofolate synthesis.  The model predicts these regions as being highly involved or essential in carrying out certain reactions or functions of the protein. These predicted regions align with existing scientific knowledge. 
+ProteInfer is adept at identifying regions within a protein sequence that are pivotal for specific reactions. This facilitates the understanding of functional correlations in multi-domain enzymes by bridging sequence attributes to functional outcomes.  A specific protein, “fol1” from Saccharomyces cerevisiae, which is not included in the training data, is highlighted as an important example due to its multiple domains that each perform different roles in tetrahydrofolate synthesis. The model predicts these regions as being highly involved or essential in carrying out certain reactions or functions of the protein. These predicted regions align with existing scientific knowledge.
 
-The ProtInfer EC model can predict an enzyme's activity under different conditions. For instance, motifs present in thermophilic enzymes may suggest thermostability if also present in the query. Sequence similarities and differences could reveal structural factors influencing conditional activity. By leveraging ProtInfer EC's sequence representations, researchers can uncover sequence-function patterns that modulate an enzyme's conditional activity.
-
-Overall, ProtInfer EC can be a useful tool for predicting the activity of enzymes, offering valuable insights into enzyme properties crucial for specific activities. This information can be used to optimize the enzyme for specific applications, or to design new enzymes with specific properties.
-
-
+The ProteInfer EC model enables prediction of conditional enzyme activity by identifying sequence motifs and features associated with activity under different conditions. For example, motifs present in thermophilic enzymes may indicate thermostability if also found in the query sequence. Identified similarities and differences in sequence could reveal structural factors modulating activity. By leveraging ProteInfer EC's learned sequence representations, researchers can elucidate sequence-function relationships and patterns that determine an enzyme's conditional activity in varying contexts.
 
 
 

@@ -21,9 +21,9 @@ ProteInfer GO
 -----------
 Description: 
 -----------
-Proteins are highly diverse and can have a wide range of functions, and traditional methods for predicting protein function, such as homology-based approaches, can be limited by the availability of closely related sequences. ProteInfer, on the other hand, is able to learn patterns and relationships in protein sequences that are not based on homology, and it has been shown to be effective in predicting the function of proteins with limited homology to known sequences.
+Proteins exhibit vast diversity in sequences and functions. Homology-based approaches for functional prediction are inherently limited by availability of closely related sequences. ProteInfer, on the other hand, is able to learn patterns and relationships in protein sequences that are not based on homology, and it has been shown to be effective in predicting the function of proteins with limited homology to known sequences.
 
-*“Here we introduce ProteInfer, which instead employs deep convolutional neural networks to directly predict a variety of protein functions – Enzyme Commission (EC) numbers and Gene Ontology (GO) terms – directly from an unaligned amino acid sequence.” -Sanderson et al., 2023*
+*“Here we introduce ProteInfer, which instead employs deep convolutional neural networks to directly predict a variety of protein functions; Enzyme Commission (EC) numbers and Gene Ontology (GO) terms – directly from an unaligned amino acid sequence.” -Sanderson et al., 2023*
 
 .. note::
    for a more detailed description, please refer to the ProteInfer EC API docs.
@@ -311,7 +311,7 @@ Graph of average RPS for varying number of sequences (ProteInfer GO)
 ----------
 Related 
 ----------
-* ProteInfer EC
+:doc:`/model-docs/ProteInfer_EC`
 
 
 ------------------
@@ -330,11 +330,11 @@ The researchers also assess the model's ability to recall a subset of GO term an
    Note, for a more information about the ProteInfer model background, please refer to the ProteInfer EC API docs. 
 
 
------------------------
+-----------------------------
 Applications of ProteInfer GO
------------------------
+-----------------------------
 
-ProtInfer GO effectively predicts Gene Ontology terms directly from protein sequence using a powerful multi-label transformer classifier tailored for functional annotation applications. ProteInfer GO predictions could aid genome annotation, protein characterization, system biology, engineering, and biomedical applications involving analyzing protein and gene function.
+ProteInfer GO effectively predicts Gene Ontology terms directly from protein sequence using a powerful multi-label transformer classifier tailored for functional annotation applications. ProteInfer GO predictions can potentially aid genome annotation, protein characterization, system biology, engineering, and biomedical applications involving analyzing protein and gene function.
 
 * Protein function prediction - Predicting GO terms can help annotate the molecular functions, biological processes, and cellular locations of uncharacterized proteins. This can aid discovery of the roles proteins play in biological systems.
 

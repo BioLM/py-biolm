@@ -16,17 +16,11 @@ On this page, we will show and explain the use of ESM-1V. As well as document th
 Description
 -----------
 
-.. div:: sd-text-center
+ESM-1v is a part of the ESM (Evolutionary Scale Modeling) series, which encompasses a collection of Transformer-based protein language models such as ESM2 and ESMFold. This model specializes in executing zero-shot predictions, particularly focusing on determining the impacts of mutations on protein functionality. As articulated by Meier et al., 2021, *"Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins"*. This emphasizes the critical role of ESM-1v in delineating the functional implications of sequence variations in proteins. The models are trained exclusively on functional molecules, facilitating an evaluative capability to discern the functional viability of novel molecules or the deleterious nature of specific mutations.
 
-    ESM-1v is a part of the ESM (Evolutionary Scale Modeling) series of Transformer-based protein language models, alongside others like ESM2, ESMFold​​.
-    ESM-1v performs zero-shot prediction of the effects of mutations on protein function.
+The architecture of ESM-1v is constructed based on a 'fill-in-the-blank' framework. During the training process, 15% of residues in each sequence are masked, compelling the model to predict the identities of the concealed residues. The weights of the neural network are iteratively updated to optimize the model’s predictive performance.
 
-“Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins” -Meier et al., 2021.
-Since these models were only trained on functional molecules, they are capable of assessing whether a new molecule might also be functional, or whether it has a disastrous mutation.
-
-ESM-1v is a fill-in-the-blank model. It was trained by masking 15% of each sequence, and having the model-in-training predict the masked residue(s) in each sequence; the neural net weights update to try to make the model better at this during training.
-The same inputs for training, as for getting new predictions: you provide a sequence with masked residue(s) and it will fill in the blank, and tell you how likely their prediction is.
-Likelihood, in this case, correlates with purported functionality of a sequence (e.g. is the unmasked sequence a valid protein or not, on a scale of 0-1).
+For prediction tasks, ESM-1v employs a consistent input strategy used during training. It requires a sequence with masked residues, and the model predicts the identities of the masked components, providing a likelihood score associated with each prediction. This likelihood score, ranging from 0 to 1, acts as an indicator of the predicted functionality of a sequence, reflecting the likely accuracy of the unmasked sequence's ability to form a functional protein.
 
 
 --------
@@ -59,9 +53,7 @@ Graph of average RPS for varying number of sequences
 API Usage
 ---------
 
-.. div:: sd-text-center
-
-    This is the url to use when querying the BioLM ESM-1V Prediction Endpoint: https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/
+This is the url to use when querying the BioLM ESM-1V Prediction Endpoint: https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/
 
 The BioLM API endpoint has been customized to return the likelihoods for every AA unmasked at any <mask> position, so you can easily see how the likelihood of the sequence being functional with the wild-type residue compares to a single-AA mutation at that position.
 The way to get a straight, “what is the likelihood of function of this sequence” out of this model, is to mask one AA, then get the WT probability for the WT AA, returned by the API.
@@ -327,20 +319,19 @@ Related
 ----------
 
 :doc:`/model-docs/esm2_fold`
+:doc:`/model-docs/esm2_embeddings`
+:doc:`/model-docs/ESM-InverseFold`
 
 
 ------------------
 Model Background
 ------------------
 
-.. div:: sd-text-center
 
-    ESM-1v, a transformer language model with 650 million parameters aimed at predicting variant effects, was trained on a vast dataset of 98 million diverse protein sequences spanning evolutionary variations.
-    The training was solely based on sequences, without incorporating any supervision from experimental functional measurements. The utilized dataset was Uniref90 2020-03, and the training employed the ESM-1b architecture alongside the masked language modeling approach as per Rives et a., 2020.
 
-    “ESM-1v require no task-specific model training for inference. Moreover, ESM-1v does not require MSA generation.” -Meier et al., 2021.
-    Utilizing ESM-1v for inference proves to be more efficient compared to prevailing state-of-the-art methods, owing to two crucial distinctions: (i) the impact of mutations can be directly deduced without the necessity for training a task-specific model; (ii) fitness landscapes can be anticipated with just a single forward pass (Meier et al., 2021).
-    As mentioned, ESM-1v was pre-trained to output the probability for each possible amino acid at a masked position:
+ESM-1v is a large-scale transformer-based protein language model containing 650 million parameters, developed for predicting the effects of genetic variants on protein function (*Meier et al., 2021*). It was pretrained on a dataset of 98 million diverse protein sequences from Uniref90 2020-03, allowing it to learn broad evolutionary sequence variation patterns. The pretraining approach followed that of ESM-1b (*Rives et al., 2020*), using masked language modeling on the amino acid sequences without any task-specific supervised signals. As stated by Meier et al. (2021), "ESM-1v requires no task-specific model training for inference. Moreover, ESM-1v does not require MSA generation."
+
+Inferencing with ESM-1v provides two key advantages over other state-of-the-art methods: (i) it can directly predict mutation impacts without needing additional task-specific training, and (ii) it can estimate fitness landscapes from a single forward pass through the model (*Meier et al., 2021*). This enables more efficient variant effect prediction compared to approaches requiring multiple steps like MSA generation and supervised retraining. By leveraging the self-supervised pretraining on large and diverse protein sequences, ESM-1v acquired generalizable knowledge of sequence-function relationships to allow variant consequence analysis solely from the primary structure.
 
 
 
@@ -358,7 +349,7 @@ Model Background
    * - Wildtype marginal
      - A single forward pass was performed using the wildtype sequence. This method enabled fast scoring as just a single forward pass was used.
    * - Pseudolikelihood
-     - The researchers refer to the method outlined in Salazar et al., 2019.
+     - The researchers refer to the method outlined in *Salazar et al., 2019.*
 
 
 

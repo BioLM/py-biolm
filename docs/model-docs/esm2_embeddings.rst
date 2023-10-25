@@ -21,11 +21,9 @@ ESM2 Embeddings
 Description
 -----------
 
-One of the best ways you can leverage a large language model is for feature generation. 
-The internal, numeric representations the neural-net uses to make predictions can be output and used for downstream machine learning tasks. 
-The numeric vectors from NLP models often encode additional, powerful information beyond simple one-hot encodings. Usually feature engineering for biology is heavily task-specific, but in this case the embeddings can be used for a variety of classification, regression, and other tasks. 
-The BioLM API democratizes protein analysis by providing easy access to ESM-2 for generating insightful protein embeddings. 
-This service accelerates tasks from sequence similarity detection to therapeutic antibody design, simplifying the transition from protein sequence data to actionable insights.
+Large language models like ESM-2 can be effectively leveraged for generating informative feature representations of protein sequences. The model's predictive embeddings encode relevant biological properties. These vector representations can be extracted and utilized as inputs for a variety of downstream predictive modeling tasks as an alternative to standard one-hot sequence encodings. In biology, feature engineering is often heavily tailored to each application. However, the embeddings from pretrained language models provide broadly useful representations across tasks like classification, regression, and more. 
+
+The BioLM API democratizes protein analysis by providing easy access to ESM-2 for generating insightful protein embeddings. This service accelerates tasks from sequence similarity detection to therapeutic antibody design, simplifying the transition from protein sequence data to actionable insights. By precomputing and serving these reusable embeddings, the API lowers barriers to leverage advanced language model representations, accelerating development of predictive tools from sequence inputs.
 
 
 --------
@@ -201,35 +199,29 @@ JSON Response
 ----------
 Related 
 ----------
-* ESMFold (singlechain): :ref:`docs/model-docs/esm2_fold.rst` 
 
-* ESM-1V (Masking): :ref:`docs/model-docs/esm_1v_masking.rst`
+:doc:`/model-docs/esm2_fold`
+:doc:`/model-docs/esm_1v_masking`
+:doc:`/model-docs/ESM-InverseFold`
+
 
 
 ------------------
 Model Background
 ------------------
 
-The SOTA transformer protein language model, ESM-2, leverages much more data, a vastly larger model, and enhanced training methodology to generate superior contextual embeddings compared to its ESM-1v predecessor across a variety of protein modeling applications.
-
-“The resulting ESM-2 model family significantly outperforms previously state-of-the-art ESM-1b (a ∼650 million parameter model) at a comparable number of parameters, and on structure prediction benchmarks it also outperforms other recent protein language models” *-Lin et al., 2022*
-
-ESM-2 was pretrained on a much larger dataset, incorporating all sequences from UniRef50 rather than just a subset. This amounted to 200 million sequences comprising 120 billion amino acid residues. In addition, ESM-2 utilizes a drastically larger model architecture, with 33 transformer layers and 1.6 billion parameters, dwarfing ESM-1v's 12 layers and 128 million parameters.
-
-For ESM-2 training, a multi-node network was utilized to tackle the communication bottleneck observed as models grow in size. This approach leveraged the propensity of BERT-style models for large batch sizes, raising the effective batch size to 2 million tokens, where each token represents the smallest learnable unit of data, akin to an individual amino acid or a small amino acid sequence in protein sequences. For the 15 billion parameter model, the batch size was further increased to 3.2 million tokens to accelerate the training process in each iteration. The model architecture transitioned to using Sparsely-Gated Mixture-of-Experts instead of standard transformers. The pre-training phase encompassed joint language modeling and supervised auxiliary losses, capturing a broader spectrum of information beyond just language modeling. These enhancements in ESM-2 significantly improve sequence representations, especially for long protein sequences, propelling it to a state-of-the-art (SOTA) standing across various downstream prediction tasks.
-
-
+ESM-2 is an expanded transformer-based protein language model that achieves state-of-the-art performance across diverse protein modeling applications compared to previous models like ESM-1v. 
+As described by *Lin et al., (2022)*, "The resulting ESM-2 model family significantly outperforms previously state-of-the-art ESM-1b (a ∼650 million parameter model) at a comparable number of parameters, and on structure prediction benchmarks it also outperforms other recent protein language models." 
+ESM-2 was pretrained on the full UniRef50 dataset, comprising 200 million sequences and 120 billion amino acid residues, drastically larger than ESM-1v's subset. The model architecture itself is also much larger, with 33 transformer layers and 1.6 billion parameters, versus 12 layers and 128 million parameters in ESM-1v.
+To enable training such a large model, *Lin et al. (2022)* utilized a multi-node setup with per-token batch sizes up to 3.2 million, exploiting the capability of transformer models to leverage large batches. The model architecture applies sparsely-gated mixture-of-experts rather than standard transformers, alongside a multi-task pretraining approach combining language modeling with supervised auxiliary losses. These architectural improvements and training strategies enable ESM-2 to produce superior sequence representations compared to previous models like ESM-1v, providing new state-of-the-art capabilities for predictive modeling tasks in protein science.
 
 
 -----------------------
 Applications of ESM-2
 -----------------------
 
-Protein embeddings from ESM-2 can be instrumental in predicting protein-protein interactions, aiding in designing proteins with specified interaction capabilities. 
-They also facilitate function prediction of uncharacterized or newly discovered proteins, thus broadening the understanding of protein functionalities. 
-Additionally, these embeddings can be utilized to anticipate the effects of mutations on protein function and stability, which is pivotal in protein design. 
-In the realm of drug discovery, embeddings can assist in identifying potential new drug targets by analyzing structural or functional similarities with known targets. Lastly, they can expedite comparative analysis by providing a high-dimensional representation of protein sequences, aiding in the identification of conserved domains or regions of interest, which is crucial for understanding evolutionary relationships and functional conservations among proteins.
-
+The powerful protein sequence embeddings generated by ESM-2 have wide-ranging applications in protein science. They can aid in predicting protein-protein interactions and designing proteins with specified binding capabilities. Additionally, ESM-2 embeddings facilitate functional annotation of uncharacterized or novel proteins, expanding knowledge of the protein universe. 
+The embeddings can also be leveraged to anticipate the effects mutations have on protein function and stability, critical for protein design efforts. In drug discovery, they assist target identification by revealing structural and functional similarities with known drug targets. Finally, the high-dimensional sequence representations from ESM-2 expedite comparative analysis of proteins by illuminating conserved domains and regions of interest. This is pivotal for elucidating evolutionary relationships and shared functional attributes among protein families
 
 * Enzyme engineering (enzyme optimization, transfer learning, directed evolution).
 
