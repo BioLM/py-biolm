@@ -216,9 +216,7 @@ class APIEndpoint(object):
             c.__name__.replace('Action', '').lower() for c in self.action_classes
         ])
 
-    @convert_input
-    @validate
-    def predict(self, dat):
+    def post_batches(self, dat, slug, action, payload_maker, resp_key):
         keep_batches = dat.loc[~dat.batch.isnull(), ['text', 'batch']]
         if keep_batches.shape[0] == 0:
             pass  # Do nothing - we made nice JSON errors to return in the DF
@@ -227,10 +225,10 @@ class APIEndpoint(object):
         if keep_batches.shape[0] > 0:
             api_resps = async_api_call_wrapper(
                 keep_batches,
-                self.slug,
-                'predict',
-                INST_DAT_TXT,
-                'predictions'
+                slug,
+                action,
+                payload_maker,
+                resp_key
             )
             if isinstance(api_resps, pd.DataFrame):
                 batch_res = api_resps.explode('api_resp')  # Should be lists of results
@@ -253,28 +251,33 @@ class APIEndpoint(object):
             dat = dat.join(keep_batches.reindex(['api_resp'], axis=1))
         else:
             dat['api_resp'] = None
+        return dat
 
+    def unpack_local_validations(self, dat):
         dat.loc[
             dat.api_resp.isnull(), 'api_resp'
         ] = dat.loc[~dat.validation.isnull(), 'validation'].apply(
             predict_resp_many_in_one_to_many_singles,
             args=(None, None, True, None)).explode()
 
+        return dat
+
+    @convert_input
+    @validate
+    def predict(self, dat):
+        dat = self.post_batches(dat, self.slug, 'predict', INST_DAT_TXT, 'predictions')
+        dat = self.unpack_local_validations(dat)
         return dat.api_resp.replace(np.nan, None).tolist()
 
     def infer(self, dat):
         return self.predict(dat)
 
+    @convert_input
     @validate
-    def tokenize(self, dat):
-        payload = {"instances": [{"data": {"text": dat}}]}
-        resp = biolmai.api_call(
-            model_name=self.slug,
-            headers=self.auth_headers,  # From APIEndpoint base class
-            action='transform',
-            payload=payload
-        )
-        return resp
+    def transform(self, dat):
+        dat = self.post_batches(dat, self.slug, 'transform', INST_DAT_TXT, 'predictions')
+        dat = self.unpack_local_validations(dat)
+        return dat.api_resp.replace(np.nan, None).tolist()
 
 
 class PredictAction(object):
@@ -341,7 +344,7 @@ class ESM2Embeddings(APIEndpoint):
     slug = 'esm2_t33_650M_UR50D'
     action_classes = (TransformAction,)
     seq_classes = (UnambiguousAA(), )
-    batch_size = 3
+    batch_size = 1
 
 
 class ESM1v1(APIEndpoint):

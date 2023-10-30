@@ -39,7 +39,7 @@ async def get_one_biolm(session: ClientSession,
     pload_batch = pload.pop('batch')
     pload_batch_size = pload.pop('batch_size')
     t = aiohttp.ClientTimeout(
-        total=1200,
+        total=1600,  # 27 mins
         # total timeout (time consists connection establishment for a new connection or waiting for a free connection from a pool if pool connection limits are exceeded) default value is 5 minutes, set to `None` or `0` for unlimited timeout
         sock_connect=None,
         # Maximal number of seconds for connecting to a peer for a new connection, not given from a pool. See also connect.
