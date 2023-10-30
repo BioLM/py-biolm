@@ -4,8 +4,8 @@ Python SDK for BioLM API
 ## Development
 
 ```shell
-pyenv install 3.11.6
-pyenv virtualenv 3.11.6 py-biolm
+pyenv install 3.11.5
+pyenv virtualenv 3.11.5 py-biolm
 pyenv activate py-biolm
 ```
 
