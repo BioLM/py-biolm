@@ -1,5 +1,5 @@
 """API inference classes."""
-from biolmai.api import APIEndpoint, PredictAction, TransformAction
+from biolmai.api import APIEndpoint, PredictAction, TransformAction, GenerateAction
 from biolmai.validate import UnambiguousAA, ExtendedAAPlusExtra, SingleOccurrenceOf
 
 
@@ -20,13 +20,14 @@ class ESMFoldMultiChain(APIEndpoint):
 class ESM2Embeddings(APIEndpoint):
     """Example.
 
-    ```python
-    {
-      "instances": [{
-        "data": {"text": "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQ"}
-      }]
-    }
-    ```
+    .. highlight:: python
+    .. code-block:: python
+
+       {
+         "instances": [{
+           "data": {"text": "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQ"}
+         }]
+       }
     """
     slug = 'esm2_t33_650M_UR50D'
     action_classes = (TransformAction,)
@@ -37,13 +38,14 @@ class ESM2Embeddings(APIEndpoint):
 class ESM1v1(APIEndpoint):
     """Example.
 
-    ```python
-    {
-      "instances": [{
-        "data": {"text": "QERLEUTGR<mask>SLGYNIVAT"}
-      }]
-    }
-    ```
+    .. highlight:: python
+    .. code-block:: python
+
+       {
+          "instances": [{
+            "data": {"text": "QERLEUTGR<mask>SLGYNIVAT"}
+          }]
+       }
     """
     slug = 'esm1v_t33_650M_UR90S_1'
     action_classes = (PredictAction, )
@@ -82,3 +84,17 @@ class ESM1v5(APIEndpoint):
     seq_classes = (SingleOccurrenceOf('<mask>'),
                    ExtendedAAPlusExtra(extra=['<mask>']))
     batch_size = 5
+
+
+class ESMIF1(APIEndpoint):
+    slug = 'esmif1'
+    action_classes = (GenerateAction, )
+    seq_classes = tuple([])
+    batch_size = 2
+
+
+class Progen2(APIEndpoint):
+    slug = 'progen2'
+    action_classes = (GenerateAction, )
+    seq_classes = tuple([])
+    batch_size = 1

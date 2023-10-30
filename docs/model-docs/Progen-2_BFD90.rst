@@ -18,18 +18,18 @@ PROGEN-2: BFD90
 *On this page, we will show and explain the use of the Progen-2 BFD90. As well as document the BioLM API for prediction, and demonstrate no-code and code interfaces for predictions.*
 
 -----------
-Description: 
+Description:
 -----------
-ProGen2 represents one of the largest protein language models, leveraging self-supervised pretraining on extensive protein sequence data to generate useful representations applicable to diverse protein structure and function prediction and design applications. As an attention-based model trained on protein sequences, ProGen2 employs a mechanism to selectively focus on informative regions of input data, learning intricate patterns and relationships among amino acids within protein sequences. Specifically, ProGen2 is trained via masked language modeling to predict amino acids from surrounding sequence context. As a protein language model, ProGen2 shows considerable promise for generating synthetic libraries of functional proteins to empower discovery and iterative optimization. 
+ProGen2 represents one of the largest protein language models, leveraging self-supervised pretraining on extensive protein sequence data to generate useful representations applicable to diverse protein structure and function prediction and design applications. As an attention-based model trained on protein sequences, ProGen2 employs a mechanism to selectively focus on informative regions of input data, learning intricate patterns and relationships among amino acids within protein sequences. Specifically, ProGen2 is trained via masked language modeling to predict amino acids from surrounding sequence context. As a protein language model, ProGen2 shows considerable promise for generating synthetic libraries of functional proteins to empower discovery and iterative optimization.
 
-The BioLM API offers access to Progen-2 Medium. Progen2-OAS, and Progen2-BDF90. On this page, the API usage for Progen-2 BFD90 is provided. 
+The BioLM API offers access to Progen-2 Medium. Progen2-OAS, and Progen2-BDF90. On this page, the API usage for Progen-2 BFD90 is provided.
 
 
 --------
 Benefits
 --------
 
-* The BioLM API allows scientists to programmatically interact with Progen-2 BFD90, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable. 
+* The BioLM API allows scientists to programmatically interact with Progen-2 BFD90, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
 
 * Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
 
@@ -46,37 +46,37 @@ This is the url to use when querying the BioLM Progen-2 Prediction Endpoint: htt
 
 Request Keys: These keys together define the conditions and parameters for the sequence generation task requested from the Progen-2 language model via the BioLM API.
 
-t: 
+t:
     represents the temperature parameter for the generation process. The temperature affects the randomness of the output. A higher value makes the output more random, while a lower value makes it more deterministic
 
-p: 
+p:
     represent a nucleus sampling parameter, which is a method to control the randomness of the generation by only considering a subset of the most probable tokens for sampling at each step.  Lower nucleus sampling probability, which usually makes sequence generation more conservative, results in sequences more closely matching the training dataset
 
-max_length: 
-    The maximum length of the generated sequence. The model will stop generating once this length is reached. 
+max_length:
+    The maximum length of the generated sequence. The model will stop generating once this length is reached.
 
-num_samples:    
+num_samples:
     The number of independent sequences the user wants the model to generate for the given prompt. For example, if this value is set to 2, you will get two different generated sequences for the prompt.
 
-model: 
-    This specifies which variant of the Progen-2 model to use for the generation. 
+model:
+    This specifies which variant of the Progen-2 model to use for the generation.
 
 
 -Response Keys:
 
-predictions: 
+predictions:
     This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
 
-generated: 
+generated:
     Contains a list of generated sequences and their associated information. Each sequence and its info are represented as a dictionary. The number of dictionaries in this list corresponds to the number of generated sequences the user requested.
 
-text:   
+text:
     contains the actual generated sequence produced by the model based on the provided prompt and parameters.
 
-ll_sum: 
+ll_sum:
     Represents the sum of log-likelihoods for each token in the generated sequence. The log-likelihood gives an indication of how probable or confident the model was in generating each token. A higher log-likelihood indicates higher confidence.
 
-ll_mean: 
+ll_mean:
     This represents the average log-likelihood per token for the generated sequence. It's calculated by taking the mean of the log-likelihoods of all the tokens in the sequence. It provides an indication of the model's confidence in the generation.
 
 
@@ -196,21 +196,14 @@ Performance
 
 Graph of average RPS for varying number of sequences (Progen-2 BFD90)
 
-.. figure:: 
-   :scale: 
-   :alt: 
-
-   This is the caption of the figure (a simple paragraph).
-
-   The legend consists of all elements after the caption.
 
 .. note::
-   This graph will be added very soon. 
+   This graph will be added very soon.
 
 
 
 --------
-Related 
+Related
 --------
 
 :doc:`/model-docs/Progen-2_Medium`
@@ -231,7 +224,7 @@ Progen-2 was pretrained via masked language modeling on an expansive dataset of 
 
 Progen-2 utilizes autoregressive transformer architectures trained with next-token prediction as the learning objective for language modeling of protein sequences. As model scale increases from 151 million to 6.4 billion parameters, Progen-2 becomes progressively more proficient at modeling the distribution of protein sequences present in observed evolutionary data. In summary, the combination of autoregressive modeling and large-scale pretraining enables Progen-2 to effectively capture sequence distributions reflective of natural protein evolution.
 
-The standard Progen-2 models were pre-trained on a mixture of Uniref90 *(Suzek et al., 2015)* and BFD30 *(Steinegger & Söding, 2018)* databases. 
+The standard Progen-2 models were pre-trained on a mixture of Uniref90 *(Suzek et al., 2015)* and BFD30 *(Steinegger & Söding, 2018)* databases.
 
 The ProGen2-BFD90 model supplements Uniref90 with representative sequences clustered from UniprotKB, Metaclust, SRC, and MERC at 90% sequence identity. This generated the BFD90 dataset, approximately double the size of Uniref90. As reported in Table 8 by *Madani et al. (2022)*, Uniref90+BFD90 exhibited slightly lower perplexity and higher Spearman's rho on antibody developability/engineering tasks, potentially indicating superior performance on these objectives. In contrast, Uniref90+BFD30 showed higher Spearman's rho for antibody binding predictions, suggesting enhanced capabilities for this specific task.
 
@@ -242,18 +235,18 @@ For specialized ProGen2-OAS training, unpaired antibody sequences were leveraged
 As noted by Ali Madani, * "For antibody fitness prediction, training on immune repertoire sequencing samples (OAS) theoretically seems advantageous, yet in practice exhibits inferior performance.”* Interestingly, models trained on universal protein databases surpass Progen2-OAS at predicting general antibody properties. Comparative assessment of binding affinity (KD) prediction reveals Progen-2 small as superior, with Progen-2 OAS the lowest performer. However, for predicting general protein properties such as expression and thermal stability, Progen-2 extra large excels, while Progen-2 OAS outperforms Progen-2 small. In summary, Progen-2 models trained on broad protein sequence space rather than antibody-specific data demonstrate enhanced generalizability for predicting antibody properties, potentially due to the diversity and size of universal protein training data. However, antibody repertoire data provides some specialized benefits evident in predicting select protein engineering objectives.
 
 .. note::
-   The model background above covers information for Progen-2 OAS, Medium and BFD90. 
+   The model background above covers information for Progen-2 OAS, Medium and BFD90.
 
 
 -----------------------
-Applications of Progen-2 
+Applications of Progen-2
 -----------------------
 
 Progen-2 enables generation of novel protein sequences, prediction of protein functions, and assessment of protein fitness without additional fine-tuning. It facilitates comprehension of evolutionary patterns by modeling the distribution of observed evolutionary sequences. This empowers design of proteins with targeted properties and functionalities, while garnering insights into viability and efficacy.
 
-For enzyme engineering, Progen-2's capture of evolutionary sequence distributions has considerable utility. Analysis of conserved residues and motifs within evolutionary sequences can illuminate key determinants of enzyme function and stability. This knowledge enables the design of enzymes with optimized attributes like enhanced catalytic activity or altered substrate specificity by replicating or expanding upon these conserved evolutionary elements. 
+For enzyme engineering, Progen-2's capture of evolutionary sequence distributions has considerable utility. Analysis of conserved residues and motifs within evolutionary sequences can illuminate key determinants of enzyme function and stability. This knowledge enables the design of enzymes with optimized attributes like enhanced catalytic activity or altered substrate specificity by replicating or expanding upon these conserved evolutionary elements.
 
-* Capturing the distribution of observed evolutionary sequences. This can be used in enzyme engineering; by analyzing the evolutionary sequences, scientist can identify conserved residues or motifs that are crucial for enzyme function or stability. In addition, ProGen-2 can be used to complete partial sequences of an enzyme. 
+* Capturing the distribution of observed evolutionary sequences. This can be used in enzyme engineering; by analyzing the evolutionary sequences, scientist can identify conserved residues or motifs that are crucial for enzyme function or stability. In addition, ProGen-2 can be used to complete partial sequences of an enzyme.
 
 * Generating novel viable protein sequences.
 
@@ -262,4 +255,4 @@ For enzyme engineering, Progen-2's capture of evolutionary sequence distribution
 * generation of antibody sequence libraries. For instance, if you're aiming to create a library targeting a specific antigen, ProGen-2 could generate a variety of sequences that have desirable properties such as high affinity or specificity, based on patterns learned from known antibody-antigen interactions.
 
 .. note::
-   The applications above covers general use-cases for Progen-2 OAS, Medium and BFD90. 
+   The applications above covers general use-cases for Progen-2 OAS, Medium and BFD90.

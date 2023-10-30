@@ -1,7 +1,6 @@
-
-==============
-ESM-1V Masking
-==============
+======
+ESM-1V
+======
 
 .. article-info::
     :avatar: img/book_icon.png
@@ -12,11 +11,12 @@ ESM-1V Masking
 
 On this page, we will show and explain the use of ESM-1V. As well as document the BioLM API for folding, demonstrate no-code and code interfaces to folding.
 
+
 -----------
 Description
 -----------
 
-ESM-1v is a part of the ESM (Evolutionary Scale Modeling) series, which encompasses a collection of Transformer-based protein language models such as ESM2 and ESMFold. This model specializes in executing zero-shot predictions, particularly focusing on determining the impacts of mutations on protein functionality. As articulated by Meier et al., 2021, *"Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins"*. This emphasizes the critical role of ESM-1v in delineating the functional implications of sequence variations in proteins. The models are trained exclusively on functional molecules, facilitating an evaluative capability to discern the functional viability of novel molecules or the deleterious nature of specific mutations.
+ESM-1v is a part of the ESM (Evolutionary Scale Modeling) series, which encompasses a collection of Transformer-based protein language models such as ESM-2 and ESMFold. This model specializes in executing zero-shot predictions, particularly focusing on determining the impacts of mutations on protein functionality. As articulated by Meier et al., 2021, *"Modeling the effect of sequence variation on function is a fundamental problem for understanding and designing proteins"*. This emphasizes the critical role of ESM-1v in delineating the functional implications of sequence variations in proteins. The models are trained exclusively on functional molecules, facilitating an evaluative capability to discern the functional viability of novel molecules or the deleterious nature of specific mutations.
 
 The architecture of ESM-1v is constructed based on a 'fill-in-the-blank' framework. During the training process, 15% of residues in each sequence are masked, compelling the model to predict the identities of the concealed residues. The weights of the neural network are iteratively updated to optimize the model’s predictive performance.
 
@@ -143,7 +143,7 @@ Making Requests
 
     .. tab-item:: Biolmai SDK
         :sync: sdk
-       
+
         .. code:: sdk
 
             import biolmai

@@ -5,7 +5,7 @@
 
 
 =========
-ProteInfer GO 
+ProteInfer GO
 =========
 
 .. article-info::
@@ -19,7 +19,7 @@ ProteInfer GO
 
 
 -----------
-Description: 
+Description:
 -----------
 Proteins exhibit vast diversity in sequences and functions. Homology-based approaches for functional prediction are inherently limited by availability of closely related sequences. ProteInfer, on the other hand, is able to learn patterns and relationships in protein sequences that are not based on homology, and it has been shown to be effective in predicting the function of proteins with limited homology to known sequences.
 
@@ -31,7 +31,7 @@ Proteins exhibit vast diversity in sequences and functions. Homology-based appro
 Benefits
 --------
 
-* The BioLM API allows scientists to programmatically interact with ProteInfer GO, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable. 
+* The BioLM API allows scientists to programmatically interact with ProteInfer GO, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
 
 * Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
 
@@ -58,19 +58,19 @@ text:
 
 -Response Keys:
 
-predictions: 
+predictions:
     holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Gene Ontology (GO) term
 
-sequence_name: 
+sequence_name:
     identifier for the input protein sequence for which the GO terms are being predicted.
 
-predicted_label: 
+predicted_label:
     represents the predicted GO term ID. "GO:0008150" and "GO:0003674" are examples of predicted GO term IDs in the response.
 
-confidence: 
+confidence:
     This is a measure of the model's certainty or confidence in the predicted EC number, ranging from 0 to 1, with higher values indicating higher confidence.
 
-description: 
+description:
     textual description or name of the predicted GO term.  Descriptions like "biological_process" and "molecular_function" provide a brief understanding of what each GO term represents in biological terminology.
 
 
@@ -295,21 +295,14 @@ Performance
 
 Graph of average RPS for varying number of sequences (ProteInfer GO)
 
-.. figure:: 
-   :scale: 
-   :alt: 
-
-   This is the caption of the figure (a simple paragraph).
-
-   The legend consists of all elements after the caption.
 
 .. note::
-   This graph will be added soon. 
+   This graph will be added soon.
 
 
 
 ----------
-Related 
+Related
 ----------
 :doc:`/model-docs/ProteInfer_EC`
 
@@ -327,7 +320,7 @@ The paper further delineates the variance in performance across diverse categori
 The researchers also assess the model's ability to recall a subset of GO term annotations not associated with the "inferred from electronic annotation" (IEA) evidence code, showcasing that a considerable portion of annotations could be successfully recalled across different GO categories at a certain threshold. This part underscores the model's performance in recalling annotations derived from either experimental work or more rigorously curated evidence, which is a crucial aspect in evaluating the model's applicability and reliability in a real-world biological context.
 
 .. note::
-   Note, for a more information about the ProteInfer model background, please refer to the ProteInfer EC API docs. 
+   Note, for a more information about the ProteInfer model background, please refer to the ProteInfer EC API docs.
 
 
 -----------------------------

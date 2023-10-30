@@ -53,7 +53,8 @@ def validate(f):
 
         # Is the function we decorated a class method?
         if is_method:
-            name = '{}.{}.{}'.format(f.__module__, args[0].__class__.__name__,
+            name = '{}.{}.{}'.format(f.__module__,
+                                     class_obj_self.__class__.__name__,
                                      f.__name__)
         else:
             name = '{}.{}'.format(f.__module__, f.__name__)
@@ -198,6 +199,13 @@ class APIEndpoint(object):
     @validate
     def transform(self, dat):
         dat = self.post_batches(dat, self.slug, 'transform', INST_DAT_TXT, 'predictions')
+        dat = self.unpack_local_validations(dat)
+        return dat.api_resp.replace(np.nan, None).tolist()
+
+    @convert_input
+    @validate
+    def generate(self, dat):
+        dat = self.post_batches(dat, self.slug, 'generate', INST_DAT_TXT, 'generated')
         dat = self.unpack_local_validations(dat)
         return dat.api_resp.replace(np.nan, None).tolist()
 

@@ -10,15 +10,15 @@ ESM-IF1 (Inverse Folding)
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
 *This page explains the use of ESM-IF1, as well as documents
-its usage via the BioLM API for generating de-novo and natural sequences.*
+its usage on BioLM for generating de-novo and natural sequences.*
 
 -----------
 Description
 -----------
 
 ESM-IF1 is a machine learning model designed for inverse folding tasks, which
-involve generating protein sequences that can fold into specified fixed-backbone
-structures. To perform inverse folding, the model attempts to recover the native
+involve generating protein sequences that can fold into specified structures.
+To perform inverse folding, the model attempts to recover the native
 sequence of a protein from the coordinates of its backbone atoms.
 
 A key feature of ESM-IF1 is its capacity to produce sequences with natural,
@@ -51,6 +51,9 @@ It allows a maximum of 2 requested structures to be sent via JSON in each POST r
 ^^^^^^^^^^^^^^^
 Making Requests
 ^^^^^^^^^^^^^^^
+
+Below is an example of making a single inverse-folding request to generate a new
+sequence that folds into the structure specified by the PDB.
 
 
 .. tab-set::

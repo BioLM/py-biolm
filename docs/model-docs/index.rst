@@ -1,7 +1,7 @@
 .. _model-docs-home:
 
 ==========
-Model Docs
+All Models
 ==========
 
 This section exists as a dump of all the things that Sphinx has.

@@ -5,7 +5,7 @@
 
 
 =========
-ProteInfer EC 
+ProteInfer EC
 =========
 
 .. article-info::
@@ -38,7 +38,7 @@ Comparisons reveal ProteInfer has higher precision while BLASTp alignment shows 
 Benefits
 --------
 
-* The BioLM API allows scientists to programmatically interact with ProteInfer EC, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable. 
+* The BioLM API allows scientists to programmatically interact with ProteInfer EC, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
 
 * Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
 
@@ -50,17 +50,8 @@ Performance
 
 Graph of average RPS for varying number of sequences (ProteInfer EC)
 
-.. figure:: 
-   :scale: 
-   :alt: 
-
-   This is the caption of the figure (a simple paragraph).
-
-   The legend consists of all elements after the caption.
-
 .. note::
-   We are in the process of adding a graph. 
-
+   We are in the process of adding the graph.
 
 
 ---------
@@ -74,28 +65,28 @@ This is the url to use when querying the BioLM ProteInfer EC Prediction Endpoint
 
 -Request Keys:
 
-data: 
+data:
     Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
 
-text: 
+text:
     Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the full-length protein sequence that the user wants to submit for structure prediction.
 
 
 -Response Keys:
 
-predictions:    
+predictions:
     This key holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Enzyme Commission (EC) number along with additional information related to the prediction.
 
-sequence_name: 
+sequence_name:
     identifier for the input protein sequence for which the EC numbers are being predicted.
 
-predicted_label: 
+predicted_label:
     represents the predicted EC number. EC numbers are used to classify enzymes and includes four levels of classification, each separated by a dot. ( "EC:3.-.-.-" and "EC:3.2.1.-" are examples of predicted EC numbers).
 
-confidence: 
+confidence:
     This is a measure of the model's certainty or confidence in the predicted EC number, ranging from 0 to 1, with higher values indicating higher confidence.
 
-description: 
+description:
     This provides a textual description or annotation related to the predicted EC number, giving some context or information about the type of reaction the enzyme catalyzes
 
 
@@ -223,9 +214,9 @@ JSON Response
         }
 
 
-   
+
 ----------
-Related 
+Related
 ----------
 :doc:`/model-docs/ProteInfer_GO`
 
@@ -245,11 +236,11 @@ Applications of ProteInfer EC
 
 By linking protein sequence to catalytic function, ProteInfer EC can provide useful insights to guide rational design and accelerate characterization of engineered enzymes.
 
-* Predicting function of engineered enzymes 
+* Predicting function of engineered enzymes
 
 * Guiding site-directed mutagenesis
 
-* Assessing fitness landscapes 
+* Assessing fitness landscapes
 
 * Drug discovery
 

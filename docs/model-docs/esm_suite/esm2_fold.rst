@@ -1,9 +1,3 @@
-..
-   Copyright (c) 2021 Pradyun Gedam
-   Licensed under Creative Commons Attribution-ShareAlike 4.0 International License
-   SPDX-License-Identifier: CC-BY-SA-4.0
-
-
 =======
 ESMFold
 =======
@@ -11,11 +5,12 @@ ESMFold
 .. article-info::
     :avatar: ../img/book_icon.png
     :author: Article Information
-    :date: Jul 24, 2021
+    :date: Oct 24, 2023
     :read-time: 5 min read
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
-*On this page, we will show and explain the use of Esmfold for protein structure prediction. Document the BioLM API for folding, demonstrate no-code  and code interfaces to folding.*
+*This page explains the use of ESMFold, as well as documents
+its usage on BioLM for protein structure prediction.*
 
 -----------
 Description
@@ -60,25 +55,25 @@ Making Requests
 
 -Request Keys:
 
-data: 
+data:
   Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
 
-text: 
+text:
   Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the amino acid sequence that the user wants to submit for structure prediction.
 
 
 -Response Keys:
 
-predictions: 
+predictions:
   This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
 
-pdb:  
+pdb:
   Contains a string representing the 3D structure of the protein predicted by the model in PDB (Protein Data Bank) format
 
-mean_plddt: 
+mean_plddt:
   Contains a string representing the mean pLDDT score of the predicted structure. The pLDDT (predicted Local Distance Difference Test) score is a measure of the accuracy of the predicted structure, with values ranging from 0 to 100. Higher scores indicate higher confidence in the prediction.
 
-durations: 
+durations:
   Contains a string that represents the total time taken for the request to be processed and the response to be generated
 
 
@@ -128,7 +123,7 @@ durations:
 
     .. tab-item:: Biolmai SDK
         :sync: sdk
-       
+
         .. code:: sdk
 
             import biolmai
