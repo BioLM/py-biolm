@@ -42,6 +42,24 @@ def test_async():
     resp = run(async_main(urls, concurrency))
     print(resp)
 
+def test_esm2_embeddings_predict_all_valid_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
+    cls = biolmai.ESM2Embeddings()
+    resp = cls.transform(seqs)
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert all(['error' not in r for r in resp])
+    assert all(['predictions' in r for r in resp])
+    assert all([len(r['predictions']) == 1 for r in resp])
+    assert all(['33' in item['mean_representations'].keys()
+                for subitem in resp
+                for item in subitem['predictions']])
+
 
 def test_esmfold_singlechain_predict_all_valid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
