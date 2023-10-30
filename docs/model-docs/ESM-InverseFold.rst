@@ -10,7 +10,7 @@ ESM-IF1 (Inverse Folding)
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
 *This page explains the use of ESM-IF1, as well as documents
-its usage via the BioLM API.*
+its usage via the BioLM API for generating de-novo and natural sequences.*
 
 -----------
 Description
