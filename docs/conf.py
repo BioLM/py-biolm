@@ -36,6 +36,7 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx_copybutton',
     'sphinx_inline_tabs',
+    'sphinx.ext.autosectionlabel',
     'sphinxext.opengraph',
     'sphinx_design',
     'myst_parser'

@@ -5,7 +5,7 @@ Welcome to BioLM AI's Docs
 
 .. grid:: 2
 
-    .. grid-item-card::  Model Docs
+    .. grid-item-card::  All Models
        :margin: auto
        :text-align: center
        :link: model-docs-home
@@ -67,7 +67,7 @@ Welcome to BioLM AI's Docs
 
 .. toctree::
    :maxdepth: 3
-   :caption: Models:
+   :caption: Documentation:
 
    model-docs/index
 

@@ -21,5 +21,6 @@ sphinx-inline-tabs
 sphinxext-opengraph
 sphinx-copybutton
 myst-parser
+pytest-xdist
 aiohttp
 watchdog==3.0.0

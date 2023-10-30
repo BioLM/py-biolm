@@ -1,9 +1,3 @@
-..
-   Copyright (c) 2021 Pradyun Gedam
-   Licensed under Creative Commons Attribution-ShareAlike 4.0 International License
-   SPDX-License-Identifier: CC-BY-SA-4.0
-
-
 =======
 ESMFold
 =======
@@ -11,11 +5,12 @@ ESMFold
 .. article-info::
     :avatar: ../img/book_icon.png
     :author: Article Information
-    :date: Jul 24, 2021
+    :date: Oct 24, 2023
     :read-time: 5 min read
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
-Sphinx provides several different types of admonitions.
+*This page explains the use of ESMFold, as well as documents
+its usage on BioLM for protein structure prediction.*
 
 -----------
 Description
@@ -25,7 +20,7 @@ Recent computational protein folding capability enables myriad of applications
 from elucidating structures of novel proteins, , designing engineered proteins,
 modeling molecular interactions, evaluating impacts of mutations, and assembling
 multi-protein complexes. The BioLM API is democratizing access to 3D structural
-modeling, with its rapid esmfold API,  bringing the power of structural biology
+modeling, with its rapid ESMfold API,  bringing the power of structural biology
 to address diverse questions in protein science, biomedicine, synthetic biology,
 and beyond.
 
@@ -36,7 +31,7 @@ Benefits
 The API can be used by biologists, data scientists, engineers, etc. The key values of the BioLM API is speed, scalability and cost.
 
 * The API allows 1440 folds per minute, or 2M per day (Figure 1).
-* The BioLM API allows scientists to programmatically interact with esmfold,
+* The BioLM API allows scientists to programmatically interact with ESMfold,
   making it easier to integrate the model into their scientific workflows.
   The API accelerates workflow, allows for customization, and is designed to be
   highly scalable.
@@ -50,14 +45,37 @@ The API can be used by biologists, data scientists, engineers, etc. The key valu
 API Usage
 ---------
 
-This is the url to use when querying the BioLM esmfold Prediction Endpoint: https://biolm.ai/api/v1/models/esmfold-singlechain/predict/
+This is the url to use when querying the BioLM ESMfold Prediction Endpoint: https://biolm.ai/api/v1/models/esmfold-singlechain/predict/
 
 ^^^^^^^^^^^^^^^
 Making Requests
 ^^^^^^^^^^^^^^^
 
-text
-   Definition
+*Definitions*
+
+-Request Keys:
+
+data:
+  Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
+
+text:
+  Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the amino acid sequence that the user wants to submit for structure prediction.
+
+
+-Response Keys:
+
+predictions:
+  This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
+
+pdb:
+  Contains a string representing the 3D structure of the protein predicted by the model in PDB (Protein Data Bank) format
+
+mean_plddt:
+  Contains a string representing the mean pLDDT score of the predicted structure. The pLDDT (predicted Local Distance Difference Test) score is a measure of the accuracy of the predicted structure, with values ranging from 0 to 100. Higher scores indicate higher confidence in the prediction.
+
+durations:
+  Contains a string that represents the total time taken for the request to be processed and the response to be generated
+
 
 .. tab-set::
 
@@ -103,10 +121,16 @@ text
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
+    .. tab-item:: Biolmai SDK
         :sync: sdk
 
-        Content 2
+        .. code:: sdk
+
+            import biolmai
+            seqs = ["MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFAQSQLHQQDRKWPRLPDYFAIGRTTALALHTVSGQKILYPQDREISEVLLQLPELQNIAGKRALILRGNGGRELIGDTLTARGAEVTFCECYQRCAIHYDGAEEAMRWQAREVTMVVVTSGEMLQQLWSLIPQWYREHWLLHCRLLVVSERLAKLARELGWQDIKVADNADNDALLRALQ""]
+
+            cls = biolmai.ESMFoldSingleChain()
+            resp = cls.predict(seqs)
 
     .. tab-item:: R
         :sync: r
@@ -151,18 +175,6 @@ JSON Response
           ]
         }
 
-predictions
-   A list of PDB strings, one for each chain. For single-chain folding, this
-   will be a list of length 1.
-
-mean_plddt
-   Definition
-
-ptm
-   Definition
-
-duration
-   Definition
 
 ^^^^^^^^^^^
 Performance
@@ -185,17 +197,13 @@ Graph of average RPS for varying number of sequences
    length 500 might fold in 400 seconds. Above, we plot the performance of a
    single sequence length.
 
-----------
-Chat Agent
-----------
+--------
+Related
+--------
 
-Tstin
-
--------------
-Web Pipelines
--------------
-
-Tstin
+:doc:`/model-docs/embeddings`
+:doc:`/model-docs/esm_1v_masking`
+:doc:`/model-docs/ESM-InverseFold`
 
 ------------------
 ESMFold Background
