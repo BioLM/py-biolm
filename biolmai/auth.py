@@ -125,3 +125,46 @@ def save_access_refresh_token(access_refresh_dict):
     access = access_refresh_dict.get('access')
     refresh = access_refresh_dict.get('refresh')
     validate_user_auth(access=access, refresh=refresh)
+
+
+def get_api_token():
+    """Get a BioLM API token to use with future API requests.
+
+    Copied from https://api.biolm.ai/#d7f87dfd-321f-45ae-99b6-eb203519ddeb.
+    """
+    url = "https://biolm.ai/api/auth/token/"
+
+    payload = json.dumps({
+        "username": os.environ.get("BIOLM_USER"),
+        "password": os.environ.get("BIOLM_PASSWORD")
+    })
+    headers = {
+        'Content-Type': 'application/json'
+    }
+
+    response = requests.request("POST", url, headers=headers, data=payload)
+    response_json = response.json()
+
+    return response_json
+
+
+def get_user_auth_header():
+    """Returns a dict with the appropriate Authorization header, either using
+    an API token from BIOLMAI_TOKEN environment variable, or by reading the
+    credentials file at ~/.biolmai/credntials next."""
+    api_token = os.environ.get('BIOLMAI_TOKEN', None)
+    if api_token:
+        headers = {'Authorization': f'Token {api_token}'}
+    elif os.path.exists(ACCESS_TOK_PATH):
+        with open(ACCESS_TOK_PATH, 'r') as f:
+            access_refresh_dict = json.load(f)
+        access = access_refresh_dict.get('access')
+        refresh = access_refresh_dict.get('refresh')
+        headers = {
+            'Cookie': 'access={};refresh={}'.format(access, refresh),
+            'Content-Type': 'application/json'
+        }
+    else:
+        err = "No https://biolm.ai credentials found. Please run `biolmai status` to debug."
+        raise AssertionError(err)
+    return headers
