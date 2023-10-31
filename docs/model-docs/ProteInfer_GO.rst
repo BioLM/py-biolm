@@ -4,9 +4,9 @@
    SPDX-License-Identifier: CC-BY-SA-4.0
 
 
-=========
+=============
 ProteInfer GO
-=========
+=============
 
 .. article-info::
     :avatar: img/book_icon.png
@@ -43,36 +43,6 @@ API Usage
 ---------
 
 This is the url to use when querying the BioLM ProteInfer GO-terms Prediction Endpoint: https://biolm.ai/api/v1/models/protein_go_function/predict/
-
-*Definitions*
-
--Request Keys:
-
-data:
-    Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
-
-text:
-    Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the full-length protein sequence that the user wants to submit for structure prediction.
-
-
-
--Response Keys:
-
-predictions:
-    holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Gene Ontology (GO) term
-
-sequence_name:
-    identifier for the input protein sequence for which the GO terms are being predicted.
-
-predicted_label:
-    represents the predicted GO term ID. "GO:0008150" and "GO:0003674" are examples of predicted GO term IDs in the response.
-
-confidence:
-    This is a measure of the model's certainty or confidence in the predicted EC number, ranging from 0 to 1, with higher values indicating higher confidence.
-
-description:
-    textual description or name of the predicted GO term.  Descriptions like "biological_process" and "molecular_function" provide a brief understanding of what each GO term represents in biological terminology.
-
 
 
 ^^^^^^^^^^^^^^^
@@ -152,6 +122,19 @@ Making Requests
             }"
             res <- postForm("https://biolm.ai/api/v1/models/protein_go_function/predict/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
+
+
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+data:
+    Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
+
+text:
+    Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the full-length protein sequence that the user wants to submit for structure prediction.
+
+
 
 ^^^^^^^^^^^^^
 JSON Response
@@ -289,16 +272,35 @@ JSON Response
 
         }
 
----------
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+predictions:
+    Holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Gene Ontology (GO) term
+
+sequence_name:
+    Identifier for the input protein sequence for which the GO terms are being predicted.
+
+predicted_label:
+    Represents the predicted GO term ID. "GO:0008150" and "GO:0003674" are examples of predicted GO term IDs in the response.
+
+confidence:
+    This is a measure of the model's certainty or confidence in the predicted EC number, ranging from 0 to 1, with higher values indicating higher confidence.
+
+description:
+    Textual description or name of the predicted GO term.  Descriptions like "biological_process" and "molecular_function" provide a brief understanding of what each GO term represents in biological terminology.
+
+
+-----------
 Performance
----------
+-----------
 
 Graph of average RPS for varying number of sequences (ProteInfer GO)
 
 
 .. note::
    This graph will be added soon.
-
 
 
 ----------

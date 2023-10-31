@@ -20,7 +20,7 @@ Recent computational protein folding capability enables myriad of applications
 from elucidating structures of novel proteins, , designing engineered proteins,
 modeling molecular interactions, evaluating impacts of mutations, and assembling
 multi-protein complexes. The BioLM API is democratizing access to 3D structural
-modeling, with its rapid ESMfold API,  bringing the power of structural biology
+modeling, with its rapid ESMFold API,  bringing the power of structural biology
 to address diverse questions in protein science, biomedicine, synthetic biology,
 and beyond.
 
@@ -31,7 +31,7 @@ Benefits
 The API can be used by biologists, data scientists, engineers, etc. The key values of the BioLM API is speed, scalability and cost.
 
 * The API allows 1440 folds per minute, or 2M per day (Figure 1).
-* The BioLM API allows scientists to programmatically interact with ESMfold,
+* The BioLM API allows scientists to programmatically interact with ESMFold,
   making it easier to integrate the model into their scientific workflows.
   The API accelerates workflow, allows for customization, and is designed to be
   highly scalable.
@@ -45,37 +45,11 @@ The API can be used by biologists, data scientists, engineers, etc. The key valu
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ESMfold Prediction Endpoint: https://biolm.ai/api/v1/models/esmfold-singlechain/predict/
+This is the url to use when querying the BioLM ESMFold Prediction Endpoint: https://biolm.ai/api/v1/models/esmfold-singlechain/predict/
 
 ^^^^^^^^^^^^^^^
 Making Requests
 ^^^^^^^^^^^^^^^
-
-*Definitions*
-
--Request Keys:
-
-data:
-  Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
-
-text:
-  Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the amino acid sequence that the user wants to submit for structure prediction.
-
-
--Response Keys:
-
-predictions:
-  This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
-
-pdb:
-  Contains a string representing the 3D structure of the protein predicted by the model in PDB (Protein Data Bank) format
-
-mean_plddt:
-  Contains a string representing the mean pLDDT score of the predicted structure. The pLDDT (predicted Local Distance Difference Test) score is a measure of the accuracy of the predicted structure, with values ranging from 0 to 100. Higher scores indicate higher confidence in the prediction.
-
-durations:
-  Contains a string that represents the total time taken for the request to be processed and the response to be generated
-
 
 .. tab-set::
 
@@ -154,6 +128,18 @@ durations:
             res <- postForm("https://biolm.ai/api/v1/models/esmfold-singlechain/predict/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
 
+
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+data:
+  Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
+
+text:
+  Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the amino acid sequence that the user wants to submit for structure prediction.
+
+
 ^^^^^^^^^^^^^
 JSON Response
 ^^^^^^^^^^^^^
@@ -174,6 +160,24 @@ JSON Response
             }
           ]
         }
+
+
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+predictions:
+  This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
+
+pdb:
+  Contains a string representing the 3D structure of the protein predicted by the model in PDB (Protein Data Bank) format
+
+mean_plddt:
+  Contains a string representing the mean pLDDT score of the predicted structure. The pLDDT (predicted Local Distance Difference Test) score is a measure of the accuracy of the predicted structure, with values ranging from 0 to 100. Higher scores indicate higher confidence in the prediction.
+
+durations:
+  Contains a string that represents the total time taken for the request to be processed and the response to be generated
+
 
 
 ^^^^^^^^^^^
@@ -201,8 +205,10 @@ Graph of average RPS for varying number of sequences
 Related
 --------
 
-:doc:`/model-docs/embeddings`
 :doc:`/model-docs/esm_1v_masking`
+
+:doc:`/model-docs/esm_suite/esm2_embeddings`
+
 :doc:`/model-docs/ESM-InverseFold`
 
 ------------------
@@ -210,14 +216,14 @@ ESMFold Background
 ------------------
 
 Advances in large-scale language modeling is moving us closer to achieving a
-universal model for proteins. Esmfold, a protein structure prediction tool that
+universal model for proteins. ESMFold, a protein structure prediction tool that
 utilizes the ESM-2 language model, is one of the most advanced models currently
-available. Esmfold's training data is derived from UniRef, with a focus on
+available. ESMFold's training data is derived from UniRef, with a focus on
 UniRef50 clusters, which are non-redundant sets of protein sequences with at
 least 50% sequence identity to each other. The training process included the
 selection of sequences from around 43 million UniRef50 training groups, covering
 close to 138 million UniRef90 sequences, which amounts to nearly 65 million
-distinct sequences throughout the training period. Esmfold achieves a faster
+distinct sequences throughout the training period. ESMFold achieves a faster
 performance compared to AlphaFold as it is capable of conducting end-to-end
 atomic structure predictions straight from the sequence, bypassing the need for
 a multiple sequence alignment (MSA). These models learn so much about protein
@@ -231,7 +237,7 @@ pass alone, while also removing the search process for related proteins
 entirely, which can take over 10 minutes with the high-sensitivity pipelines
 used by AlphaFold” -  Lin et al., 2022. In addition, AlphaFold 2 may struggle
 with ‘orphan proteins’, which lack multiple sequence alignments due to
-insufficient database sequences. Since esmfold bypasses alignments, it may model
+insufficient database sequences. Since ESMFold bypasses alignments, it may model
 orphan proteins more effectively. This, in turn, could inform and facilitate the
 de novo design of proteins with desired characteristics, thereby extending the
 reach and success of de novo protein design efforts.
@@ -240,10 +246,10 @@ reach and success of de novo protein design efforts.
 Applications of Folding
 -----------------------
 
-Esmfold is a revolutionary tool for folding that can be used by a diverse range
+ESMFold is a revolutionary tool for folding that can be used by a diverse range
 of topics within biology, ranging from synthetic biology, neuroscience, enzyme
 engineering, immunology, virology, industrial biotechnology, etc. A great
-starting point for Esmfold is when scientist starts with a single sequence or
+starting point for ESMFold is when scientist starts with a single sequence or
 library of designed sequences for which they wish to understand the 3D
 structure.
 
@@ -257,5 +263,5 @@ structure.
   ESMFold facilitates computational filtering and optimization of the lead de
   novo enzymes. (have a link to a tutorial page here).
 * Used in antibody engineering. Once CDR variants are designed computationally,
-  scientists can use Esmfold to predict structures to filter and select optimal
+  scientists can use ESMFold to predict structures to filter and select optimal
   candidates. Can also predict structures for lead antibody variable domains.
