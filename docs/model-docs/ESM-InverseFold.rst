@@ -65,6 +65,7 @@ sequence that folds into the structure specified by the PDB.
 
             curl --location 'https://biolm.ai/api/v1/models/esmif1/predict/' \
             --header 'Content-Type: application/json' \
+            --header "Authorization: Token $BIOLMAI_TOKEN" \
             --data '{
                 "instances": [
                 {
@@ -101,7 +102,9 @@ sequence that folds into the structure specified by the PDB.
                 }]
             })
             headers = {
+                'Authorization': 'Token {}'.format(os.environ['BIOLMAI_TOKEN']),
                 'Content-Type': 'application/json'
+
             }
 
             response = requests.post(url, headers=headers, data=payload)
@@ -116,6 +119,7 @@ sequence that folds into the structure specified by the PDB.
 
             library(RCurl)
             headers = c(
+            'Authorization' = paste('Token', Sys.getenv('BIOLMAI_TOKEN')),
             "Content-Type" = "application/json"
             )
             params = "{
