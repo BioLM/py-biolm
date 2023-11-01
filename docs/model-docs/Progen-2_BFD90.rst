@@ -42,43 +42,6 @@ API Usage
 
 This is the url to use when querying the BioLM Progen-2 Prediction Endpoint: https://biolm.ai/api/v1/models/progen2v31/generate/
 
-*Definitions*
-
-Request Keys: These keys together define the conditions and parameters for the sequence generation task requested from the Progen-2 language model via the BioLM API.
-
-t:
-    represents the temperature parameter for the generation process. The temperature affects the randomness of the output. A higher value makes the output more random, while a lower value makes it more deterministic
-
-p:
-    represent a nucleus sampling parameter, which is a method to control the randomness of the generation by only considering a subset of the most probable tokens for sampling at each step.  Lower nucleus sampling probability, which usually makes sequence generation more conservative, results in sequences more closely matching the training dataset
-
-max_length:
-    The maximum length of the generated sequence. The model will stop generating once this length is reached.
-
-num_samples:
-    The number of independent sequences the user wants the model to generate for the given prompt. For example, if this value is set to 2, you will get two different generated sequences for the prompt.
-
-model:
-    This specifies which variant of the Progen-2 model to use for the generation.
-
-
--Response Keys:
-
-predictions:
-    This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
-
-generated:
-    Contains a list of generated sequences and their associated information. Each sequence and its info are represented as a dictionary. The number of dictionaries in this list corresponds to the number of generated sequences the user requested.
-
-text:
-    contains the actual generated sequence produced by the model based on the provided prompt and parameters.
-
-ll_sum:
-    Represents the sum of log-likelihoods for each token in the generated sequence. The log-likelihood gives an indication of how probable or confident the model was in generating each token. A higher log-likelihood indicates higher confidence.
-
-ll_mean:
-    This represents the average log-likelihood per token for the generated sequence. It's calculated by taking the mean of the log-likelihoods of all the tokens in the sequence. It provides an indication of the model's confidence in the generation.
-
 
 ^^^^^^^^^^^^^^^
 Making Requests
@@ -166,6 +129,26 @@ Making Requests
             res <- postForm("https://biolm.ai/api/v1/models/progen2v31/generate/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
 
+
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+t:
+    Represents the temperature parameter for the generation process. The temperature affects the randomness of the output. A higher value makes the output more random, while a lower value makes it more deterministic
+
+p:
+    Represent a nucleus sampling parameter, which is a method to control the randomness of the generation by only considering a subset of the most probable tokens for sampling at each step.  Lower nucleus sampling probability, which usually makes sequence generation more conservative, results in sequences more closely matching the training dataset
+
+max_length:
+    The maximum length of the generated sequence. The model will stop generating once this length is reached.
+
+num_samples:
+    The number of independent sequences the user wants the model to generate for the given prompt. For example, if this value is set to 2, you will get two different generated sequences for the prompt.
+
+model:
+    This specifies which variant of the Progen-2 model to use for the generation.
+
 ^^^^^^^^^^^^^
 JSON Response
 ^^^^^^^^^^^^^
@@ -190,6 +173,27 @@ JSON Response
             ]
         }
         }
+
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+predictions:
+    This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
+
+generated:
+    Contains a list of generated sequences and their associated information. Each sequence and its info are represented as a dictionary. The number of dictionaries in this list corresponds to the number of generated sequences the user requested.
+
+text:
+    contains the actual generated sequence produced by the model based on the provided prompt and parameters.
+
+ll_sum:
+    Represents the sum of log-likelihoods for each token in the generated sequence. The log-likelihood gives an indication of how probable or confident the model was in generating each token. A higher log-likelihood indicates higher confidence.
+
+ll_mean:
+    This represents the average log-likelihood per token for the generated sequence. It's calculated by taking the mean of the log-likelihoods of all the tokens in the sequence. It provides an indication of the model's confidence in the generation.
+
+
 ---------
 Performance
 ---------

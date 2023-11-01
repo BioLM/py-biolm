@@ -4,9 +4,9 @@
    SPDX-License-Identifier: CC-BY-SA-4.0
 
 
-=========
+==============
 ProteInfer EC
-=========
+==============
 
 .. article-info::
     :avatar: img/book_icon.png
@@ -59,35 +59,6 @@ API Usage
 ---------
 
 This is the url to use when querying the BioLM ProteInfer EC Prediction Endpoint: https://biolm.ai/api/v1/models/enzyme_function/predict/
-
-
-*Definitions*
-
--Request Keys:
-
-data:
-    Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
-
-text:
-    Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the full-length protein sequence that the user wants to submit for structure prediction.
-
-
--Response Keys:
-
-predictions:
-    This key holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Enzyme Commission (EC) number along with additional information related to the prediction.
-
-sequence_name:
-    identifier for the input protein sequence for which the EC numbers are being predicted.
-
-predicted_label:
-    represents the predicted EC number. EC numbers are used to classify enzymes and includes four levels of classification, each separated by a dot. ( "EC:3.-.-.-" and "EC:3.2.1.-" are examples of predicted EC numbers).
-
-confidence:
-    This is a measure of the model's certainty or confidence in the predicted EC number, ranging from 0 to 1, with higher values indicating higher confidence.
-
-description:
-    This provides a textual description or annotation related to the predicted EC number, giving some context or information about the type of reaction the enzyme catalyzes
 
 
 ^^^^^^^^^^^^^^^
@@ -165,6 +136,18 @@ Making Requests
 
 
 ^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+data:
+    Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
+
+text:
+    Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the full-length protein sequence that the user wants to submit for structure prediction.
+
+
+
+^^^^^^^^^^^^^
 JSON Response
 ^^^^^^^^^^^^^
 
@@ -213,6 +196,25 @@ JSON Response
         ]
         }
 
+
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+predictions:
+    This key holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Enzyme Commission (EC) number along with additional information related to the prediction.
+
+sequence_name:
+    Identifier for the input protein sequence for which the EC numbers are being predicted.
+
+predicted_label:
+    Represents the predicted EC number. EC numbers are used to classify enzymes and includes four levels of classification, each separated by a dot. ( "EC:3.-.-.-" and "EC:3.2.1.-" are examples of predicted EC numbers).
+
+confidence:
+    This is a measure of the model's certainty or confidence in the predicted EC number, ranging from 0 to 1, with higher values indicating higher confidence.
+
+description:
+    This provides a textual description or annotation related to the predicted EC number, giving some context or information about the type of reaction the enzyme catalyzes
 
 
 ----------

@@ -9,7 +9,7 @@ ESM-1V
     :author: Zeeshan Siddiqui
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
-On this page, we will show and explain the use of ESM-1V. As well as document the BioLM API for folding, demonstrate no-code and code interfaces to folding.
+On this page, we will show and explain the use of ESM-1v. As well as document the BioLM API for folding, demonstrate no-code and code interfaces to folding.
 
 
 -----------
@@ -53,42 +53,12 @@ Graph of average RPS for varying number of sequences
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ESM-1V Prediction Endpoint: https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/
+This is the url to use when querying the BioLM ESM-1v Prediction Endpoint: https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/
 
 The BioLM API endpoint has been customized to return the likelihoods for every AA unmasked at any <mask> position, so you can easily see how the likelihood of the sequence being functional with the wild-type residue compares to a single-AA mutation at that position.
 The way to get a straight, “what is the likelihood of function of this sequence” out of this model, is to mask one AA, then get the WT probability for the WT AA, returned by the API.
 Furthermore, the BioLM API has 5 endpoints, as there are five models trained randomly on the same data. Hence, the likelihoods coming out of each one for the same input are slightly different.
 The best results are achieved by averaging the likelihoods given by all 5 models for a given AA at a given position.
-
-
-*Definitions*
-
--Request Keys:
-
-data:
-   Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
-
-text:
-   Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the amino acid sequence that the user wants to submit for structure prediction.
-
-
--Response Keys:
-
-predictions:
-   This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
-
-Score:
-   This represents the confidence or probability of the model's prediction for the masked token. A higher score indicates higher confidence.
-
-Token:
-   The predicted token's identifier as per the model's tokenization scheme. It's an integer that corresponds to a particular token (in this case, a particular amino acid) in the model's vocabulary.
-
-Token_str:
-   Represents the predicted token as a string. That is, the amino acid that was predicted to fill in the masked position in the sequence.
-
-Sequence:
-   Represents the complete sequence with the masked position filled in by the predicted token.
-
 
 
 ^^^^^^^^^^^^^^^
@@ -174,6 +144,17 @@ Making Requests
             }"
             res <- postForm("https://biolm.ai/api/v1/models/esm2_t33_650M_UR50D/predict/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
+
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+data:
+   Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
+
+text:
+   Inside the "data" dictionary, there's a key named "text". The value associated with "text" should be a string containing the amino acid sequence that the user wants to submit for structure prediction.
+
 
 
 ^^^^^^^^^^^^^
@@ -312,14 +293,34 @@ JSON Response
          }
 
 
+^^^^^^^^^^^^^
+Definitions
+^^^^^^^^^^^^^
+
+predictions:
+   This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
+
+Score:
+   This represents the confidence or probability of the model's prediction for the masked token. A higher score indicates higher confidence.
+
+Token:
+   The predicted token's identifier as per the model's tokenization scheme. It's an integer that corresponds to a particular token (in this case, a particular amino acid) in the model's vocabulary.
+
+Token_str:
+   Represents the predicted token as a string. That is, the amino acid that was predicted to fill in the masked position in the sequence.
+
+Sequence:
+   Represents the complete sequence with the masked position filled in by the predicted token.
 
 
 ----------
 Related
 ----------
 
-:doc:`/model-docs/esm2_fold`
-:doc:`/model-docs/esm2_embeddings`
+:doc:`/model-docs/esm_suite/esm2_fold`
+
+:doc:`/model-docs/esm_suite/esm2_embeddings`
+
 :doc:`/model-docs/ESM-InverseFold`
 
 

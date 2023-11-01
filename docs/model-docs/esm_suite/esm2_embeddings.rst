@@ -3,7 +3,7 @@ ESM-2 Embeddings
 ================
 
 .. article-info::
-    :avatar: img/book_icon.png
+    :avatar: ../img/book_icon.png
     :date: Oct 18, 2023
     :read-time: 6 min read
     :author: Zeeshan Siddiqui
@@ -192,6 +192,10 @@ JSON Response
    .. note::
       The above response is only a small snippet of the full JSON response. However, all the relevant response keys are included.
 
++++++++++++
+Definitions
++++++++++++
+
 predictions:
    This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
 
@@ -203,17 +207,13 @@ mean_representations:
 
 
 
-
 ----------
 Related
 ----------
 
-:doc:`/model-docs/esm2_fold`
 :doc:`/model-docs/esm_1v_masking`
+
 :doc:`/model-docs/ESM-InverseFold`
-
-
-
 ------------------
 Model Background
 ------------------
