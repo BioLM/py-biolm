@@ -135,9 +135,9 @@ Making Requests
             cat(res)
 
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 data:
     Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
@@ -197,9 +197,9 @@ JSON Response
         }
 
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 predictions:
     This key holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Enzyme Commission (EC) number along with additional information related to the prediction.

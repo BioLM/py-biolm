@@ -130,9 +130,9 @@ Making Requests
             cat(res)
 
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 t:
     Represents the temperature parameter for the generation process. The temperature affects the randomness of the output. A higher value makes the output more random, while a lower value makes it more deterministic
@@ -174,9 +174,9 @@ JSON Response
         }
         }
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 predictions:
     This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.

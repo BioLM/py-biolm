@@ -119,9 +119,9 @@ Making Requests
             cat(res)
 
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 data:
     Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
@@ -267,9 +267,9 @@ JSON Response
 
         }
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 predictions:
     Holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Gene Ontology (GO) term
