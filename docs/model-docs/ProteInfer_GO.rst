@@ -1,8 +1,3 @@
-..
-   Copyright (c) 2021 Pradyun Gedam
-   Licensed under Creative Commons Attribution-ShareAlike 4.0 International License
-   SPDX-License-Identifier: CC-BY-SA-4.0
-
 
 =============
 ProteInfer GO
@@ -124,9 +119,9 @@ Making Requests
             cat(res)
 
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 data:
     Inside each instance, there's a key named "data" that holds another dictionary. This dictionary contains the actual input data for the prediction.
@@ -272,9 +267,9 @@ JSON Response
 
         }
 
-^^^^^^^^^^^^^
++++++++++++++
 Definitions
-^^^^^^^^^^^^^
++++++++++++++
 
 predictions:
     Holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Gene Ontology (GO) term

@@ -1,5 +1,4 @@
-
-
+==========================
 Welcome to BioLM AI's Docs
 ==========================
 
@@ -47,61 +46,59 @@ Welcome to BioLM AI's Docs
 
 .. grid:: 2
 
-    .. grid-item-card::  Tutorials
-       :margin: auto
-       :text-align: center
-       :link: https://example.com
-
-       .. image:: _static/tutorials_icon.png
-          :scale: 10 %
-          :alt: alternate text
-
     .. grid-item-card::  Jupyter Notebooks
        :margin: auto
        :text-align: center
-       :link: https://github.com/biolm/tutorials-and-guides
+       :link: https://jupyter.biolm.ai
 
        .. image:: _static/jupyter_notebooks_icon.png
           :scale: 10 %
           :alt: alternate text
 
+    .. grid-item-card::  Back to BioLM
+       :margin: auto
+       :text-align: center
+       :link: https://biolm.ai
+
+       .. image:: _static/tutorials_icon.png
+          :scale: 10 %
+          :alt: alternate text
+
+
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
    :caption: Documentation:
+   :hidden:
 
    model-docs/index
 
 .. toctree::
    :maxdepth: 2
-   :caption: Web API:
+   :caption: REST API:
+   :hidden:
 
    api_docs/index
 
 .. toctree::
    :maxdepth: 2
    :caption: Tutorials & Guides:
+   :hidden:
 
-   tutorials_use_cases/dna_tutorials
-   tutorials_use_cases/protein_tutorials
+   tutorials_use_cases/notebooks
 
 
 .. toctree::
    :maxdepth: 2
    :caption: Python Client:
+   :hidden:
 
-   python-client/installation.rst
-   python-client/quickstart.rst
    python-client/index
    python-client/usage.rst
    modules.rst
-   python-client/readme.rst
-   python-client/history.rst
-   python-client/contributing.rst
-   python-client/authors.rst
 
 
-Indices and tables
-==================
+
+^^^^^^^^^^^^^^^^^^^
+Indices and Sitemap
+^^^^^^^^^^^^^^^^^^^
 * :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

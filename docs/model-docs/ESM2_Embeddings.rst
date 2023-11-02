@@ -68,21 +68,6 @@ This is the url to use when querying the BioLM ESM-1V Prediction Endpoint:
 https://biolm.ai/api/v1/models/esm2_t33_650M_UR50D/transform/
 
 
-^^^^^^^^^^^
-Definitions
-^^^^^^^^^^^
-
-data:
-   Inside each instance, there's a key named "data" that holds another
-   dictionary. This dictionary contains the actual input data for the
-   prediction.
-
-text:
-   Inside the "data" dictionary, there's a key named "text". The value
-   associated with "text" should be a string containing the amino acid sequence
-   that the user wants to submit for structure prediction.
-
-
 
 ^^^^^^^^^^^^^^^
 Making Requests
@@ -165,6 +150,22 @@ Making Requests
             }"
             res <- postForm("https://biolm.ai/api/v1/models/esm2_t33_650M_UR50D/predict/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
+
+
+
++++++++++++
+Definitions
++++++++++++
+
+data:
+   Inside each instance, there's a key named "data" that holds another
+   dictionary. This dictionary contains the actual input data for the
+   prediction.
+
+text:
+   Inside the "data" dictionary, there's a key named "text". The value
+   associated with "text" should be a string containing the amino acid sequence
+   that the user wants to submit for structure prediction.
 
 
 ^^^^^^^^^^^^^

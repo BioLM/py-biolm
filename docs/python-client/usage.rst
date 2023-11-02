@@ -2,7 +2,6 @@
 Usage
 =====
 
-To use BioLM AI in a project::
+.. note::
 
-    import biolmai
-
+   Coming soon!
