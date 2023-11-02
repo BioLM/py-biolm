@@ -7,6 +7,9 @@ import pytest
 import random
 import copy
 from asyncio import create_task, gather, run, sleep
+
+import biolmai.auth
+import biolmai.cls
 from biolmai.asynch import async_main
 
 from click.testing import CliRunner
@@ -23,7 +26,7 @@ N = 6
 def test_authentication():
     """Test to make sure the environment variables for auth work, and
     that you get tokens back from the site to use for requests."""
-    biolmai.biolmai.get_user_auth_header()
+    biolmai.auth.get_user_auth_header()
 
 
 def return_shuffle(l):
@@ -42,12 +45,30 @@ def test_async():
     resp = run(async_main(urls, concurrency))
     print(resp)
 
+def test_esm2_embeddings_predict_all_valid_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
+    cls = biolmai.cls.ESM2Embeddings()
+    resp = cls.transform(seqs)
+    assert isinstance(resp, list)
+    assert all([isinstance(r, dict) for r in resp])
+    assert all(['status_code' in r for r in resp])
+    assert all(['batch_id' in r for r in resp])
+    assert all(['batch_item' in r for r in resp])
+    assert all(['error' not in r for r in resp])
+    assert all(['predictions' in r for r in resp])
+    assert all([len(r['predictions']) == 1 for r in resp])
+    assert all(['33' in item['mean_representations'].keys()
+                for subitem in resp
+                for item in subitem['predictions']])
+
 
 def test_esmfold_singlechain_predict_all_valid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(seqs)
     assert isinstance(resp, list)
     assert all([isinstance(r, dict) for r in resp])
@@ -64,7 +85,7 @@ def test_esmfold_multichain_predict_all_valid_singlechain_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = [''.join(return_shuffle(base_seqs))[:30] for _ in range(N)]
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(seqs)
     assert isinstance(resp, list)
     assert all([isinstance(r, dict) for r in resp])
@@ -81,7 +102,7 @@ def test_esmfold_singlechain_predict_all_locally_invalid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(N)]
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(bad_seqs)
     assert isinstance(resp, list)
     assert all([isinstance(r, dict) for r in resp])
@@ -98,7 +119,7 @@ def test_esmfold_singlechain_predict_all_api_too_long_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     bad_seqs = [''.join(return_shuffle(base_seqs) * 100) for _ in range(N)]
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(bad_seqs)
     assert isinstance(resp, list)
     assert all([isinstance(r, dict) for r in resp])
@@ -118,7 +139,7 @@ def test_esmfold_singlechain_predict_good_and_locally_invalid_sequences():
     bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(int(N / 2))]
     all_seqs = seqs + bad_seqs
     random.shuffle(all_seqs)
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(all_seqs)
     assert isinstance(resp, list)
     assert all([isinstance(r, dict) for r in resp])
@@ -141,7 +162,7 @@ def test_esmfold_singlechain_predict_ruin_all_api_batches():
     ruined_api_batches = []
     for a, b in list(zip(seqs, bad_seqs)):
         ruined_api_batches.extend([a, b])
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(ruined_api_batches)
     assert isinstance(resp, list)
     assert all([isinstance(r, dict) for r in resp])
@@ -162,7 +183,7 @@ def test_esmfold_singlechain_predict_good_and_api_too_long_sequences():
     bad_seqs = [''.join(return_shuffle(base_seqs)) * 100 for _ in range(int(N / 2))]
     all_seqs = [seqs[0], seqs[1], bad_seqs[0], bad_seqs[1],
                 seqs[2], bad_seqs[2]]
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(all_seqs)
     assert isinstance(resp, list)
     assert all([isinstance(r, dict) for r in resp])
@@ -183,7 +204,7 @@ def test_esmfold_multichain_predict_good_and_locally_invalid_sequences():
     bad_seqs = [''.join(return_shuffle(base_seqs))[:30] + 'i1' for _ in range(int(N / 2))]
     all_seqs = seqs + bad_seqs
     random.shuffle(all_seqs)
-    cls = biolmai.ESMFoldMultiChain()
+    cls = biolmai.cls.ESMFoldMultiChain()
     resp = cls.predict(all_seqs)
     assert isinstance(resp, list)
 
@@ -195,21 +216,21 @@ def test_esmfold_multichain_predict_good_and_locally_invalid_sequences():
 
 def test_esmfold_singlechain_predict():
     seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(seq)
     assert 1 == 1
 
 
 def test_esmfold_singlechain_predict_bad_sequence():
     bad_seq = "Nota Real sequence"
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     resp = cls.predict(bad_seq)
     assert 1 == 1
 
 
 def test_esmfold_singlechain_bad_action():
     seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFA"
-    cls = biolmai.ESMFoldSingleChain()
+    cls = biolmai.cls.ESMFoldSingleChain()
     with pytest.raises(Exception) as e_info:
         resp = cls.tokenize(seq)
         assert 'Only' in str(e_info) and 'supported on' in str(e_info)

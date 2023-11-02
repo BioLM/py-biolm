@@ -1,5 +1,6 @@
 import aiohttp.resolver
 
+from biolmai.auth import get_user_auth_header
 from biolmai.const import BASE_API_URL, MULTIPROCESS_THREADS
 
 aiohttp.resolver.DefaultResolver = aiohttp.resolver.AsyncResolver
@@ -39,7 +40,7 @@ async def get_one_biolm(session: ClientSession,
     pload_batch = pload.pop('batch')
     pload_batch_size = pload.pop('batch_size')
     t = aiohttp.ClientTimeout(
-        total=1200,
+        total=1600,  # 27 mins
         # total timeout (time consists connection establishment for a new connection or waiting for a free connection from a pool if pool connection limits are exceeded) default value is 5 minutes, set to `None` or `0` for unlimited timeout
         sock_connect=None,
         # Maximal number of seconds for connecting to a peer for a new connection, not given from a pool. See also connect.
@@ -183,3 +184,41 @@ async def async_api_calls(model_name,
     #     headers = get_user_auth_header()  # Need to re-get these now
     #     response = retry_minutes(session, url, headers, payload, tout, mins=10)
     # return response
+
+
+def async_api_call_wrapper(grouped_df, slug, action, payload_maker,
+                           response_key):
+    """Wrap API calls to assist with sequence validation as a pre-cursor to
+    each API call.
+    """
+    model_name = slug
+    # payload = payload_maker(grouped_df)
+    init_ploads = grouped_df.groupby('batch').apply(payload_maker, include_batch_size=True)
+    ploads = init_ploads.to_list()
+    init_ploads = init_ploads.to_frame(name='pload')
+    init_ploads['batch'] = init_ploads.index
+    init_ploads = init_ploads.reset_index(drop=True)
+    assert len(ploads) == init_ploads.shape[0]
+    for inst, b in zip(ploads, init_ploads['batch'].to_list()):
+        inst['batch'] = b
+
+    headers = get_user_auth_header()  # Need to pull each time
+    urls = [
+        "https://github.com",
+        "https://stackoverflow.com",
+        "https://python.org",
+    ]
+    # concurrency = 3
+    api_resp = run(async_api_calls(model_name, action, headers,
+                                   ploads, response_key))
+    api_resp = [item for sublist in api_resp for item in sublist]
+    api_resp = sorted(api_resp, key=lambda x: x['batch_id'])
+    # print(api_resp)
+    # api_resp = biolmai.api_call(model_name, action, headers, payload,
+    #                             response_key)
+    # resp_json = api_resp.json()
+    # batch_id = int(grouped_df.batch.iloc[0])
+    # batch_size = grouped_df.shape[0]
+    # response = predict_resp_many_in_one_to_many_singles(
+    #     resp_json, api_resp.status_code, batch_id, None, batch_size)
+    return api_resp
