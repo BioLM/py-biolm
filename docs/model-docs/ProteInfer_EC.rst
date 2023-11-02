@@ -11,7 +11,7 @@ ProteInfer EC
 .. article-info::
     :avatar: img/book_icon.png
     :author: Article Information
-    :date: Jul 24, 2021
+    :date: Oct 24, 2023
     :read-time: 5 min read
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
