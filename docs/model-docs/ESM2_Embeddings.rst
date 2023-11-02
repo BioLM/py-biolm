@@ -3,7 +3,7 @@ ESM-2 Embeddings
 ================
 
 .. article-info::
-    :avatar: ../img/book_icon.png
+    :avatar: img/book_icon.png
     :date: Oct 18, 2023
     :read-time: 6 min read
     :author: Zeeshan Siddiqui

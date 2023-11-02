@@ -3,7 +3,7 @@ ESMFold
 =======
 
 .. article-info::
-    :avatar: ../img/book_icon.png
+    :avatar: img/book_icon.png
     :author: Article Information
     :date: Oct 24, 2023
     :read-time: 5 min read
