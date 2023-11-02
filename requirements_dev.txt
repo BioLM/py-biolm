@@ -24,3 +24,4 @@ myst-parser
 pytest-xdist
 aiohttp
 watchdog==3.0.0
+sphinx-new-tab-link
