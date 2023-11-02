@@ -190,8 +190,9 @@ JSON Response
                   -0.14031203091144562,
                   -0.044720884412527084,
 
-   .. note::
-      The above response is only a small snippet of the full JSON response. However, all the relevant response keys are included.
+
+.. note::
+  The above response is only a small snippet of the full JSON response. However, all the relevant response keys are included.
 
 +++++++++++
 Definitions
