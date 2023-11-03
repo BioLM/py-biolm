@@ -1,8 +1,8 @@
 .. _model-docs-home:
 
-==========
-All Models
-==========
+===========
+Model Usage
+===========
 
 
 .. toctree::
