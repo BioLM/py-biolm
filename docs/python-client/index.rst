@@ -11,3 +11,8 @@ Get Started
    get_started/quickstart.rst
 
 * :ref:`modindex`
+
+^^^^^^^^^^^^^^^^^^^
+Indices and Sitemap
+^^^^^^^^^^^^^^^^^^^
+* :ref:`genindex`

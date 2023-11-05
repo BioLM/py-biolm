@@ -1,30 +1,36 @@
+..
+   Copyright (c) 2021 Pradyun Gedam
+   Licensed under Creative Commons Attribution-ShareAlike 4.0 International License
+   SPDX-License-Identifier: CC-BY-SA-4.0
 
-=========
-ProGen2: OAS
-=========
+
+==============
+ProGen2 Medium
+==============
 
 .. article-info::
     :avatar: img/book_icon.png
     :author: Zeeshan Siddiqui
     :date: October 19th, 2023
-    :read-time: 8 min read
+    :read-time: 7 min read
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
-*On this page, we will show and explain the use of the ProGen2 OAS. As well as document the BioLM API for prediction, and demonstrate no-code and code interfaces for predictions.*
+*On this page, we will show and explain the use of the ProGen2 MEDIUM. As well as document the BioLM API for prediction, and demonstrate no-code and code interfaces for predictions.*
 
 -----------
 Description:
 -----------
 ProGen2 represents one of the largest protein language models, leveraging self-supervised pretraining on extensive protein sequence data to generate useful representations applicable to diverse protein structure and function prediction and design applications. As an attention-based model trained on protein sequences, ProGen2 employs a mechanism to selectively focus on informative regions of input data, learning intricate patterns and relationships among amino acids within protein sequences. Specifically, ProGen2 is trained via masked language modeling to predict amino acids from surrounding sequence context. As a protein language model, ProGen2 shows considerable promise for generating synthetic libraries of functional proteins to empower discovery and iterative optimization.
 
-The BioLM API offers access to ProGen2 Medium. Progen2-OAS, and Progen2-BDF90. On this page, the API usage for ProGen2 OAS is provided.
+
+The BioLM API offers access to ProGen2 Medium. Progen2-OAS, and Progen2-BDF90. On this page, the API usage for ProGen2 MEDIUM is provided.
 
 
 --------
 Benefits
 --------
 
-* The BioLM API allows scientists to programmatically interact with ProGen2 OAS, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
+* The BioLM API allows scientists to programmatically interact with ProGen2 MEDIUM, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
 
 * Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
 
@@ -54,12 +60,12 @@ Making Requests
             --header "Authorization: Token $BIOLMAI_TOKEN" \
             --data '{
             "instances": [{
-                "data": {"text": "EVQ",
+                "data": {"text": "M",
                         "t": 0.7,
                         "p": 0.6,
                         "max_length": 1020,
                         "num_samples": 2,
-                        "model": "progen2-oas"}
+                        "model": "progen2-medium"}
             }]
             }'
 
@@ -77,12 +83,12 @@ Making Requests
             "instances": [
                 {
                 "data": {
-                    "text": "EVQ",
+                    "text": "M",
                     "t": 0.7,
                     "p": 0.6,
                     "max_length": 1020,
                     "num_samples": 2,
-                    "model": "progen2-oas"
+                    "model": "progen2-medium"
                 }
                 }
             ]
@@ -95,7 +101,6 @@ Making Requests
             response = requests.request("POST", url, headers=headers, data=payload)
 
             print(response.text)
-
 
     .. tab-item:: R
         :sync: r
@@ -111,19 +116,18 @@ Making Requests
             \"instances\": [
                 {
                 \"data\": {
-                    \"text\": \"EVQ\",
+                    \"text\": \"M\",
                     \"t\": 0.7,
                     \"p\": 0.6,
                     \"max_length\": 1020,
                     \"num_samples\": 2,
-                    \"model\": \"progen2-oas\"
+                    \"model\": \"progen2-medium\"
                 }
                 }
             ]
             }"
             res <- postForm("https://biolm.ai/api/v1/models/progen2v31/generate/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
-
 
 +++++++++++++
 Definitions
@@ -143,7 +147,6 @@ num_samples:
 
 model:
     This specifies which variant of the ProGen2 model to use for the generation.
-
 
 
 ^^^^^^^^^^^^^
@@ -191,15 +194,15 @@ ll_mean:
     This represents the average log-likelihood per token for the generated sequence. It's calculated by taking the mean of the log-likelihoods of all the tokens in the sequence. It provides an indication of the model's confidence in the generation.
 
 
-
------------
+---------
 Performance
------------
+---------
 
-Graph of average RPS for varying number of sequences (ProGen2 OAS)
+Graph of average RPS for varying number of sequences (ProGen2 MEDIUM)
+
 
 .. note::
-   We are in the process of adding a graph.
+   This graph will be added soon.
 
 
 
@@ -207,7 +210,7 @@ Graph of average RPS for varying number of sequences (ProGen2 OAS)
 Related
 ----------
 :doc:`/model-docs/ProGen2_BFD90`
-:doc:`/model-docs/ProGen2_Medium`
+:doc:`/model-docs/ProGen2-OAS`
 
 .. note::
     If there is a ProGen2 model you would like to see on the BioLM.ai website, let us know!

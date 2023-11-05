@@ -5,7 +5,7 @@
 
 
 =========
-ProGen2: BFD90
+ProGen2 BFD90
 =========
 
 .. article-info::

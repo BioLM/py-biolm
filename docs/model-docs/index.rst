@@ -10,4 +10,4 @@ Model Usage
    :maxdepth: 1
    :glob:
 
-   *
+   **
