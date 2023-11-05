@@ -37,7 +37,8 @@ Benefits
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ProteInfer GO-terms Prediction Endpoint: https://biolm.ai/api/v1/models/protein_go_function/predict/
+
+The BioLM endpoint for ProteInfer GO-term predictions is `https://biolm.ai/api/v1/models/protein_go_function/predict/ <https://api.biolm.ai>`_.
 
 
 ^^^^^^^^^^^^^^^
@@ -301,6 +302,7 @@ Graph of average RPS for varying number of sequences (ProteInfer GO)
 ----------
 Related
 ----------
+
 :doc:`/model-docs/ProteInfer_EC`
 
 

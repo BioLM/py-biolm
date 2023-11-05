@@ -5,7 +5,7 @@
 
 
 =========
-ProGen2: BFD90
+ProGen2 BFD90
 =========
 
 .. article-info::
@@ -40,7 +40,7 @@ Benefits
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ProGen2 Prediction Endpoint: https://biolm.ai/api/v1/models/progen2v31/generate/
+The BioLM endpoint for ProGen2 BFD90 generation is `https://biolm.ai/api/v1/models/progen2-bfd90/generate/ <https://api.biolm.ai>`_.
 
 
 ^^^^^^^^^^^^^^^

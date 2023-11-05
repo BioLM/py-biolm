@@ -45,7 +45,7 @@ The API can be used by biologists, data scientists, engineers, etc. The key valu
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ESMFold Prediction Endpoint: https://biolm.ai/api/v1/models/esmfold-singlechain/predict/
+The BioLM endpoint for ESMFold is: `https://biolm.ai/api/v1/models/esmfold-multichain/predict/ <https://api.biolm.ai>`_.
 
 ^^^^^^^^^^^^^^^
 Making Requests
@@ -205,11 +205,11 @@ Graph of average RPS for varying number of sequences
 Related
 --------
 
-:doc:`/model-docs/esm_1v_masking`
+:doc:`/model-docs/ESM_InverseFold`
 
-:doc:`/model-docs/esm_suite/esm2_embeddings`
+:doc:`/model-docs/ESM2_Embeddings`
 
-:doc:`/model-docs/ESM-InverseFold`
+:doc:`/model-docs/ESM-1v`
 
 ------------------
 ESMFold Background

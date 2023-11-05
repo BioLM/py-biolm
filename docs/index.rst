@@ -74,9 +74,7 @@ Welcome to BioLM AI's Docs
    model-docs/ESM2_Embeddings
    model-docs/ESMFold
    model-docs/ESM_InverseFold
-   model-docs/Progen_2_BFD90
-   model-docs/Progen_2_OAS
-   model-docs/Progen_2_Medium
+   model-docs/progen2/index
    model-docs/ProteInfer_EC
    model-docs/ProteInfer_GO
 
@@ -105,8 +103,3 @@ Welcome to BioLM AI's Docs
    modules.rst
 
 
-
-^^^^^^^^^^^^^^^^^^^
-Indices and Sitemap
-^^^^^^^^^^^^^^^^^^^
-* :ref:`genindex`
