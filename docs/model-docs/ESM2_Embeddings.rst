@@ -65,11 +65,7 @@ API Usage
 ---------
 
 The endpoint for querying ESM-2 embeddings, protein contact maps, attention
-maps, and logits is
-`https://biolm.ai/api/v1/models/esm2_t33_650M_UR50D/transform/ <https://api.biolm.ai>`_
-This is the url to use when querying the BioLM ESM-1V Prediction Endpoint:
-
-
+maps, and logits is `https://biolm.ai/api/v1/models/esm2_t33_650M_UR50D/transform/ <https://api.biolm.ai>`_.
 
 
 ^^^^^^^^^^^^^^^
@@ -216,9 +212,12 @@ mean_representations:
 Related
 ----------
 
-:doc:`/model-docs/esm_1v_masking`
+:doc:`/model-docs/ESM-1v`
 
-:doc:`/model-docs/ESM-InverseFold`
+:doc:`/model-docs/ESM_InverseFold`
+
+:doc:`/model-docs/ESMFold`
+
 ------------------
 Model Background
 ------------------

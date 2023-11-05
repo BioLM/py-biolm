@@ -58,7 +58,7 @@ Graph of average RPS for varying number of sequences (ProteInfer EC)
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ProteInfer EC Prediction Endpoint: https://biolm.ai/api/v1/models/enzyme_function/predict/
+The BioLM ProteInfer EC prediction endpoint is `https://biolm.ai/api/v1/models/enzyme_function/predict/ <https://api.biolm.ai>`_.
 
 
 ^^^^^^^^^^^^^^^
@@ -220,6 +220,7 @@ description:
 ----------
 Related
 ----------
+
 :doc:`/model-docs/ProteInfer_GO`
 
 

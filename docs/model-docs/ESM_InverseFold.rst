@@ -44,7 +44,7 @@ best candidates.
 API Usage
 ---------
 
-The endpoint for querying ESM-IF1 is https://biolm.ai/api/v1/models/esmif1/predict/.
+The endpoint for querying ESM-IF1 is `https://biolm.ai/api/v1/models/esmif1/predict/ <https://api.biolm.ai>`_.
 
 It allows a maximum of 2 requested structures to be sent via JSON in each POST request.
 
@@ -234,11 +234,12 @@ to match a large volume of requests appropriately and in-parallel.
 Related
 -------
 
-:doc:`/model-docs/esm_suite/esm2_fold`
+:doc:`/model-docs/ESMFold`
 
-:doc:`/model-docs/esm_suite/esm2_embeddings`
+:doc:`/model-docs/ESM2_Embeddings`
 
-:doc:`/model-docs/esm_1v_masking`
+:doc:`/model-docs/ESM-1v`
+
 
 Papers
 

@@ -41,7 +41,7 @@ Benefits
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ProGen2 Prediction Endpoint: https://biolm.ai/api/v1/models/progen2v31/generate/
+The BioLM endpoint for Progen2 Medium generation is: `https://biolm.ai/api/v1/models/progen2-medium/generate/ <https://api.biolm.ai>`_.
 
 
 ^^^^^^^^^^^^^^^

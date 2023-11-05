@@ -53,7 +53,7 @@ Graph of average RPS for varying number of sequences
 API Usage
 ---------
 
-This is the url to use when querying the BioLM ESM-1v Prediction Endpoint: https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/
+The BioLM endpoint for ESM-1v is `https://biolm.ai/api/v1/models/esm1v_t33_650M_UR90S_1/predict/ <https://api.biolm.ai>`_.
 
 The BioLM API endpoint has been customized to return the likelihoods for every AA unmasked at any <mask> position, so you can easily see how the likelihood of the sequence being functional with the wild-type residue compares to a single-AA mutation at that position.
 The way to get a straight, “what is the likelihood of function of this sequence” out of this model, is to mask one AA, then get the WT probability for the WT AA, returned by the API.
@@ -317,11 +317,11 @@ Sequence:
 Related
 ----------
 
-:doc:`/model-docs/esm_suite/esm2_fold`
+:doc:`/model-docs/ESMFold`
 
-:doc:`/model-docs/esm_suite/esm2_embeddings`
+:doc:`/model-docs/ESM2_Embeddings`
 
-:doc:`/model-docs/ESM-InverseFold`
+:doc:`/model-docs/ESM_InverseFold`
 
 
 ------------------
