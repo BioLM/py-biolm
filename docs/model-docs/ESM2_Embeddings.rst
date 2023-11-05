@@ -9,50 +9,50 @@ ESM-2 Embeddings
     :author: Zeeshan Siddiqui
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
-*On this page, we will show and explain the use of ESM-2 for generating embeddings. Document the BioLM API for tokenization, demonstrate no-code and code interfaces to protein embeddings/tokenization.*
+
+*This page explains the use of ESM-2 for generating embeddings, and documents
+the BioLM API to obtain embeddings for any protein sequence.*
 
 -----------
 Description
 -----------
 
-Large language models like ESM-2 can be effectively leveraged for generating
-informative feature representations of protein sequences. The model's predictive
-embeddings encode relevant biological properties. These vector representations
-can be extracted and utilized as inputs for a variety of downstream predictive
-modeling tasks as an alternative to standard one-hot sequence encodings. In
-biology, feature engineering is often heavily tailored to each application.
-However, the embeddings from pretrained language models provide broadly useful
-representations across tasks like classification, regression, and more.
+Large language models (LLMs) like ESM-2 can generate informative and static-length
+feature representations of protein sequences. Such models' predictive
+embeddings encode relevant biological properties, and are use to make classification,
+regression, and other predictions like protein folds. Embeddings are vector representations
+that can be extracted and utilized as inputs for a variety of downstream predictive
+modeling tasks as an alternative to standard one-hot sequence encodings. Rheir
+static length length makes them particularly useful for neural-nets and other
+models wherein the performance would deteriorate using the sparse matrices of one-hot
+sequence encodings.
 
-The BioLM API democratizes protein analysis by providing easy access to ESM-2
-for generating insightful protein embeddings. This service accelerates tasks
-from sequence similarity detection to therapeutic antibody design, simplifying
-the transition from protein sequence data to actionable insights. By
-precomputing and serving these reusable embeddings, the API lowers barriers to
-leverage advanced language model representations, accelerating development of
-predictive tools from sequence inputs.
+In biology, feature engineering is often heavily tailored to each application.
+However, the embeddings from pretrained language models provide broadly useful
+representations across a multitude of applications, such as toxicity prediction,
+functional likelihood, thermodynamic properties, structure, and more.
+
+The BioLM API provides easy access to ESM-2 for generating insightful protein
+embeddings to model experimental sequences and data. This service accelerates
+tasks like sequence similarity detection, therapeutic antibody design, simplifying
+the transition from protein sequence data to actionable insights. By cost-optimizing the
+infrastructure to compute a variety of protein embeddings, our API lowers barriers to
+leveraging advanced LLMs, accelerating the development of predictive
+tools from protein sequences.
 
 
 --------
 Benefits
 --------
 
-* The API can be used by biologists, data scientists, engineers, etc. The key
-* values of the BioLM API is speed, scalability and cost.
+* Always-on, auto-scaling GPU-backed APIs (`Status Page`_); highly-scalable parallelization.
+* Save money on infrastructure, GPU costs, and development time.
+* Quickly integrate multiple embeddings into your workflows.
+* Use our Chat Agents and other Web Apps to interact with bio-LLMs using no code.
 
-* The BioLM API allows scientists to programmatically interact with ESM-1V,
-* making it easier to integrate the model into their scientific workflows. The
-* API accelerates workflow, allows for customization, and is designed to be
-* highly scalable.
-
-* Our unique API UI Chat allows users to interact with our API and access
-* multiple language models without the need to code!
-
-* The benefit of having access to multiple GPUs is parallel processing.
-
----------
+-----------
 Performance
----------
+-----------
 
 Graph of average RPS for varying number of sequences (ESM-2 Embeddings).
 
@@ -64,8 +64,11 @@ Graph of average RPS for varying number of sequences (ESM-2 Embeddings).
 API Usage
 ---------
 
+The endpoint for querying ESM-2 embeddings, protein contact maps, attention
+maps, and logits is
+`https://biolm.ai/api/v1/models/esm2_t33_650M_UR50D/transform/ <https://api.biolm.ai>`_
 This is the url to use when querying the BioLM ESM-1V Prediction Endpoint:
-https://biolm.ai/api/v1/models/esm2_t33_650M_UR50D/transform/
+
 
 
 
@@ -243,6 +246,7 @@ The embeddings can also be leveraged to anticipate the effects mutations have on
 
 
 
+.. _Status Page: https://status.biolm.ai
 
 
 

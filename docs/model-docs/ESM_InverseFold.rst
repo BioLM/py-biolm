@@ -37,8 +37,8 @@ sequences can be generated using ESM-IF1, and ranked and screened to identify th
 best candidates.
 
 * Programmatic access allows easy integration into applications and workflows.
-* Interact with ESM-IF1 using natural language, through our no-code chat interface.
 * Scalable backend allows massively-parallel inverse-folding on low-cost GPUs.
+* Interact with ESM-IF1 using natural language, through our no-code chat interface.
 
 ---------
 API Usage
