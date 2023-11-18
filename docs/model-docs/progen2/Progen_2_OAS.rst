@@ -4,7 +4,7 @@ ProGen2 OAS
 =========
 
 .. article-info::
-    :avatar: img/book_icon.png
+    :avatar: ../img/book_icon.png
     :author: Zeeshan Siddiqui
     :date: October 19th, 2023
     :read-time: 8 min read
