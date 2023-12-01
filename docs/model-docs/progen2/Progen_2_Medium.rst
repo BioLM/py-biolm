@@ -9,7 +9,7 @@ ProGen2 Medium
 ==============
 
 .. article-info::
-    :avatar: ../img/book_icon.png
+    :avatar: ../../img/book_icon.png
     :author: Zeeshan Siddiqui
     :date: October 19th, 2023
     :read-time: 7 min read
