@@ -22,10 +22,7 @@ feature representations of protein sequences. Such models' predictive
 embeddings encode relevant biological properties, and are use to make classification,
 regression, and other predictions like protein folds. Embeddings are vector representations
 that can be extracted and utilized as inputs for a variety of downstream predictive
-modeling tasks as an alternative to standard one-hot sequence encodings. Rheir
-static length length makes them particularly useful for neural-nets and other
-models wherein the performance would deteriorate using the sparse matrices of one-hot
-sequence encodings.
+modeling tasks as an alternative to standard one-hot sequence encodings. 
 
 In biology, feature engineering is often heavily tailored to each application.
 However, the embeddings from pretrained language models provide broadly useful
@@ -237,7 +234,7 @@ The embeddings can also be leveraged to anticipate the effects mutations have on
 
 * Enzyme engineering (enzyme optimization, transfer learning, directed evolution).
 
-* Antibody engineering (Machine learning models applied on antibody embeddings may predict affinity, expression, stability without lab assays).
+* Antibody engineering (machine learning models applied on antibody embeddings may predict affinity, expression, stability without lab assays).
 
 * Protein-protein interaction design - Embeddings can be used to engineer proteins that interact with specific targets, like designing cellular signaling proteins.
 

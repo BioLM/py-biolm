@@ -273,7 +273,7 @@ Definitions
 +++++++++++++
 
 predictions:
-    Holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Gene Ontology (GO) term
+    Holds a list of dictionaries, each containing a prediction result. Each item in the list represents a predicted Gene Ontology (GO) term.
 
 sequence_name:
     Identifier for the input protein sequence for which the GO terms are being predicted.
@@ -332,7 +332,7 @@ ProteInfer GO effectively predicts Gene Ontology terms directly from protein seq
 
 * Protein interaction prediction - Knowing the GO terms for proteins can help predict if proteins may interact based on if they share similar functions and processes. This can guide experiments to validate interactions.
 
-* Functional Annotation: ProteInfer GO can be used to annotate novel or uncharacterized protein sequences with functional labels. This can be particularly helpful in large-scale genomics projects where a myriad of new sequences are generated.
+* Functional annotation: ProteInfer GO can be used to annotate novel or uncharacterized protein sequences with functional labels. This can be particularly helpful in large-scale genomics projects where a myriad of new sequences are generated.
 
 
 
