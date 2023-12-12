@@ -297,19 +297,19 @@ JSON Response
 Definitions
 +++++++++++++
 
-Predictions:
+predictions:
    This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
 
-Score:
+score:
    This represents the confidence or probability of the model's prediction for the masked token. A higher score indicates higher confidence.
 
-Token:
+token:
    The predicted token's identifier as per the model's tokenization scheme. It's an integer that corresponds to a particular token (in this case, a particular amino acid) in the model's vocabulary.
 
-Token_str:
+token_str:
    Represents the predicted token as a string. That is, the amino acid that was predicted to fill in the masked position in the sequence.
 
-Sequence:
+sequence:
    Represents the complete sequence with the masked position filled in by the predicted token.
 
 
