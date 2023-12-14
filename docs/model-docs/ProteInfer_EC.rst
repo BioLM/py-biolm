@@ -45,16 +45,6 @@ Benefits
 * The benefit of having access to multiple GPUs is parallel processing. Each GPU can handle a different protein folding simulation, allowing for folding dozens of proteins in parallel!
 
 ---------
-Performance
----------
-
-Graph of average RPS for varying number of sequences (ProteInfer EC)
-
-.. note::
-   We are in the process of adding the graph.
-
-
----------
 API Usage
 ---------
 

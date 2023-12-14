@@ -288,15 +288,6 @@ description:
     Textual description or name of the predicted GO term.  Descriptions like "biological_process" and "molecular_function" provide a brief understanding of what each GO term represents in biological terminology.
 
 
------------
-Performance
------------
-
-Graph of average RPS for varying number of sequences (ProteInfer GO)
-
-
-.. note::
-   This graph will be added soon.
 
 
 ----------

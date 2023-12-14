@@ -35,16 +35,6 @@ Benefits
 
 * The benefit of having access to multiple GPUs is parallel processing.
 
------------
-Performance
------------
-
-Graph of average RPS (Requests Per Second) for varying number of sequences
-
-.. note::
-
-   Coming soon!
-
 
 --------------------------------------
 API Usage:Finetune ProtGPT2 Generator

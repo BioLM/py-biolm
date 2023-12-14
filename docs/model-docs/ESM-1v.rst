@@ -37,17 +37,6 @@ Benefits
 
 * The benefit of having access to multiple GPUs is parallel processing.
 
------------
-Performance
------------
-
-Graph of average RPS for varying number of sequences
-
-.. note::
-
-   We are in the process of adding a graph.
-
-
 
 ---------
 API Usage

@@ -180,15 +180,6 @@ durations:
 
 
 
-^^^^^^^^^^^
-Performance
-^^^^^^^^^^^
-
-Graph of average RPS for varying number of sequences
-
-
-
-
 .. note::
    This graph will be available soon.
    

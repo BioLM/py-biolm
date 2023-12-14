@@ -194,18 +194,6 @@ ll_mean:
     This represents the average log-likelihood per token for the generated sequence. It's calculated by taking the mean of the log-likelihoods of all the tokens in the sequence. It provides an indication of the model's confidence in the generation.
 
 
----------
-Performance
----------
-
-Graph of average RPS for varying number of sequences (ProGen2 MEDIUM)
-
-
-.. note::
-   This graph will be added soon.
-
-
-
 ----------
 Related
 ----------

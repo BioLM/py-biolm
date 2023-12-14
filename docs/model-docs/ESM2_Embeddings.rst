@@ -47,15 +47,6 @@ Benefits
 * Quickly integrate multiple embeddings into your workflows.
 * Use our Chat Agents and other Web Apps to interact with bio-LLMs using no code.
 
------------
-Performance
------------
-
-Graph of average RPS for varying number of sequences (ESM-2 Embeddings).
-
-.. note::
-   This graph will be added soon.
-
 
 ---------
 API Usage
