@@ -1,6 +1,7 @@
 import asyncio
 from asyncio import create_task, gather, run
 from itertools import zip_longest
+from typing import List, Dict
 
 import aiohttp.resolver
 from aiohttp import ClientSession
@@ -80,7 +81,7 @@ async def async_range(count):
         await asyncio.sleep(0.0)
 
 
-async def get_all(urls: list[str], num_concurrent: int) -> list:
+async def get_all(urls: List[str], num_concurrent: int) -> list:
     url_iterator = iter(urls)
     keep_going = True
     results = []
@@ -102,7 +103,7 @@ async def get_all(urls: list[str], num_concurrent: int) -> list:
 
 async def get_all_biolm(
     url: str,
-    ploads: list[dict],
+    ploads: List[Dict],
     headers: dict,
     num_concurrent: int,
     response_key: str = None,
