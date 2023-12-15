@@ -151,7 +151,7 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
     # but for simplicity sake will do one at at time right now
     url = f"{BASE_API_URL}/models/{model_name}/{action}/"
 
-    if not isinstance(payloads, list | dict):
+    if not isinstance(payloads, (list, dict)):
         err = "API request payload must be a list or dict, got {}"
         raise AssertionError(err.format(type(payloads)))
 
