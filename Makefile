@@ -47,10 +47,16 @@ clean-test: ## remove test and coverage artifacts
 	rm -fr htmlcov/
 	rm -fr .pytest_cache
 
-lint/flake8: ## check style with flake8
-	flake8 biolmai tests
+lint/ruff: ## run ruff to check Python code style
+	ruff biolmai/ tests/
 
-lint: lint/flake8 ## check style
+lint/black: ## run black to check and format Python code style
+	black --check biolmai/ tests/
+
+lint/flake8: ## check style with flake8
+	flake8 biolmai/ tests/
+
+lint: lint/ruff lint/black lint/flake8 ## check style with ruff, black, flake8
 
 test: ## run tests quickly with the default Python
 	pytest --durations=5 --randomly-seed="$$RS"
