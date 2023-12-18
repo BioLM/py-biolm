@@ -212,22 +212,6 @@ recovery:
    may be predicted. Recover is not equal to likelihood, but ranges between 0 to 1. It
    can be used as a score for ranking produced results.
 
------------
-Performance
------------
-
-Key to leveraging the use of inverse-folding models is the ability to scale the
-underlying algorithm. This can require both a time and cost investment. Since
-inverse-folding samples from a distribution of likelihoods, the best sequences
-are naturally less-frequently occurring, thus leading to the desire to generate
-and rank thousands of de-novo sequences.
-
-Below is a graph of the average requests per second (RPS) for a varying number of
-inverse-folding API requests. This demonstrates the ability of the API to scale
-to match a large volume of requests appropriately and in-parallel.
-
-.. note::
-   Coming soon!
 
 
 -------
@@ -239,11 +223,6 @@ Related
 :doc:`/model-docs/ESM2_Embeddings`
 
 :doc:`/model-docs/ESM-1v`
-
-
-Papers
-
-GitHub
 
 
 ------------------

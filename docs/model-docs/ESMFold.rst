@@ -17,7 +17,7 @@ Description
 -----------
 
 Recent computational protein folding capability enables myriad of applications
-from elucidating structures of novel proteins, , designing engineered proteins,
+from elucidating structures of novel proteins, designing engineered proteins,
 modeling molecular interactions, evaluating impacts of mutations, and assembling
 multi-protein complexes. The BioLM API is democratizing access to 3D structural
 modeling, with its rapid ESMFold API,  bringing the power of structural biology
@@ -39,7 +39,7 @@ The API can be used by biologists, data scientists, engineers, etc. The key valu
   multiple language models without the need to code!
 * The benefit of having access to multiple GPUs is parallel processing. Each
   GPU can handle a different protein folding simulation, allowing for folding
-  dozens of proteins in parallel
+  dozens of proteins in parallel.
 
 ---------
 API Usage
@@ -170,36 +170,21 @@ predictions:
   This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
 
 pdb:
-  Contains a string representing the 3D structure of the protein predicted by the model in PDB (Protein Data Bank) format
+  Contains a string representing the 3D structure of the protein predicted by the model in PDB (Protein Data Bank) format.
 
 mean_plddt:
   Contains a string representing the mean pLDDT score of the predicted structure. The pLDDT (predicted Local Distance Difference Test) score is a measure of the accuracy of the predicted structure, with values ranging from 0 to 100. Higher scores indicate higher confidence in the prediction.
 
 durations:
-  Contains a string that represents the total time taken for the request to be processed and the response to be generated
+  Contains a string that represents the total time taken for the request to be processed and the response to be generated.
 
 
-
-^^^^^^^^^^^
-Performance
-^^^^^^^^^^^
-
-Graph of average RPS for varying number of sequences
-
-.. figure:: ../img/esmfold_perf.png
-   :scale: 50 %
-   :alt: map to buried treasure
-
-   This is the caption of the figure (a simple paragraph).
-
-   The legend consists of all elements after the caption.
 
 .. note::
-   The duration for folding predominantly depends on sequence length.
-
-   A sequence of length 60 might fold in 6 seconds, however a sequence of
-   length 500 might fold in 400 seconds. Above, we plot the performance of a
-   single sequence length.
+   This graph will be available soon.
+   
+   The duration for folding predominantly depends on sequence length. A sequence of length 60 might fold in 6 seconds, however a sequence of
+   length 500 might fold in 400 seconds. 
 
 --------
 Related
@@ -232,10 +217,10 @@ then they don’t need sequence alignments at all in order to fold them. This
 leads to a more simplified neural architecture for inference, drastically
 reducing the time taken in the inference forward pass and removing the lengthy
 search for related proteins, which is a notable part of the process in AlphaFold
--“This results in an improvement in speed of up to 60x on the inference forward
+-*“This results in an improvement in speed of up to 60x on the inference forward
 pass alone, while also removing the search process for related proteins
 entirely, which can take over 10 minutes with the high-sensitivity pipelines
-used by AlphaFold” -  Lin et al., 2022. In addition, AlphaFold 2 may struggle
+used by AlphaFold” -  Lin et al., 2022.* In addition, AlphaFold 2 may struggle
 with ‘orphan proteins’, which lack multiple sequence alignments due to
 insufficient database sequences. Since ESMFold bypasses alignments, it may model
 orphan proteins more effectively. This, in turn, could inform and facilitate the
@@ -255,7 +240,7 @@ structure.
 
 * Predict how post-translational modifications affect chaperone protein
   structure.
-* Analyze capsid protein folding of viruses like HIV, influenza, and SARS-CoV-2.
+* Analyze capsid protein folding of viruses like HIV, Influenza, and SARS-CoV-2.
 * Design novel self-assembling protein nanostructures by rapidly predicting
   their protein architectures.
 * Predict 3D structures of computationally designed enzyme sequences to

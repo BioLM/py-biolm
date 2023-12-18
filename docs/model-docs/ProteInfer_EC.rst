@@ -45,16 +45,6 @@ Benefits
 * The benefit of having access to multiple GPUs is parallel processing. Each GPU can handle a different protein folding simulation, allowing for folding dozens of proteins in parallel!
 
 ---------
-Performance
----------
-
-Graph of average RPS for varying number of sequences (ProteInfer EC)
-
-.. note::
-   We are in the process of adding the graph.
-
-
----------
 API Usage
 ---------
 
@@ -247,7 +237,7 @@ By linking protein sequence to catalytic function, ProteInfer EC can provide use
 
 * Drug discovery
 
-* Systems and Synthetic Biology
+* Systems and synthetic Biology
 
 ProteInfer is adept at identifying regions within a protein sequence that are pivotal for specific reactions. This facilitates the understanding of functional correlations in multi-domain enzymes by bridging sequence attributes to functional outcomes.  A specific protein, “fol1” from Saccharomyces cerevisiae, which is not included in the training data, is highlighted as an important example due to its multiple domains that each perform different roles in tetrahydrofolate synthesis. The model predicts these regions as being highly involved or essential in carrying out certain reactions or functions of the protein. These predicted regions align with existing scientific knowledge.
 
