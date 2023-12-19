@@ -49,7 +49,7 @@ Welcome to BioLM AI's Docs
     .. grid-item-card::  Jupyter Notebooks
        :margin: auto
        :text-align: center
-       :link: https://jupyter.biolm.ai
+       :link: https://jupyter.biolm.ai/lab?path=0_Introduction.ipynb
 
        .. image:: _static/jupyter_notebooks_icon.png
           :scale: 10 %
