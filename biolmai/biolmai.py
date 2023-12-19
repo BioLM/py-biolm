@@ -2,4 +2,6 @@
 
 import logging
 
-log = logging.getLogger("biolm_util")
+log = logging.getLogger('biolm_util')
+
+
