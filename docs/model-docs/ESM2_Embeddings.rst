@@ -22,7 +22,7 @@ feature representations of protein sequences. Such models' predictive
 embeddings encode relevant biological properties, and are use to make classification,
 regression, and other predictions like protein folds. Embeddings are vector representations
 that can be extracted and utilized as inputs for a variety of downstream predictive
-modeling tasks as an alternative to standard one-hot sequence encodings. 
+modeling tasks as an alternative to standard one-hot sequence encodings.
 
 In biology, feature engineering is often heavily tailored to each application.
 However, the embeddings from pretrained language models provide broadly useful
@@ -114,7 +114,7 @@ Making Requests
             seqs = [""MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFAQSQLHQQDRKWPRLPDYFAIGRTTALALHTVSGQKILYPQDREISEVLLQLPELQNIAGKRALILRGNGGRELIGDTLTARGAEVTFCECYQRCAIHYDGAEEAMRWQAREVTMVVVTSGEMLQQLWSLIPQWYREHWLLHCRLLVVSERLAKLARELGWQDIKVADNADNDALLRALQ"]
 
             cls = biolmai.ESM2Embeddings()
-            resp = cls.Transform(seqs)
+            resp = cls.encode(seqs)
 
     .. tab-item:: R
         :sync: r
