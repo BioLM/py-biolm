@@ -9,7 +9,7 @@ DNABERT
     :author: Zeeshan Siddiqui
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
-On this page, we will show and explain the use of DNABert. As well as document the BioLM API for fine-tuning, demonstrate no-code and code interfaces.
+On this page, we will show and explain the use of DNABERT. As well as document the BioLM API for fine-tuning, demonstrate no-code and code interfaces.
 
 
 -----------
@@ -18,7 +18,7 @@ Description
 
 The gene regulatory code is governed not only by individual DNA sequences, but also by intricate interactions between regulatory elements and other cellular components. Elucidating these complex relationships is imperative for deciphering genomic regulation. While substantial data exists for protein-coding regions, annotations for non-coding regulatory regions can be sparse, presenting modeling challenges. Furthermore, non-coding DNA may exhibit polysemy, with a single sequence associated with multiple functions, alongside distant semantic ties.
 
-Standard bioinformatics tools often struggle to capture such intricacies, necessitating advanced computational methods to model the multidimensional connections within genomics data. As described by Li et al. (2021), *The DNABert model aims to address these needs by learning meaningful representations of non-coding DNA for predictive tasks.* DNABert implements the Transformer architecture utilized in BERT with 12 layers, 768 hidden units, and 12 attention heads. The same model topology and training methodology are consistently applied across DNABert variants. Through easy fine-tuning, DNABert (a pre-trained bidirectional encoder representation model) achieved state-of-the-art performance on diverse regulatory predictions (promoters, splice sites and transcription factor binding sites), highlighting the power of pretraining on the complex patterns within non-coding DNA. In addition, the researchers showed that DNABert, originally pretrained on the human genome, achieved excellent performance when fine-tuned and applied to model non-human genomic sequences ( cross-organism transferability).
+Standard bioinformatics tools often struggle to capture such intricacies, necessitating advanced computational methods to model the multidimensional connections within genomics data. As described by Li et al. (2021), *The DNABERT model aims to address these needs by learning meaningful representations of non-coding DNA for predictive tasks.* DNABERT implements the Transformer architecture utilized in BERT with 12 layers, 768 hidden units, and 12 attention heads. The same model topology and training methodology are consistently applied across DNABERT variants. Through easy fine-tuning, DNABERT (a pre-trained bidirectional encoder representation model) achieved state-of-the-art performance on diverse regulatory predictions (promoters, splice sites and transcription factor binding sites), highlighting the power of pretraining on the complex patterns within non-coding DNA. In addition, the researchers showed that DNABERT, originally pretrained on the human genome, achieved excellent performance when fine-tuned and applied to model non-human genomic sequences ( cross-organism transferability).
 
 --------
 Benefits
@@ -26,7 +26,7 @@ Benefits
 
 * The API can be used by biologists, data scientists, engineers, etc. The key values of the BioLM API is speed, scalability and cost.
 
-* The BioLM API allows scientists to programmatically interact with DNABert, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
+* The BioLM API allows scientists to programmatically interact with DNABERT, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
 
 * Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
 
@@ -38,7 +38,7 @@ Benefits
 API Usage
 ---------
 
-The endpoint to Finetune DNA-BERT Classifier: https://biolm.ai/api/v1/finetune_run/
+The endpoint to Finetune DNABERT Classifier: https://biolm.ai/api/v1/finetune_run/
 
 ^^^^^^^^^^^^^^^
 Making Requests
@@ -55,7 +55,7 @@ Making Requests
             --header "Authorization: Token $BIOLMAI_TOKEN" \
             --header 'Content-Type: application/json' \
             --data '{
-            "pipeline": "finetune_dnabert_classifier",
+            "pipeline": "finetune_DNABERT_classifier",
             "hyperopt": false,
             "input_json": {
                 "max_train": 40000,
@@ -78,7 +78,7 @@ Making Requests
             url = "https://biolm.ai/api/v1/finetune_run/"
 
             payload = json.dumps({
-            "pipeline": "finetune_dnabert_classifier",
+            "pipeline": "finetune_DNABERT_classifier",
             "hyperopt": False,
             "input_json": {
                 "max_train": 40000,
@@ -320,7 +320,7 @@ Making Requests
             'Authorization' = paste('Token', Sys.getenv('BIOLMAI_TOKEN'))
             )
             params = "{
-            \"pipeline\": \"finetune_dnabert_classifier\",
+            \"pipeline\": \"finetune_DNABERT_classifier\",
             \"hyperopt\": false,
             \"input_json\": {
                 \"max_train\": 40000,
@@ -564,7 +564,7 @@ seq:
     This key is associated with a string value that represents a DNA sequence. Each character in the string corresponds to a nucleotide base. The sequence provided is what the model will analyze and learn from during the fine-tuning process.
 
 label:
-    Each seq comes with a corresponding label, which is a string that categorizes the sequence. In the context of the provided example, the labels are "non-promoter" or "promoter". These labels are used as the target outputs for the classifier, meaning that the DNABert model will learn to predict these labels from unseen DNA sequences after being trained on the provided examples. The classifier's goal is to determine whether a given DNA sequence functions as a promoter (a region of DNA that initiates transcription of a particular gene) or not.
+    Each seq comes with a corresponding label, which is a string that categorizes the sequence. In the context of the provided example, the labels are "non-promoter" or "promoter". These labels are used as the target outputs for the classifier, meaning that the DNABERT model will learn to predict these labels from unseen DNA sequences after being trained on the provided examples. The classifier's goal is to determine whether a given DNA sequence functions as a promoter (a region of DNA that initiates transcription of a particular gene) or not.
 
 ^^^^^^^^^^^^^
 JSON Response
@@ -578,7 +578,7 @@ JSON Response
         "id": "129",
         "pipeline": {
             "id": "3",
-            "pipeline_slug": "finetune_dnabert_classifier"
+            "pipeline_slug": "finetune_DNABERT_classifier"
         },
         "start_time": null,
         "created_at": "2023-04-01T12:41:21.734731-07:00",
@@ -614,22 +614,22 @@ hyperopt:
 Model Background
 ------------------
 
-DNABert utilizes tokenized k-mer sequences as its foundational training data, where a k-mer is a DNA substring of length 'k'. Special tokens such as CLS (Class token), SEP (Separator token), and MASK (Mask token) are integrated into these sequences. The CLS token encapsulates the essence of the entire sequence, the SEP token acts as a delimiter, and MASK tokens represent masked k-mers during preliminary training.
+DNABERT utilizes tokenized k-mer sequences as its foundational training data, where a k-mer is a DNA substring of length 'k'. Special tokens such as CLS (Class token), SEP (Separator token), and MASK (Mask token) are integrated into these sequences. The CLS token encapsulates the essence of the entire sequence, the SEP token acts as a delimiter, and MASK tokens represent masked k-mers during preliminary training.
 
 The architecture includes an embedding layer that converts tokenized sequences into vector representations, followed by 12 transformer blocks that capture the relationships between different tokens within the sequences. Symbols like Et, It, and Ot denote positional embedding, input embedding, and the last hidden state at each token, essential for understanding positional interrelationships among tokens.
 
-DNABert undergoes general-purpose pre-training and task-specific fine-tuning, enhancing its adaptability across diverse genomic analysis tasks. It exhibits global attention patterns, focusing on pivotal regions within sequences, such as known binding sites, optimizing its analytical precision in genomic studies. (Ji et al., 2021)
+DNABERT undergoes general-purpose pre-training and task-specific fine-tuning, enhancing its adaptability across diverse genomic analysis tasks. It exhibits global attention patterns, focusing on pivotal regions within sequences, such as known binding sites, optimizing its analytical precision in genomic studies. (Ji et al., 2021)
 
 
 -----------------------
-Applications of DNABert
+Applications of DNABERT
 -----------------------
 
-* DNABert can be employed to annotate genomic variants, helping to identify those that may have significant functional impacts. This is critical for understanding the genetic basis of diseases and could also be crucial in personalized medicine.
+* DNABERT can be employed to annotate genomic variants, helping to identify those that may have significant functional impacts. This is critical for understanding the genetic basis of diseases and could also be crucial in personalized medicine.
 
-* By understanding the genomic context and potential regulatory interactions, DNABert could assist in optimizing the design of synthetic constructs to ensure their functionality and stability within microbial hosts.
+* By understanding the genomic context and potential regulatory interactions, DNABERT could assist in optimizing the design of synthetic constructs to ensure their functionality and stability within microbial hosts.
 
-* DNABert can be fine-tuned for identifying cis-regulatory elements or enhancers using ATAC-seq or DAP-seq data.
+* DNABERT can be fine-tuned for identifying cis-regulatory elements or enhancers using ATAC-seq or DAP-seq data.
 
 * DNABERT-Prom (one of the fine-tuned models) successfully predicts proximal and core promoter regions.
 
