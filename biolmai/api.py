@@ -200,14 +200,15 @@ class APIEndpoint:
         dat = self.unpack_local_validations(dat)
         return dat.api_resp.replace(np.nan, None).tolist()
 
-    @convert_input
-    @validate
-    def encode(self, dat):
-        # NOTE: we defined this for the specific case of ESM2
-        # TODO: fixme when ESM2 is fixed
-        dat = self.post_batches(dat, self.slug, "transform", INST_DAT_TXT, "embeddings")
-        dat = self.unpack_local_validations(dat)
-        return dat.api_resp.replace(np.nan, None).tolist()
+    # @convert_input
+    # @validate
+    # def encode(self, dat):
+    #     # NOTE: we defined this for the specific case of ESM2
+    #     # TODO: this will be need again in v2 of API contract
+    #     dat = self.post_batches(dat, self.slug, "transform",
+    #                             INST_DAT_TXT, "embeddings")
+    #     dat = self.unpack_local_validations(dat)
+    #     return dat.api_resp.replace(np.nan, None).tolist()
 
     @convert_input
     @validate
@@ -289,9 +290,9 @@ class TransformAction:
         return "TransformAction"
 
 
-class EncodeAction:
-    def __str__(self):
-        return "EncodeAction"
+# class EncodeAction:
+#     def __str__(self):
+#         return "EncodeAction"
 
 
 class ExplainAction:

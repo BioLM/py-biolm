@@ -46,11 +46,11 @@ def test_async():
 
 
 def test_esm2_embeddings_predict_all_valid_sequences():
-    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = ["".join(return_shuffle(base_seqs))[:30] for _ in range(N)]
     cls = biolmai.cls.ESM2Embeddings()
-    resp = cls.encode(seqs)
+    resp = cls.transform(seqs)  # TODO: this will be need again in v2 of API contract
     assert isinstance(resp, list)
     assert all(isinstance(r, dict) for r in resp)
     assert all("status_code" in r for r in resp)
@@ -58,14 +58,14 @@ def test_esm2_embeddings_predict_all_valid_sequences():
     assert all("batch_item" in r for r in resp)
     assert all("error" not in r for r in resp)
 
-    # TODO: fixme below when ESM2 endpoints are fixed
-    # assert all("predictions" in r for r in resp)
-    # assert all(len(r["predictions"]) == 1 for r in resp)
-    # assert all(
-    #     "33" in item["mean_representations"].keys()
-    #     for subitem in resp
-    #     for item in subitem["predictions"]
-    # )
+    # TODO: this will need modification in v2 of API contract
+    assert all("predictions" in r for r in resp)
+    assert all(len(r["predictions"]) == 1 for r in resp)
+    assert all(
+        "33" in item["mean_representations"].keys()
+        for subitem in resp
+        for item in subitem["predictions"]
+    )
 
 
 def test_esmfold_singlechain_predict_all_valid_sequences():
