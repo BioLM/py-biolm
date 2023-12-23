@@ -14,16 +14,13 @@ Then, install the development dependencies:
 pip install -r requirements_dev.txt
 ```
 
-Finally, install the biolmai package itself in editable mode. This allows you to make changes to the package and see those changes reflected without needing to reinstall the package:
-```shell
-pip install -e .
-```
-The -e flag stands for "editable mode". This is a useful setup for development as it means any changes you make to the package code will be immediately available in your environment, without needing to reinstall the package each time you make a change.
-
-Lastly, run the Makefile to complete the setup:
+Finally, run the Makefile to complete the setup:
 ```shell
 make install
 ```
+
+This installs the biolmai package itself in editable mode. This allows you to make changes to the package and see those changes reflected without needing to reinstall the package:
+It runs the command: `pip install -e .`. The -e flag stands for "editable mode". This is a useful setup for development as it means any changes you make to the package code will be immediately available in your environment, without needing to reinstall the package each time you make a change.
 
 
 ## Set the `BIOLMAI_TOKEN` environment variable

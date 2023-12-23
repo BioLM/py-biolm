@@ -1,7 +1,7 @@
 import asyncio
 from asyncio import create_task, gather, run
 from itertools import zip_longest
-from typing import List, Dict
+from typing import Dict, List
 
 import aiohttp.resolver
 from aiohttp import ClientSession
