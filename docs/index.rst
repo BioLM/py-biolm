@@ -70,11 +70,13 @@ Welcome to BioLM AI's Docs
    :caption: Documentation:
    :hidden:
 
+   model-docs/DNABERT
    model-docs/ESM-1v
    model-docs/ESM2_Embeddings
    model-docs/ESMFold
    model-docs/ESM_InverseFold
    model-docs/progen2/index
+   model-docs/ProtGPT2
    model-docs/ProteInfer_EC
    model-docs/ProteInfer_GO
 
