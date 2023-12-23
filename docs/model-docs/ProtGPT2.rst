@@ -1,6 +1,6 @@
-==========
-ProtGPT-2
-==========
+========
+ProtGPT2
+========
 
 .. article-info::
     :avatar: img/book_icon.png

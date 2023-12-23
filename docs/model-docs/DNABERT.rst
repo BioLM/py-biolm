@@ -1,5 +1,5 @@
 =======
-DNABert
+DNABERT
 =======
 
 .. article-info::
@@ -548,22 +548,22 @@ Making Requests
 Definitions
 +++++++++++++
 
-hyperopt: 
+hyperopt:
     False specifies whether or not to perform hyperparameter optimization (hyperopt). If set to false, no optimization will be performed.
 
-input_json: 
+input_json:
     Is a nested JSON object that contains the data for training and validation, as well as configuration details like max_train and train (below)
 
 max_train:
     40000 and "max_validate": 20000" set the maximum number of training and validation examples, respectively.
 
-train: 
+train:
     Is an array of objects, each containing a DNA sequence ("seq") and a corresponding label ("label"). These are the training examples for the fine-tuning process. The sequences are strings of characters representing nucleotide bases (adenine (A), cytosine (C), guanine (G), and thymine (T)), and the labels indicate the classification category for each sequence (e.g., "non-promoter" or "promoter"
 
-seq: 
+seq:
     This key is associated with a string value that represents a DNA sequence. Each character in the string corresponds to a nucleotide base. The sequence provided is what the model will analyze and learn from during the fine-tuning process.
 
-label: 
+label:
     Each seq comes with a corresponding label, which is a string that categorizes the sequence. In the context of the provided example, the labels are "non-promoter" or "promoter". These labels are used as the target outputs for the classifier, meaning that the DNABert model will learn to predict these labels from unseen DNA sequences after being trained on the provided examples. The classifier's goal is to determine whether a given DNA sequence functions as a promoter (a region of DNA that initiates transcription of a particular gene) or not.
 
 ^^^^^^^^^^^^^
@@ -592,22 +592,22 @@ JSON Response
 Definitions
 +++++++++++++
 
-Start_time: 
+Start_time:
     This field records the time when the task started processing. Null indicates that the process has not started yet.
 
-created_at: 
-    The timestamp when the task was created or submitted to the system. It is in ISO 8601 date and time format with timezone information. 
+created_at:
+    The timestamp when the task was created or submitted to the system. It is in ISO 8601 date and time format with timezone information.
 
-end_time: 
+end_time:
     Similar to start_time, this would record when the task finished processing. Null indicates it has not finished yet or has not started.
 
-status: 
+status:
     This indicates the current state of the task. "scheduled" means that the task has been scheduled to run but has not yet started.
 
-algorithm: 
+algorithm:
     This indicates which algorithm or method is being used for the task. null suggests that this information is either not applicable, not decided yet, or simply not provided in the response.
 
-hyperopt: 
+hyperopt:
     Indicates whether hyperparameter optimization is enabled for the task. false means that hyperparameter optimization is not being used. Hyperparameter optimization is a process to automatically select the best hyperparameters (settings) for a machine learning model to maximize its performance.
 
 ------------------
@@ -629,7 +629,7 @@ Applications of DNABert
 
 * By understanding the genomic context and potential regulatory interactions, DNABert could assist in optimizing the design of synthetic constructs to ensure their functionality and stability within microbial hosts.
 
-* DNABert can be fine-tuned for identifying cis-regulatory elements or enhancers using ATAC-seq or DAP-seq data. 
+* DNABert can be fine-tuned for identifying cis-regulatory elements or enhancers using ATAC-seq or DAP-seq data.
 
 * DNABERT-Prom (one of the fine-tuned models) successfully predicts proximal and core promoter regions.
 
