@@ -1,5 +1,5 @@
 """API inference classes."""
-from biolmai.api import APIEndpoint, EncodeAction, GenerateAction, PredictAction
+from biolmai.api import APIEndpoint, GenerateAction, PredictAction, TransformAction
 from biolmai.validate import ExtendedAAPlusExtra, SingleOccurrenceOf, UnambiguousAA
 
 
@@ -31,7 +31,7 @@ class ESM2Embeddings(APIEndpoint):
     """
 
     slug = "esm2_t33_650M_UR50D"
-    action_classes = (EncodeAction,)
+    action_classes = (TransformAction,)
     seq_classes = (UnambiguousAA(),)
     batch_size = 1
 
