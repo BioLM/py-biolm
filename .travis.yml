@@ -22,7 +22,7 @@ deploy:
   cleanup: true
   on:
     repo: BioLM/py-biolm
-    python: "3.10"
+    python: "3.10-dev"
     branch: production
 env:
   global:
