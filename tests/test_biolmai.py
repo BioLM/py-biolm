@@ -261,3 +261,36 @@ def test_command_line_interface():
     help_result = runner.invoke(cli.main, ["--help"])
     assert help_result.exit_code == 0
     assert "--help  Show this message and exit." in help_result.output
+
+def test_biolmtox_v1_all_valid_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = ["".join(return_shuffle(base_seqs))[:30] for _ in range(N)]
+    cls = biolmai.cls.BioLMToxv1()
+    resp = cls.predict(seqs)  # TODO: this will be need again in v2 of API contract
+    assert isinstance(resp, list)
+    assert all(isinstance(r, dict) for r in resp)
+    assert all("status_code" in r for r in resp)
+    assert all("batch_id" in r for r in resp)
+    assert all("batch_item" in r for r in resp)
+    assert all("error" not in r for r in resp)
+
+    # TODO: this will need modification in v2 of API contract
+    assert all("predictions" in r for r in resp)
+    #assert all(len(r["predictions"]) == 1 for r in resp)
+    assert all(
+        "label" in item.keys() and "score" in item.keys()
+        for subitem in resp
+        for item in subitem["predictions"]
+    )
+
+    resp = cls.transform(seqs)  # TODO: this will be need again in v2 of API contract
+    assert isinstance(resp, list)
+    assert all(isinstance(r, dict) for r in resp)
+    assert all("status_code" in r for r in resp)
+    assert all("batch_id" in r for r in resp)
+    assert all("batch_item" in r for r in resp)
+    assert all("error" not in r for r in resp)
+
+    # TODO: this will need modification in v2 of API contract
+    assert all("predictions" in r for r in resp)
