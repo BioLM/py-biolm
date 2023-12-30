@@ -4,76 +4,79 @@
 Authentication
 ==============
 
-To authenticate API requests made to BioLM by the Python client,
-two methods can be used. The first is by setting an environment-variable
-and is considered permanent, meaning to re-authentication will not be necessary.
-The second method is by logging in using the client's CLI, which will
-save a temporary access token that authenticates for several hours
+To authenticate API requests made by the Python client,
+two methods can be used:
+
+1. set an environment-variable, which is permanent, meaning
+   re-authentication will not be necessary
+2. or log in using the CLI, which will save an access and refresh
+   token that will expire after a period of inactivity.
 
 
-Permanent authentication
-------------------------
+Environment variable authentication
+-----------------------------------
 
-For each API
-
-Temporary authentication
-------------------------
-
+Obtain an API token from your BioLM User page,
+then use it to set the environment variable :code:`BIOLMAI_TOKEN`.
+For examples, see below.
 
 .. note::
 
-   Coming soon!
+   Ensure you replace the example API token with your own.
+
+.. code:: shell
+
+    export BOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
+
+For Bash
+^^^^^^^^
+
+.. code:: shell
+
+    echo "export BIOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b" >> ~/.bash_profile && source ~/.bash_profile
+
+For Zsh
+^^^^^^^
 
 
-###
-.. highlight:: shell
+.. code:: shell
 
-============
-Installation
-============
+    echo "export BIOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b" >> ~/.zshrc && source ~/.zshrc
 
+For Python
+^^^^^^^^^^
 
-Stable release
---------------
+.. code:: python
 
-To install BioLM AI, run this command in your terminal:
-
-.. code-block:: console
-
-    $ pip install biolmai
-
-This is the preferred method to install BioLM AI, as it will always install the most recent stable release.
-
-If you don't have `pip`_ installed, this `Python installation guide`_ can guide
-you through the process.
-
-.. _pip: https://pip.pypa.io
-.. _Python installation guide: http://docs.python-guide.org/en/latest/starting/installation/
+    import os
+    os.environ['BIOLMAI_TOKEN'] = '9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b'
 
 
-From sources
-------------
+CLI authentication
+------------------
 
-The sources for BioLM AI can be downloaded from the `GitHub repo`_.
-
-You can either clone the public repository:
-
-.. code-block:: console
-
-    $ git clone git://github.com/BioLM/py-biolm
-
-Or download the `tarball`_:
-
-.. code-block:: console
-
-    $ curl -OJL https://github.com/BioLM/py-biolm/tarball/production
-
-Once you have a copy of the source, you can install it with:
-
-.. code-block:: console
-
-    $ python setup.py install
+Alternatively, with the :code:`biolmai` package installed, in your Terminal run :code:`biolmai login`.
+When prompted, enter your username and password.
 
 
-.. _GitHub repo: https://github.com/BioLM/py-biolm
-.. _tarball: https://github.com/BioLM/py-biolm/tarball/production
+.. code:: shell
+
+    $ biolmai login
+
+    # Username:
+    # Password:
+    # Login succeeded!
+    #
+    # Saving new access and refresh token.
+    # { 'user': { 'api_use_count': 13000,
+    #             'email': 'support@biolm.ai',
+    #             'get_curr_month_api_use_count': 100,
+    #             'in_trial': False,
+    #             'institute': 1,
+    #             'username': ''}}
+
+.. note::
+
+   This method does not work with social logins, such as Google or GitHub accounts. Only use
+   if you registered for BioLM.ai with your email address and password, and don't login
+   using your Google or GitHub identity.
