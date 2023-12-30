@@ -262,7 +262,7 @@ def test_command_line_interface():
     assert help_result.exit_code == 0
     assert "--help  Show this message and exit." in help_result.output
 
-def test_biolmtox_v1_all_valid_sequences():
+def test_biolmtox_v1_predict_all_valid_sequences():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHH"
     base_seqs = list(base_seq)  # Shuffle this to make many of them
     seqs = ["".join(return_shuffle(base_seqs))[:30] for _ in range(N)]
@@ -284,6 +284,19 @@ def test_biolmtox_v1_all_valid_sequences():
         for item in subitem["predictions"]
     )
 
+    assert all(
+        item["label"] in ['toxin', 'not toxin'] and isinstance(item["score"], float)
+        for subitem in resp
+        for item in subitem["predictions"]
+    )
+
+
+def test_biolmtox_v1_encode_all_valid_sequences():
+    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHH"
+    base_seqs = list(base_seq)  # Shuffle this to make many of them
+    seqs = ["".join(return_shuffle(base_seqs))[:30] for _ in range(N)]
+    cls = biolmai.cls.BioLMToxv1()
+
     resp = cls.transform(seqs)  # TODO: this will be need again in v2 of API contract
     assert isinstance(resp, list)
     assert all(isinstance(r, dict) for r in resp)
@@ -294,3 +307,4 @@ def test_biolmtox_v1_all_valid_sequences():
 
     # TODO: this will need modification in v2 of API contract
     assert all("predictions" in r for r in resp)
+    assert all(isinstance(e, float) for subitem in resp for item in subitem["predictions"] for e in item)
