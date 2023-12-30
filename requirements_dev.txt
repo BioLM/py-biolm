@@ -27,3 +27,5 @@ watchdog==3.0.0
 sphinx-new-tab-link
 black==23.3.0
 ruff==0.1.8
+jupyterlite-sphinx
+jupyterlite-pyodide-kernel

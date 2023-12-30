@@ -359,4 +359,30 @@ ESM-1v has great potential in advancing our understanding of protein function an
 
 * Predicting protein folding from sequence: Scientists can mask various portions of a sequence and analyze changes in the ESM-1v embedding to predict structural folds. Or mask different sequence regions to identify areas that most significantly alter the embedding away from the native fold.
 
+Examples
+--------
+
+.. TryExamples::
+   :button_css: background-color: #f7dc1e; border: none; padding: 5px 10px; border-radius: 15px; font-family: vibur; font-size: x-large; box-shadow: 0 2px 5px rgba(108,108,108,0.2);
+   :button_hover_css: background-color: #fff221; transform: scale(1.02); box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); cursor: pointer;
+   :button_horizontal_position: right
+   :button_vertical_position: top
+   :button_text: Try it in a classic notebook!
+   :min_height: 200px
+
+    Here is some Python code:
+
+    ```python
+    x = 2
+    y = 2
+    print(x + y)
+    ```
+
+    And here is an R example:
+
+    ```r
+    x <- 2
+    y <- 2
+    print(x + y)
+    ```
 

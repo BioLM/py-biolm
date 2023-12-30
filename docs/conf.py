@@ -36,6 +36,7 @@ extensions = [
     "sphinx_design",
     "myst_parser",
     "sphinx_new_tab_link",
+    "jupyterlite_sphinx",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
