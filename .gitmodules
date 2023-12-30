@@ -1,0 +1,3 @@
+[submodule "tutorials-and-guides"]
+	path = tutorials-and-guides
+	url = https://github.com/BioLM/tutorials-and-guides.git
