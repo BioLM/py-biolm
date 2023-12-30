@@ -95,7 +95,7 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: Biolmai SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
@@ -182,9 +182,9 @@ durations:
 
 .. note::
    This graph will be available soon.
-   
+
    The duration for folding predominantly depends on sequence length. A sequence of length 60 might fold in 6 seconds, however a sequence of
-   length 500 might fold in 400 seconds. 
+   length 500 might fold in 400 seconds.
 
 --------
 Related

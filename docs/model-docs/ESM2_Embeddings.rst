@@ -105,7 +105,7 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: Biolmai SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk

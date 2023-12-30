@@ -100,7 +100,7 @@ Making Classification Requests
 
             print(response.text)
 
-    .. tab-item:: Biolmai SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
@@ -182,7 +182,7 @@ Making Embedding Requests
 
             print(response.text)
 
-    .. tab-item:: Biolmai SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
