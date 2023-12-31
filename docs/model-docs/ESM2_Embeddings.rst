@@ -105,7 +105,7 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: Biolmai SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
@@ -152,7 +152,7 @@ data:
 text:
    Inside the "data" dictionary, there's a key named "text". The value
    associated with "text" should be a string containing the amino acid sequence
-   that the user wants to submit for structure prediction.
+   that the user wants to submit for embedding extraction.
 
 
 ^^^^^^^^^^^^^

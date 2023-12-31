@@ -79,6 +79,7 @@ Welcome to BioLM AI's Docs
    model-docs/ProtGPT2
    model-docs/ProteInfer_EC
    model-docs/ProteInfer_GO
+   model-docs/BioLMTox
 
 .. toctree::
    :maxdepth: 2

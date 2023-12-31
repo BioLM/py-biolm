@@ -95,3 +95,21 @@ class Progen2(APIEndpoint):
     action_classes = (GenerateAction,)
     seq_classes = ()
     batch_size = 1
+
+class BioLMToxv1(APIEndpoint):
+    """Example.
+
+    .. highlight:: python
+    .. code-block:: python
+
+       {
+         "instances": [{
+           "data": {"text": "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQ"}
+         }]
+       }
+    """
+
+    slug = "biolmtox_v1"
+    action_classes = (TransformAction, PredictAction,)
+    seq_classes = (UnambiguousAA(),)
+    batch_size = 1
