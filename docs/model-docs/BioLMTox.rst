@@ -17,16 +17,10 @@ it's usage for classification and embedding extraction on BioLM.*
 Description
 -----------
 
-Large language models (LLMs) have had incredible success in the last few years.
-A word to emphasize is large. These models have millions if not billions of
-parameters. This makes creating LLMs from scratch extremely costly. Fortunately,
-techniques such as transfer learning and fine tuning can leverage these massive
-and high performance models at a fraction of the cost. An important target
-for machine learning in computational biology that can benefit from LLMs and the
-emerging pre-train fine-tune paradigm is toxin classification. Toxin classification
+Toxin classification
 has important applications in both industry and research settings and has been a
 concern for some time with respect to biosecurity and in the fields of protein, DNA
-and drug design. BioLMTox is an application of this pre-train fine-tune paradigm,
+and drug design. BioLMTox is an application of the pre-train fine-tune paradigm,
 honing the ESM-2 Pre-Trained Protein Language Model for general toxin classification.
 
 
