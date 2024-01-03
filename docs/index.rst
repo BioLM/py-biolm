@@ -70,6 +70,7 @@ Welcome to BioLM AI's Docs
    :caption: Documentation:
    :hidden:
 
+   model-docs/BioLMTox
    model-docs/DNABERT
    model-docs/ESM-1v
    model-docs/ESM2_Embeddings
@@ -79,7 +80,6 @@ Welcome to BioLM AI's Docs
    model-docs/ProtGPT2
    model-docs/ProteInfer_EC
    model-docs/ProteInfer_GO
-   model-docs/BioLMTox
 
 .. toctree::
    :maxdepth: 2
