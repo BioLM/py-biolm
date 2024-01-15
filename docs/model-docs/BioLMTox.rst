@@ -36,18 +36,25 @@ Benefits
 * Rapidly screen for biosecurity risks
 * Get ahead of potential biosecurity regulation and laws
 
+--------------------
+Classifier API Usage
+--------------------
 
----------
-API Usage
----------
+--------------------
+Embeddings API Usage
+--------------------
 
 The endpoint for BioLMTox toxin classification is `https://biolm.ai/api/v1/models/biolmtox_v1/predict/ <https://api.biolm.ai/#8616fff6-33c4-416b-9557-429da180ef92>`_.
 
 The endpoint for BioLMTox embeddings is `https://biolm.ai/api/v1/models/biolmtox_v1/transform/ <https://api.biolm.ai/#723bb851-3fa0-40fa-b4eb-f56b16d954f5>`_.
 
 ^^^^^^^^^^^^^^^
-Making Classification Requests
+Making Requests
 ^^^^^^^^^^^^^^^
+
+++++++++++++++++++++++
+Classification Request
+++++++++++++++++++++++
 
 .. tab-set::
 
@@ -127,9 +134,9 @@ Making Classification Requests
             res <- postForm("https://biolm.ai/api/v1/models/biolmtox_v1/predict/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
 
-^^^^^^^^^^^^^^^
-Making Embedding Requests
-^^^^^^^^^^^^^^^
+++++++++++++++++++
+Embedding Requests
+++++++++++++++++++
 
 .. tab-set::
 
@@ -214,19 +221,21 @@ Definitions
 +++++++++++
 
 data:
-   Inside each instance, there's a key named "data" that holds another
-   dictionary. This dictionary contains the actual input data for the
-   endpoint action.
+   A dictionary containing the input data for the request.
 
 text:
-   Inside the "data" dictionary, there's a key named "text". The value
+   Inside the "data" dictionary, there is a key named "text". The value
    associated with "text" should be a string containing the amino acid sequence
    that the user wants to submit for toxin classification or embedding extraction.
 
 
-^^^^^^^^^^^^^
-JSON Classification Response
-^^^^^^^^^^^^^
+^^^^^^^^^^^^^^
+JSON Responses
+^^^^^^^^^^^^^^
+
++++++++++++++++++++++++
+Classification Response
++++++++++++++++++++++++
 
 .. dropdown:: Expand Example Response
     :open:
@@ -241,9 +250,9 @@ JSON Classification Response
         ]
         }
 
-^^^^^^^^^^^^^
-JSON Classification Response
-^^^^^^^^^^^^^
++++++++++++++++++++
+Embeddings Response
++++++++++++++++++++
 
 .. dropdown:: Expand Example Response
     :open:
@@ -261,44 +270,42 @@ JSON Classification Response
             0.04185352101922035,
 
 .. note::
-  The above response is only a small snippet of the full JSON response. However, all the relevant response keys are included.
+
+  The above response is only a small snippet of the full output. However, all the relevant response keys are included.
 
 +++++++++++
 Definitions
 +++++++++++
 
 predictions:
-   This is the main key in the JSON object that contains an array of prediction results. Each element in the array represents a set of predictions for one input instance.
+   Root-level key whose value is a list of predictions, one for each submitted sequence.
 
 label:
-   This key holds the predicted classification label for the input instance, it will be either toxin or not toxin
+   The predicted classification label for an input instance, either 'toxin' or 'not toxin'.
 
 score:
-   The model score for predicted class label, the closer the score is to 1 the more confident the model is in the prediction.
+   The model score for the given label, between 0 and 1. Closer to one indicates increasing confidence.
 
 
-
-
-
-------------------
+----------------
 Model Background
-------------------
+----------------
 
-BioLMTox is a protein language model fine-tuned for general (different domains of life and sequence lengths)
-toxin classification. BioLMTox was trained on a selection of sequences from the UniProt, UniRef50 and
-comparable SOTA datasets.
+BioLMTox is a protein language model fine-tuned for general toxin classification across multiple
+domains of life and varying sequence lengths. The model was trained on a selection of sequences
+from UniProt and UniRef50, as well as published datasets from previous works in this area.
 
------------------------
+------------------------
 Applications of BioLMTox
------------------------
+------------------------
 
-BioLMTox classification predictions and embeddings can be
+BioLMTox classification predictions and embeddings can be used to:
 
-* used to augment biosecurity screening. Incorporate BioLMTox predictions before wet lab testing or alongside other computational screening software.
+* augment biosecurity screening, prior to wet-lab use or synthesis, and alongside other computational screening software.
 
-* used to discriminate between toxin and not toxin homolologs that may bypass standard sequence similarity methods
+* discriminate between toxin and not-toxin homolologs that may bypass standard sequence-similarity or k-mer based screening methods.
 
-* incorporated into public facing APIs, we apps and chat agents to reduce dual-use risks
+* incorporate into public facing APIs, web apps and chat agents to reduce dual-use risks.
 
 
 
