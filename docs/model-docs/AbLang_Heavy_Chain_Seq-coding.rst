@@ -1,6 +1,5 @@
-
 ================================
-AbLang Heavy Chain Res-coding
+AbLang Heavy Chain Seq-coding
 ================================
 
 .. article-info::
@@ -34,9 +33,9 @@ Benefits
 * Use our Chat Agents and other Web Apps to interact with bio-LLMs using no code.
 
 
----------------------------------------------
-API Usage for AbLang_Heavy_Chain_Res-coding
----------------------------------------------
+----------------------------------------
+API Usage AbLang_Heavy_Chain_Seq-coding
+----------------------------------------
 
 API endpoint for `https://biolm.ai/api/v2/ablang-heavy/encode/ <https://api.biolm.ai>`_.
 
@@ -53,14 +52,14 @@ Making Requests
         .. code:: shell
             curl --location 'https://biolm.ai/api/v2/ablang-heavy/encode/' \
             --data '{
-                "items": [
-                    {
-                        "sequence": "EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS"
-                    }
-                ],
-                "params": {
-                    "include": "rescoding"
-                }
+            "items": [
+               {
+                  "sequence": "EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS"
+               }
+            ],
+            "params": {
+               "include": "seqcoding"
+            }
             }'
 
    .. tab-item:: Python Requests
@@ -72,40 +71,42 @@ Making Requests
 
             url = "https://biolm.ai/api/v2/ablang-heavy/encode/"
 
-            payload = "{\n    \"items\": [\n        {\n            \"sequence\": \"EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS\"\n        }\n    ],\n    \"params\": {\n        \"include\": \"rescoding\"\n    }\n}"
+            payload = "{\n    \"items\": [\n        {\n            \"sequence\": \"EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS\"\n        }\n    ],\n    \"params\": {\n        \"include\": \"seqcoding\"\n    }\n}"
             headers = {}
 
             response = requests.request("POST", url, headers=headers, data=payload)
 
             print(response.text)
 
-
    .. tab-item:: R
        :sync: r
 
        .. code:: R
            
-            library(RCurl)
-            params = "{\n    \"items\": [\n        {\n            \"sequence\": \"EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS\"\n        }\n    ],\n    \"params\": {\n        \"include\": \"rescoding\"\n    }\n}"
-            res <- postForm("https://biolm.ai/api/v2/ablang-heavy/encode/", .opts=list(postfields = params, followlocation = TRUE), style = "httppost")
-            cat(res)
+           library(RCurl)
+           params = "{\n    \"items\": [\n        {\n            \"sequence\": \"EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS\"\n        }\n    ],\n    \"params\": {\n        \"include\": \"seqcoding\"\n    }\n}"
+           res <- postForm("https://biolm.ai/api/v2/ablang-heavy/encode/", .opts=list(postfields = params, followlocation = TRUE), style = "httppost")
+           cat(res)
 
 
 +++++++++++
 Definitions
 +++++++++++
 
-items: 
-    This is a list of objects, each containing a sequence key.
-
-sequence: 
-    A string representing the amino acid sequence of the heavy chain of an antibody.
-
 params: 
-    This is an object containing parameters for the API request.
+   Additional parameters for the request.
 
 include: 
-    A string specifying what type of encoding to include in the response. In this case, "rescoding" indicates that residue-level encodings should be included.
+   Specifies additional data to be included in the response. "seqcoding" indicates that sequence embeddings should be included.
+
+payload: 
+   A string variable containing the JSON payload to be sent in the POST request. It consists of items and sequence.
+
+sequence:
+   The amino acid sequence of the antibody heavy chain for which you want to generate embeddings.
+
+items: 
+   A list of dictionaries, each representing an item to be processed by the ABLang model. Each dictionary has a key.
 
 ^^^^^^^^^^^^^
 JSON Response
@@ -116,23 +117,19 @@ JSON Response
 
     .. code:: json
 
-
-        {
-        "results": [
+         {
+         "results": [
             {
-            "rescoding": [
-                [
-                -0.00730112474411726,
-                0.9119473695755005,
-                0.39394399523735046,
-                -1.8001917600631714,
-                0.2380848526954651,
-                0.9699342846870422,
-                -1.3685181140899658,
-                0.7587538957595825,
-                -0.4126327633857727,
-                -0.7616114616394043,
-                -0.7388492822647095,
+               "seqcoding": [
+               -0.6615958659340097,
+               0.13918796144733744,
+               -0.9715563959080326,
+               -0.24384153723208743,
+               0.0955913498129865,
+               0.6615201387831495,
+               -0.3109214511846215,
+               0.4820148539248361,
+
 
 .. note::
   The above response is only a small snippet of the full JSON response. However, all the relevant response keys are included.
@@ -141,14 +138,20 @@ JSON Response
 Definitions
 +++++++++++
 
-rescoding: 
-    A list of lists representing the residue-level encoding of the antibody heavy chain sequence, with each element being a floating-point number corresponding to a feature in the encoding.
+
+results:
+   A list containing the results of the ABLang model's encoding process. Each element in this list is a dictionary representing the results for one input item (in this case, one antibody heavy chain sequence).
+
+
+seqcoding: 
+   A key within each result dictionary that corresponds to the sequence embeddings generated by the ABLang model for the input antibody heavy chain sequence. The value is a list of floating-point numbers, each representing a dimension in the embedding space. These embeddings capture the characteristics of the input sequence and can be used for various downstream tasks, such as similarity comparisons, clustering, or as input features for machine learning models.
+
 
 ----------
 Related
 ----------
 
-:doc:`/model-docs/AbLang_Heavy_Chain_Seq-coding`
+:doc:`/model-docs/AbLang Heavy Chain Res-coding`
 
 
 ------------------
