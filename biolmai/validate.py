@@ -1,4 +1,5 @@
 import re
+from typing import List
 
 UNAMBIGUOUS_AA = (
     "A",
@@ -22,113 +23,137 @@ UNAMBIGUOUS_AA = (
     "W",
     "Y",
 )
-AAs = "".join(UNAMBIGUOUS_AA)
-# Let's use extended list for ESM-1v
-AAs_EXTENDED = "ACDEFGHIKLMNPQRSTVWYBXZJUO"
+aa_unambiguous = "ACDEFGHIKLMNPQRSTVWY"
+aa_extended = aa_unambiguous + "BXZUO"
 
-
-UNAMBIGUOUS_DNA = ("A", "C", "T", "G")
-AMBIGUOUS_DNA = ("A", "C", "T", "G", "X", "N", "U")
+dna_unambiguous = "ACTG"
+dna_ambiguous = dna_unambiguous + "XNU"
 
 
 regexes = {
-    "empty_or_unambiguous_aa_validator": re.compile(f"^[{AAs}]*$"),
-    "empty_or_unambiguous_dna_validator": re.compile(r"^[ACGT]*$"),
-    "extended_aa_validator": re.compile(f"^[{AAs_EXTENDED}]+$"),
-    "unambiguous_aa_validator": re.compile(f"^[{AAs}]+$"),
-    "unambiguous_dna_validator": re.compile(r"^[ACGT]+$"),
+    "empty_or_aa_unambiguous_validator": re.compile(f"^[{aa_unambiguous}]*$"),
+    "aa_extended_validator": re.compile(f"^[{aa_extended}]+$"),
+    "aa_unambiguous_validator": re.compile(f"^[{aa_unambiguous}]+$"),
+    "empty_or_dna_unambiguous_validator": re.compile(f"^[{dna_unambiguous}]*$"),
+    "dna_unambiguous_validator": re.compile(f"^[{dna_unambiguous}]+$"),
 }
 
 
-def empty_or_unambiguous_aa_validator(txt):
-    r = regexes["empty_or_unambiguous_aa_validator"]
-    if not bool(r.match(txt)):
-        err = f"Residues can only be represented with '{AAs}' characters"
-        raise AssertionError(err)
-    return txt
-
-
-def empty_or_unambiguous_dna_validator(txt):
-    r = regexes["empty_or_unambiguous_dna_validator"]
-    if not bool(r.match(txt)):
-        err = "Nucleotides can only be represented with 'ACTG' characters"
-        raise AssertionError(err)
-    return txt
-
-
-def extended_aa_validator(txt):
-    r = regexes["extended_aa_validator"]
-    if not bool(r.match(txt)):
-        err = (
-            f"Extended residues can only be represented with "
-            f"'{AAs_EXTENDED}' characters"
+def empty_or_aa_unambiguous_validator(text: str) -> str:
+    if not regexes["empty_or_aa_unambiguous_validator"].match(text):
+        raise ValueError(
+            f"Residues can only be represented with '{aa_unambiguous}' characters"
         )
-        raise AssertionError(err)
-    return txt
+    return text
 
 
-def unambiguous_aa_validator(txt):
-    r = regexes["unambiguous_aa_validator"]
-    if not bool(r.match(txt)):
-        err = (
-            f"Unambiguous residues can only be represented with '{AAs}' " f"characters"
+def empty_or_dna_unambiguous_validator(text: str) -> str:
+    if not regexes["empty_or_dna_unambiguous_validator"].match(text):
+        raise ValueError(
+            f"Nucleotides can only be represented with '{dna_unambiguous}' characters"
         )
-        raise AssertionError(err)
-    return txt
+    return text
 
 
-def unambiguous_dna_validator(txt):
-    r = regexes["unambiguous_dna_validator"]
-    if not bool(r.match(txt)):
-        err = (
-            "Unambiguous nucleotides can only be represented with 'ACTG' " "characters"
+def aa_extended_validator(text: str) -> str:
+    if not regexes["aa_extended_validator"].match(text):
+        raise ValueError(
+            f"Residues can only be represented with '{aa_extended}' characters"
         )
-        raise AssertionError(err)
-    return txt
+    return text
 
 
-class UnambiguousAA:
+def aa_unambiguous_validator(text: str) -> str:
+    if not regexes["aa_unambiguous_validator"].match(text):
+        raise ValueError(
+            f"Residues can only be represented with '{aa_unambiguous}' characters"
+        )
+    return text
+
+
+def dna_unambiguous_validator(text: str) -> str:
+    if not regexes["dna_unambiguous_validator"].match(text):
+        raise ValueError(
+            f"Nucleotides can only be represented with '{dna_unambiguous}' characters"
+        )
+    return text
+
+def pdb_validator(text: str) -> str:
+    if "ATOM" not in text:
+        raise ValueError("PDB string does not appear to be a valid PDB")
+    return text
+
+
+class PDB:
     def __call__(self, value):
-        _ = unambiguous_aa_validator(value)
+        _ = pdb_validator(value)
+class AAUnambiguous:
+    def __call__(self, value):
+        _ = aa_unambiguous_validator(value)
 
+class AAExtended:
+    def __call__(self, value):
+        _ = aa_extended_validator(value)
 
-class UnambiguousAAPlusExtra:
-    def __init__(self, extra=None):
-        if extra is None:
-            extra = []
+class DNAUnambiguous:
+    def __call__(self, value):
+        _ = dna_unambiguous_validator(value)
+
+class AAUnambiguousEmpty:
+    def __call__(self, value):
+        _ = empty_or_aa_unambiguous_validator(value)
+
+class AAUnambiguousPlusExtra:
+    def __init__(self, extra: List[str]):
+        if not extra:
+            raise ValueError("Extra cannot be empty")
         self.extra = extra
-        assert len(extra) > 0
-        assert isinstance(extra, list)
 
-    def __call__(self, value):
-        txt_clean = value
+    def __call__(self, value: str) -> str:
+        text_clean = value
         for ex in self.extra:
-            txt_clean = value.replace(ex, "")
-        _ = unambiguous_aa_validator(txt_clean)
+            text_clean = text_clean.replace(ex, "")
+        aa_unambiguous_validator(text_clean)
+        return value
 
 
-class ExtendedAAPlusExtra:
-    def __init__(self, extra=None):
-        if extra is None:
-            extra = []
+class AAExtendedPlusExtra:
+    def __init__(self, extra: List[str]):
+        if not extra:
+            raise ValueError("Extra cannot be empty")
         self.extra = extra
-        assert len(extra) > 0
-        assert isinstance(extra, list)
 
-    def __call__(self, value):
-        txt_clean = value
+    def __call__(self, value: str) -> str:
+        text_clean = value
         for ex in self.extra:
-            txt_clean = value.replace(ex, "")
-        _ = extended_aa_validator(txt_clean)
+            text_clean = text_clean.replace(ex, "")
+        aa_extended_validator(text_clean)
+        return value
 
 
 class SingleOccurrenceOf:
-    def __init__(self, single_char):
-        self.single_char = single_char
+    def __init__(self, single_token: str):
+        self.single_token = single_token
 
-    def __call__(self, value):
-        s = self.single_char
-        cc = value.count(s)
-        if cc != 1:
-            err = "Expected a single occurrence of '{}', got {}"
-            raise AssertionError(err.format(s, cc))
+    def __call__(self, value: str) -> str:
+        count = value.count(self.single_token)
+        if count != 1:
+            raise ValueError(
+                f"Expected a single occurrence of '{self.single_token}', got {count}"
+            )
+        return value
+
+
+class SingleOrMoreOccurrencesOf:
+    def __init__(self, token: str):
+        self.token = token
+
+    def __call__(self, value: str) -> str:
+        count = value.count(self.token)
+        if count < 1:
+            raise ValueError(
+                f"Expected at least one occurrence of '{self.token}', got none"
+            )
+        return value
+
+
