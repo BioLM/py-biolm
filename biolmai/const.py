@@ -26,4 +26,5 @@ if int(MULTIPROCESS_THREADS) > max_threads or int(MULTIPROCESS_THREADS) > 128:
 elif int(MULTIPROCESS_THREADS) <= 0:
     err = "Environment variable BIOLMAI_THREADS must be a positive integer."
     raise ValueError(err)
-BASE_API_URL = f"{BASE_DOMAIN}/api/v1"
+BASE_API_URL_V1 = f"{BASE_DOMAIN}/api/v1"
+BASE_API_URL = f"{BASE_DOMAIN}/api/v2"

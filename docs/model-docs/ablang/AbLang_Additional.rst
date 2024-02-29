@@ -1,10 +1,9 @@
-
 ================================
-AbLang Heavy Chain Res-coding
+AbLang Info
 ================================
 
 .. article-info::
-    :avatar: img/book_icon.png
+    :avatar: ../img/book_icon.png
     :date: Feb, 2023
     :read-time: 6 min read
     :author: Zeeshan Siddiqui
@@ -13,153 +12,22 @@ AbLang Heavy Chain Res-coding
 
 *On this page, we will show and explain the use of AbLang for Antibody Sequence Completion. As well as document the BioLM API, and demonstrate no-code  and code interfaces antibody design*
 
------------
-Description
------------
+------------------
+Model Background
+------------------
 
-It has been observed in the OAS database that approximately 80% of the sequences lack more than a single residue at the N-terminus, around 43% are devoid of the initial 15 positions, and about 1% possess at least one ambiguous residue at some position within the sequence. Residues may be missing due to sequencing inaccuracies, like ambiguous bases, or the constraints inherent in the sequencing methodologies employed. Completing the sequence by restoring the missing residues provides a great benefit to antibody drug discovery pipelines. 
+It has been observed in the OAS database that approximately 80% of the sequences lack more than a single residue at the N-terminus, around 43% are devoid of the initial 15 positions, and about 1% possess at least one ambiguous residue at some position within the sequence. Residues may be missing due to sequencing inaccuracies, like ambiguous bases, or the constraints inherent in the sequencing methodologies employed. Completing the sequence by restoring the missing residues provides a great benefit to antibody drug discovery pipelines.
 
 Antibody sequence restoration can be accomplished through alignment to germline sequences, however this necessitates knowledge or prediction of the correct germline. A key advantage of AbLang is its capacity to restore missing residues without reliance on germline information, streamlining the process and enhancing speed and accuracy compared to germline-dependent approaches. Furthermore, quantitative evaluations demonstrate AbLang's superior ability to restore N-terminal residues in both heavy and light chains with up to 30 missing amino acids versus ESM-1b. AbLang performs relatively well at reconstructing sequences with randomly distributed missing residues, outperforming prior methods reliant on germline alignments.
 
 AbLang also allows prediction of antibody developability, binding affinity, and other key antibody properties directly from sequence for antibody engineering and design applications *((Olsen et al., 2022)*)
 
 
---------
-Benefits
---------
-
-* Always-on, auto-scaling GPU-backed APIs (`Status Page`_); highly-scalable parallelization.
-* Save money on infrastructure, GPU costs, and development time.
-* Quickly integrate multiple embeddings into your workflows.
-* Use our Chat Agents and other Web Apps to interact with bio-LLMs using no code.
-
-
----------------------------------------------
-API Usage for AbLang_Heavy_Chain_Res-coding
----------------------------------------------
-
-API endpoint for `https://biolm.ai/api/v2/ablang-heavy/encode/ <https://api.biolm.ai>`_.
-
-
-^^^^^^^^^^^^^^^
-Making Requests
-^^^^^^^^^^^^^^^
-
-.. tab-set::
-
-    .. tab-item:: Curl
-        :sync: curl
-
-        .. code:: shell
-            curl --location 'https://biolm.ai/api/v2/ablang-heavy/encode/' \
-            --data '{
-                "items": [
-                    {
-                        "sequence": "EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS"
-                    }
-                ],
-                "params": {
-                    "include": "rescoding"
-                }
-            }'
-
-   .. tab-item:: Python Requests
-        :sync: python
-
-        .. code:: python
-
-            import requests
-
-            url = "https://biolm.ai/api/v2/ablang-heavy/encode/"
-
-            payload = "{\n    \"items\": [\n        {\n            \"sequence\": \"EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS\"\n        }\n    ],\n    \"params\": {\n        \"include\": \"rescoding\"\n    }\n}"
-            headers = {}
-
-            response = requests.request("POST", url, headers=headers, data=payload)
-
-            print(response.text)
-
-
-   .. tab-item:: R
-       :sync: r
-
-       .. code:: R
-           
-            library(RCurl)
-            params = "{\n    \"items\": [\n        {\n            \"sequence\": \"EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS\"\n        }\n    ],\n    \"params\": {\n        \"include\": \"rescoding\"\n    }\n}"
-            res <- postForm("https://biolm.ai/api/v2/ablang-heavy/encode/", .opts=list(postfields = params, followlocation = TRUE), style = "httppost")
-            cat(res)
-
-
-+++++++++++
-Definitions
-+++++++++++
-
-items: 
-    This is a list of objects, each containing a sequence key.
-
-sequence: 
-    A string representing the amino acid sequence of the heavy chain of an antibody.
-
-params: 
-    This is an object containing parameters for the API request.
-
-include: 
-    A string specifying what type of encoding to include in the response. In this case, "rescoding" indicates that residue-level encodings should be included.
-
-^^^^^^^^^^^^^
-JSON Response
-^^^^^^^^^^^^^
-
-.. dropdown:: Expand Example Response
-    :open:
-
-    .. code:: json
-
-
-        {
-        "results": [
-            {
-            "rescoding": [
-                [
-                -0.00730112474411726,
-                0.9119473695755005,
-                0.39394399523735046,
-                -1.8001917600631714,
-                0.2380848526954651,
-                0.9699342846870422,
-                -1.3685181140899658,
-                0.7587538957595825,
-                -0.4126327633857727,
-                -0.7616114616394043,
-                -0.7388492822647095,
-
-.. note::
-  The above response is only a small snippet of the full JSON response. However, all the relevant response keys are included.
-
-+++++++++++
-Definitions
-+++++++++++
-
-rescoding: 
-    A list of lists representing the residue-level encoding of the antibody heavy chain sequence, with each element being a floating-point number corresponding to a feature in the encoding.
-
-----------
-Related
-----------
-
-:doc:`/model-docs/AbLang_Heavy_Chain_Seq-coding`
-
-
-------------------
-Model Background
-------------------
-
 The pre-training data for AbLang consisted of heavy and light chain sequences obtained from the Observed Antibody Space (OAS) database as of October 2021 (millions of unlabeled antibody sequences) *(Olsen et al., 2022)*. To reduce redundancy, sequences occurring at least 3 times were clustered based on identical CDR3 regions, followed by 70% whole sequence identity clustering using the Linclust algorithm. The longest sequence was chosen to represent each cluster. The resulting datasets were randomly split into training sets of 14 million heavy chain and 187,000 light chain sequences, along with evaluation sets of 100,000 and 50,000 sequences respectively. This preprocessed antibody sequence data was then utilized to pretrain the AbLang model parameters through masked language modeling objectives.
 
 The researchers developed two separate AbLang models, one specialized for heavy chains and one for light chains. Each AbLang model is composed of two components. AbRep generates vector representations encoding information from the antibody sequences. AbHead, on the other hand, utilizes these sequence embeddings to calculate the probability of each amino acid appearing at each position, providing values that represent the likelihood of each amino acid at every position in the antibody sequence. These likelihood values could potentially be utilized to explore possible mutations at a given sequence position
 
-By creating dedicated language models for heavy and light chains, AbLang is tailored to capture position-specific patterns within each antibody domain. The coupled AbRep and AbHead architecture enables transforming raw sequences into informed predictions in an end-to-end manner. 
+By creating dedicated language models for heavy and light chains, AbLang is tailored to capture position-specific patterns within each antibody domain. The coupled AbRep and AbHead architecture enables transforming raw sequences into informed predictions in an end-to-end manner.
 
 The architecture of AbRep mirrors that of RoBERTa (Liu et al., 2019), with the exception of employing a learned positional embedding layer having a maximum length of 160. Each of its dozen transformer blocks encompasses 12 attenuated heads, boasting an inner hidden size of 3072 and a hidden size of 768. From AbRep, residue codings (768 values for each residue) are derived. AbHead is patterned after the head model design of RoBERTa, featuring a hidden size of 768.
 
@@ -198,6 +66,24 @@ These representations have a wide range of potential applications for antibody d
 
 .. note::
    The applications above covers general use-cases for Ablang Res-coding and Seq-coding.
+
+----------------
+BioLM Benefits
+----------------
+
+* Always-on, auto-scaling GPU-backed APIs (`Status Page`_); highly-scalable parallelization.
+* Save money on infrastructure, GPU costs, and development time.
+* Quickly integrate multiple embeddings into your workflows.
+* Use our Chat Agents and other Web Apps to interact with bio-LLMs using no code.
+
+
+
+----------
+Related
+----------
+
+:doc:`/model-docs/ablang/AbLang_API`
+
 
 .. _Status Page: https://status.biolm.ai
 

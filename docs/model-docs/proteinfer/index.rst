@@ -1,0 +1,10 @@
+===========
+ProteInfer
+===========
+
+
+.. toctree::
+   :titlesonly:
+   :glob:
+
+   *
