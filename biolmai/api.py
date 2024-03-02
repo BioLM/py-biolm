@@ -15,7 +15,7 @@ import biolmai.auth
 from biolmai.asynch import async_api_call_wrapper
 from biolmai.biolmai import log
 from biolmai.const import MULTIPROCESS_THREADS
-from biolmai.payloads import INST_DAT_TXT, predict_resp_many_in_one_to_many_singles
+from biolmai.payloads import INST_DAT_TXT, PARAMS_ITEMS, predict_resp_many_in_one_to_many_singles
 
 
 @lru_cache(maxsize=64)
@@ -35,65 +35,82 @@ def text_validator(text, c):
     except Exception as e:
         return str(e)
 
+def combine_validation(x, y):
+    if x is None and y is None:
+        return None
+    elif isinstance(x, str) and y is None:
+        return x
+    elif x is None and isinstance(y, str):
+        return y
+    elif isinstance(x, str) and isinstance(y, str):
+        return f"{x}\n{y}"
 
-def validate(f):
-    def wrapper(*args, **kwargs):
-        # Get class instance at runtime, so you can access not just
-        # APIEndpoints, but any *parent* classes of that,
-        # like ESMFoldSinglechain.
-        class_obj_self = args[0]
-        try:
-            is_method = inspect.getfullargspec(f)[0][0] == "self"
-        except Exception:
-            is_method = False
 
-        # Is the function we decorated a class method?
-        if is_method:
-            name = f"{f.__module__}.{class_obj_self.__class__.__name__}.{f.__name__}"
-        else:
-            name = f"{f.__module__}.{f.__name__}"
+def validate_action(action):
+    def validate(f):
+        def wrapper(*args, **kwargs):
+            # Get class instance at runtime, so you can access not just
+            # APIEndpoints, but any *parent* classes of that,
+            # like ESMFoldSinglechain.
+            class_obj_self = args[0]
+            try:
+                is_method = inspect.getfullargspec(f)[0][0] == "self"
+            except Exception:
+                is_method = False
 
-        if is_method:
-            # Splits name, e.g. 'biolmai.api.ESMFoldSingleChain.predict'
-            action_method_name = name.split(".")[-1]
-            validate_endpoint_action(
-                class_obj_self.action_class_strings,
-                action_method_name,
-                class_obj_self.__class__.__name__,
-            )
-
-        input_data = args[1]
-        # Validate each row's text/input based on class attribute `seq_classes`
-        for c in class_obj_self.seq_classes:
-            # Validate input data against regex
-            if class_obj_self.multiprocess_threads:
-                validation = input_data.text.apply(text_validator, args=(c,))
+            # Is the function we decorated a class method?
+            if is_method:
+                name = f"{f.__module__}.{class_obj_self.__class__.__name__}.{f.__name__}"
             else:
-                validation = input_data.text.apply(text_validator, args=(c,))
-            if "validation" not in input_data.columns:
-                input_data["validation"] = validation
-            else:
-                input_data["validation"] = input_data["validation"].str.cat(
-                    validation, sep="\n", na_rep=""
+                name = f"{f.__module__}.{f.__name__}"
+
+            if is_method:
+                # Splits name, e.g. 'biolmai.api.ESMFoldSingleChain.predict'
+                action_method_name = name.split(".")[-1]
+                validate_endpoint_action(
+                    class_obj_self.action_class_strings,
+                    action_method_name,
+                    class_obj_self.__class__.__name__,
                 )
 
-        # Mark your batches, excluding invalid rows
-        valid_dat = input_data.loc[input_data.validation.isnull(), :].copy()
-        N = class_obj_self.batch_size  # N rows will go per API request
-        # JOIN back, which is by index
-        if valid_dat.shape[0] != input_data.shape[0]:
-            valid_dat["batch"] = np.arange(valid_dat.shape[0]) // N
-            input_data = input_data.merge(
-                valid_dat.batch, left_index=True, right_index=True, how="left"
-            )
-        else:
-            input_data["batch"] = np.arange(input_data.shape[0]) // N
+            input_data = args[1]
+            # Validate each row's text/input based on class attribute `seq_classes`
+            if action == "predict":
+                input_classes = class_obj_self.predict_input_classes
+            elif action == "encode":
+                input_classes = class_obj_self.encode_input_classes
+            elif action == "generate":
+                input_classes = class_obj_self.generate_input_classes
+            elif action == "transform":
+                input_classes = class_obj_self.transform_input_classes
+            for c in input_classes:
+                # Validate input data against regex
+                if class_obj_self.multiprocess_threads:
+                    validation = input_data.text.apply(text_validator, args=(c,))
+                else:
+                    validation = input_data.text.apply(text_validator, args=(c,))
+                if "validation" not in input_data.columns:
+                    input_data["validation"] = validation
+                else:
+                    # masking and loc may be more performant option
+                    input_data["validation"] = input_data["validation"].combine(validation, combine_validation)
 
-        res = f(class_obj_self, input_data, **kwargs)
-        return res
+            # Mark your batches, excluding invalid rows
+            valid_dat = input_data.loc[input_data.validation.isnull(), :].copy()
+            N = class_obj_self.batch_size  # N rows will go per API request
+            # JOIN back, which is by index
+            if valid_dat.shape[0] != input_data.shape[0]:
+                valid_dat["batch"] = np.arange(valid_dat.shape[0]) // N
+                input_data = input_data.merge(
+                    valid_dat.batch, left_index=True, right_index=True, how="left"
+                )
+            else:
+                input_data["batch"] = np.arange(input_data.shape[0]) // N
+            res = f(class_obj_self, input_data, **kwargs)
+            return res
 
-    return wrapper
-
+        return wrapper
+    return validate
 
 def convert_input(f):
     def wrapper(*args, **kwargs):
@@ -123,7 +140,20 @@ def convert_input(f):
 
 
 class APIEndpoint:
-    batch_size = 3  # Overwrite in parent classes as needed
+     # Overwrite in parent classes as needed
+    batch_size = 3
+    params = None
+    action_classes = ()
+    api_version = 2
+
+    predict_input_key = "sequence"
+    encode_input_key = "sequence"
+    generate_input_key = "context"
+
+    predict_input_classes = ()
+    encode_input_classes = ()
+    generate_input_classes = ()
+    transform_input_classes = ()
 
     def __init__(self, multiprocess_threads=None):
         # Check for instance-specific threads, otherwise read from env var
@@ -137,7 +167,7 @@ class APIEndpoint:
             [c.__name__.replace("Action", "").lower() for c in self.action_classes]
         )
 
-    def post_batches(self, dat, slug, action, payload_maker, resp_key):
+    def post_batches(self, dat, slug, action, payload_maker, resp_key, key="sequence", params=None):
         keep_batches = dat.loc[~dat.batch.isnull(), ["text", "batch"]]
         if keep_batches.shape[0] == 0:
             pass  # Do nothing - we made nice JSON errors to return in the DF
@@ -145,7 +175,7 @@ class APIEndpoint:
             # raise AssertionError(err)
         if keep_batches.shape[0] > 0:
             api_resps = async_api_call_wrapper(
-                keep_batches, slug, action, payload_maker, resp_key
+                keep_batches, slug, action, payload_maker, resp_key, api_version=self.api_version, key=key,  params=params,
             )
             if isinstance(api_resps, pd.DataFrame):
                 batch_res = api_resps.explode("api_resp")  # Should be lists of results
@@ -170,11 +200,11 @@ class APIEndpoint:
             dat["api_resp"] = None
         return dat
 
-    def unpack_local_validations(self, dat):
+    def unpack_local_validations(self, dat, response_key):
         dat.loc[dat.api_resp.isnull(), "api_resp"] = (
             dat.loc[~dat.validation.isnull(), "validation"]
             .apply(
-                predict_resp_many_in_one_to_many_singles, args=(None, None, True, None)
+                predict_resp_many_in_one_to_many_singles, args=(None, None, True, None), response_key=response_key
             )
             .explode()
         )
@@ -182,39 +212,46 @@ class APIEndpoint:
         return dat
 
     @convert_input
-    @validate
-    def predict(self, dat):
-        dat = self.post_batches(dat, self.slug, "predict", INST_DAT_TXT, "predictions")
-        dat = self.unpack_local_validations(dat)
+    @validate_action("predict")
+    def predict(self, dat, params=None):
+        if self.api_version == 1:
+            dat = self.post_batches(dat, self.slug, "predict", INST_DAT_TXT, "predictions")
+            dat = self.unpack_local_validations(dat, "predictions")
+        else:
+            dat = self.post_batches(dat, self.slug, "predict", PARAMS_ITEMS, "results", key=self.predict_input_key, params=params)
+            dat = self.unpack_local_validations(dat,"results")
         return dat.api_resp.replace(np.nan, None).tolist()
 
-    def infer(self, dat):
-        return self.predict(dat)
+    def infer(self, dat, params=None):
+        return self.predict(dat, params)
 
     @convert_input
-    @validate
+    @validate_action("transform")  # api v1 legacy action
     def transform(self, dat):
         dat = self.post_batches(
             dat, self.slug, "transform", INST_DAT_TXT, "predictions"
         )
-        dat = self.unpack_local_validations(dat)
+        dat = self.unpack_local_validations(dat,"predictions")
         return dat.api_resp.replace(np.nan, None).tolist()
 
-    # @convert_input
-    # @validate
-    # def encode(self, dat):
-    #     # NOTE: we defined this for the specific case of ESM2
-    #     # TODO: this will be need again in v2 of API contract
-    #     dat = self.post_batches(dat, self.slug, "transform",
-    #                             INST_DAT_TXT, "embeddings")
-    #     dat = self.unpack_local_validations(dat)
-    #     return dat.api_resp.replace(np.nan, None).tolist()
+    @convert_input
+    @validate_action("encode")
+    def encode(self, dat, params=None):
+
+        dat = self.post_batches(dat, self.slug, "encode", PARAMS_ITEMS, "results", key=self.encode_input_key, params=params)
+        dat = self.unpack_local_validations(dat, "results")
+        return dat.api_resp.replace(np.nan, None).tolist()
 
     @convert_input
-    @validate
-    def generate(self, dat):
-        dat = self.post_batches(dat, self.slug, "generate", INST_DAT_TXT, "generated")
-        dat = self.unpack_local_validations(dat)
+    @validate_action("generate")
+    def generate(self, dat, params=None):
+        if self.api_version == 1:
+            dat = self.post_batches(dat, self.slug, "generate", INST_DAT_TXT, "generated")
+            dat = self.unpack_local_validations(dat, "predictions")
+        else:
+            dat = self.post_batches(dat, self.slug, "generate", PARAMS_ITEMS, "results", key=self.generate_input_key, params=params)
+            dat = self.unpack_local_validations(dat, "results")
+
         return dat.api_resp.replace(np.nan, None).tolist()
 
 
@@ -290,9 +327,9 @@ class TransformAction:
         return "TransformAction"
 
 
-# class EncodeAction:
-#     def __str__(self):
-#         return "EncodeAction"
+class EncodeAction:
+     def __str__(self):
+         return "EncodeAction"
 
 
 class ExplainAction:

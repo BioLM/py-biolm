@@ -1,0 +1,10 @@
+===========
+DNABERT
+===========
+
+
+.. toctree::
+   :titlesonly:
+   :glob:
+
+   *

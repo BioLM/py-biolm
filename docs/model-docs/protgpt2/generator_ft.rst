@@ -1,6 +1,6 @@
-========
-ProtGPT2
-========
+========================
+ProtGPT2 Fine-Tuning
+========================
 
 .. article-info::
     :avatar: img/book_icon.png
@@ -23,24 +23,11 @@ By applying state-of-the-art techniques from natural language processing, specif
 
 ProtGPT2's ability to produce sequences quickly and its capacity to be fine-tuned for specific families of proteins, makes it a flexible and valuable tool in multiple cutting-edge scientific and engineering domains
 
---------
-Benefits
---------
-
-* The API can be used by biologists, data scientists, engineers, etc. The key values of the BioLM API is speed, scalability and cost.
-
-* The BioLM API allows scientists to programmatically interact with ProtGPT2, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
-
-* Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
-
-* The benefit of having access to multiple GPUs is parallel processing.
-
-
 --------------------------------------
-API Usage:Finetune ProtGPT2 Generator
+API Usage: Finetune ProtGPT2 Generator
 --------------------------------------
 
-The endpoint to Finetune DNA-BERT Classifier: https://biolm.ai/api/v1/finetune_run/
+The endpoint to Finetune ProtGPT2 Generator: `https://biolm.ai/api/v1/finetune_run/ <https://api.biolm.ai/#5c9d7905-d411-4000-896a-80651828ac7a>`_
 
 ^^^^^^^^^^^^^^^
 Making Requests
@@ -518,30 +505,6 @@ Making Requests
             res <- postForm("https://biolm.ai/api/v1/models/demofixed_finetune_protgpt2_generator_15/generate/", .opts=list(postfields = params, httpheader = headers, followlocation = TRUE), style = "httppost")
             cat(res)
 
-+++++++++++++
-Definitions
-+++++++++++++
-text:
-    The initial text prompt to start the sequence generation. In this case, "M" could indicate the model should generate protein sequences starting with the amino acid Methionine, denoted by "M" in single-letter amino acid codes.
-
-max_length:
-    The maximum length of the sequence to generate. The model will generate sequences up to 256 characters long.
-
-repetition_penalty:
-    A factor that penalizes repetition in the generated text to encourage diversity. A value of 1.2 makes it slightly more likely to generate different amino acids rather than repeating the same ones.
-
-temperature:
-    A parameter controlling the randomness of the generation. A lower temperature (0.7 in this case) results in more predictable text, while a higher temperature would result in more varied outputs.
-
-num_samples:
-    The number of sequences to generate in this request. It's set to 2, meaning the API will generate two different sequences based on the input parameters.
-
-top_k:
-    This parameter restricts the model's sampling to the top-k most likely next characters. A high value like 1024 allows almost all characters to be considered, only slightly narrowing the distribution.
-
-do_sample:
-    A boolean indicating whether sampling should be used. true means that the model will sample from the probability distribution for each next character, rather than just picking the most likely next character.
-
 
 ^^^^^^^^^^^^^
 JSON Response
@@ -566,10 +529,35 @@ JSON Response
         }
         }
 
+^^^^^^^^^^^^^^^^^^^^
+Request Definitions
+^^^^^^^^^^^^^^^^^^^^
 
-+++++++++++++
-Definitions
-+++++++++++++
+text:
+    The initial text prompt to start the sequence generation. In this case, "M" could indicate the model should generate protein sequences starting with the amino acid Methionine, denoted by "M" in single-letter amino acid codes.
+
+max_length:
+    The maximum length of the sequence to generate. The model will generate sequences up to 256 characters long.
+
+repetition_penalty:
+    A factor that penalizes repetition in the generated text to encourage diversity. A value of 1.2 makes it slightly more likely to generate different amino acids rather than repeating the same ones.
+
+temperature:
+    A parameter controlling the randomness of the generation. A lower temperature (0.7 in this case) results in more predictable text, while a higher temperature would result in more varied outputs.
+
+num_samples:
+    The number of sequences to generate in this request. It's set to 2, meaning the API will generate two different sequences based on the input parameters.
+
+top_k:
+    This parameter restricts the model's sampling to the top-k most likely next characters. A high value like 1024 allows almost all characters to be considered, only slightly narrowing the distribution.
+
+do_sample:
+    A boolean indicating whether sampling should be used. true means that the model will sample from the probability distribution for each next character, rather than just picking the most likely next character.
+
+
+^^^^^^^^^^^^^^^^^^^^
+Response Definitions
+^^^^^^^^^^^^^^^^^^^^
 
 text:
     The protein sequence generated by the model. It is represented as a string of amino acid codes, where each letter corresponds to a different amino acid. For instance, "M" for Methionine at the beginning of each sequence.
@@ -577,33 +565,9 @@ text:
 perplexity:
     A statistical measure of how well a probability model predicts a sample. A lower perplexity score indicates a better fit between the model and the sample. In this context, it can be interpreted as a measure of the model's confidence in the generated sequence or how typical the sequence is based on the model's training data. The first sequence has a perplexity of approximately 137.23, while the second has a lower perplexity of approximately 94.08, suggesting the model is more confident in the second sequence.
 
+----------
+Related
+----------
 
-------------------
-Model Background
-------------------
+:doc:`/model-docs/protgpt2/ProtGPT2`
 
-ProtGPT2 is a decoder-only transformer model pre-trained on the protein space database UniRef50 (version 2021_04), and contains 36 layers with a model dimensionality of 1280, totalling 738 million parameters.
-
-The model employs a self-supervised training approach, meaning it learns from raw sequence data without labeled annotations. Specifically, the model is trained using a causal language modeling technique where it predicts the next short sequence fragment based on the preceding context (in this case, oligomer). This training scheme allows the model to develop an implicit understanding of protein language patterns. By successfully predicting subsequent sequence chunks, the model acquires the ability to generate full-length novel protein sequences that conform to the characteristics of natural proteins. The self-supervised strategy circumvents the need for manually annotated data to train the model.
-
-ProtGPT2 was trained using UniRef50, a comprehensive dataset clustering UniProt sequences at 50% identity, which includes a wide variety of protein sequences, even those from the uncharacterized "dark proteome". The model was trained on 44.9 million sequences, with an additional 4.9 million held out for evaluation. The methodology involved using a Transformer architecture optimized by minimizing the negative log-likelihood, allowing the model to predict each amino acid in a sequence based on the preceding sequence context. Key results from ProtGPT2 training indicate that the model can generate protein sequences that are both unique and exhibit natural-like properties. This capability could have significant implications for protein engineering and understanding protein function in unexplored areas of the protein space.
-
-The ProtGPT2 paper indicates that while the model's generated protein sequences share some similarity with natural proteins, they remain distinct and novel. Using HHblits to compare 10,000 generated sequences with a protein database, the findings show that most ProtGPT2 sequences align above a threshold indicating some relatedness to known proteins. However, they significantly diverge in the high-identity range, suggesting that ProtGPT2 generates innovative sequences without simply mimicking existing ones. This demonstrates ProtGPT2's ability to contribute novel designs to the protein space, rather than reproducing what is already known. Furthermore, through evaluation using AlphaFold predictions, Rosetta Relax scores, and molecular dynamics simulations, ProtGPT2 sequences showed a decent mean probability of being ordered and thermodynamic stability comparable to natural sequences. Furthermore, molecular dynamics simulations suggested that ProtGPT2 sequences possess dynamic properties akin to natural proteins, essential for functional interactions in biological systems.
-
-In addition, by incorporating ProtGPT2 sequences into a network representation of protein space, the model demonstrates its capacity to connect disparate 'islands' of protein structures. It successfully generates complex structures across various protein classes, including challenging ones like all-β and membrane proteins. ProtGPT2 not only replicates existing natural folds but also creates novel topologies not found in current databases, exemplifying its potential to design proteins with new functions and interactions.
-
--------------------------
-Applications of ProtGPT2
--------------------------
-
-* Enzyme Design: ProtGPT2’s ability to generate novel protein sequences that are evolutionarily distant from known proteins but structurally sound, makes it a powerful tool for designing enzymes with new functionalities or improved properties for industrial processes.
-
-* Synthetic Biology: In the realm of SynBio, ProtGPT2 can be used to engineer proteins with desirable characteristics, such as enhanced stability or activity, which are essential in the development of biocatalysts, biosensors, and bioremediation agents.
-
-* Environmental Science: By designing proteins that can degrade environmental pollutants or convert waste into valuable products.
-
-* Drug Discovery: ProtGPT2 can expedite the drug discovery process by generating and screening protein sequences that can bind to specific drug targets or by designing novel biologics with therapeutic potential.
-
-* Directed Evolution: The model can simulate the process of directed evolution in-silico, generating a diversity of protein variants for subsequent screening and selection for desired traits, thus speeding up the development of proteins with enhanced or novel functions.
-
-* Industrial Catalysis: ProtGPT2 can be employed to create enzymes or protein-based catalysts that can operate under harsh industrial conditions, which can be used in the manufacturing of chemicals, pharmaceuticals, and materials.

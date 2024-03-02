@@ -7,7 +7,7 @@ import aiohttp.resolver
 from aiohttp import ClientSession
 
 from biolmai.auth import get_user_auth_header
-from biolmai.const import BASE_API_URL, MULTIPROCESS_THREADS
+from biolmai.const import BASE_API_URL, BASE_API_URL_V1, MULTIPROCESS_THREADS
 
 aiohttp.resolver.DefaultResolver = aiohttp.resolver.AsyncResolver
 
@@ -146,11 +146,14 @@ async def async_main(urls, concurrency) -> list:
     return await get_all(urls, concurrency)
 
 
-async def async_api_calls(model_name, action, headers, payloads, response_key=None):
+async def async_api_calls(model_name, action, headers, payloads, response_key=None, api_version=2):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
     # but for simplicity sake will do one at at time right now
-    url = f"{BASE_API_URL}/models/{model_name}/{action}/"
+    if api_version == 1:
+        url = f"{BASE_API_URL_V1}/models/{model_name}/{action}/"
+    else:
+        url = f"{BASE_API_URL}/{model_name}/{action}/"
 
     if not isinstance(payloads, (list, dict)):
         err = "API request payload must be a list or dict, got {}"
@@ -180,15 +183,20 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
     # return response
 
 
-def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key):
+def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key, api_version=2, key="sequence", params=None):
     """Wrap API calls to assist with sequence validation as a pre-cursor to
     each API call.
     """
     model_name = slug
     # payload = payload_maker(grouped_df)
-    init_ploads = grouped_df.groupby("batch").apply(
-        payload_maker, include_batch_size=True
-    )
+    if api_version == 1:
+        init_ploads = grouped_df.groupby("batch").apply(
+            payload_maker, include_batch_size=True
+        )
+    else:
+        init_ploads = grouped_df.groupby("batch").apply(
+            payload_maker, key=key, params=params, include_batch_size=True
+        )
     ploads = init_ploads.to_list()
     init_ploads = init_ploads.to_frame(name="pload")
     init_ploads["batch"] = init_ploads.index
@@ -208,7 +216,7 @@ def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key
     #     "https://python.org",
     # ]
     # concurrency = 3
-    api_resp = run(async_api_calls(model_name, action, headers, ploads, response_key))
+    api_resp = run(async_api_calls(model_name, action, headers, ploads, response_key, api_version))
     api_resp = [item for sublist in api_resp for item in sublist]
     api_resp = sorted(api_resp, key=lambda x: x["batch_id"])
     # print(api_resp)

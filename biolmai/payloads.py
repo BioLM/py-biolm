@@ -7,11 +7,22 @@ def INST_DAT_TXT(batch, include_batch_size=False):
         d["batch_size"] = len(d["instances"])
     return d
 
+def PARAMS_ITEMS(batch, key="sequence", params=None, include_batch_size=False):
+    d = {"items": []}
+    for _, row in batch.iterrows():
+        inst = {key: row.text}
+        d["items"].append(inst)
+    if include_batch_size is True:
+        d["batch_size"] = len(d["items"])
+    if isinstance(params, dict):
+        d["params"] = params
+    return d
+
 
 def predict_resp_many_in_one_to_many_singles(
-    resp_json, status_code, batch_id, local_err, batch_size
+    resp_json, status_code, batch_id, local_err, batch_size, response_key = "results"
 ):
-    expected_root_key = "predictions"
+    expected_root_key = response_key
     to_ret = []
     if not local_err and status_code and status_code == 200:
         list_of_individual_seq_results = resp_json[expected_root_key]

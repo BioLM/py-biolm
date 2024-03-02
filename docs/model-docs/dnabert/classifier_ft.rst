@@ -1,6 +1,6 @@
-=======
-DNABERT
-=======
+=====================
+DNABERT Fine-Tuning
+=====================
 
 .. article-info::
     :avatar: img/book_icon.png
@@ -20,25 +20,11 @@ The gene regulatory code is governed not only by individual DNA sequences, but a
 
 Standard bioinformatics tools often struggle to capture such intricacies, necessitating advanced computational methods to model the multidimensional connections within genomics data. As described by Li et al. (2021), *The DNABERT model aims to address these needs by learning meaningful representations of non-coding DNA for predictive tasks.* DNABERT implements the Transformer architecture utilized in BERT with 12 layers, 768 hidden units, and 12 attention heads. The same model topology and training methodology are consistently applied across DNABERT variants. Through easy fine-tuning, DNABERT (a pre-trained bidirectional encoder representation model) achieved state-of-the-art performance on diverse regulatory predictions (promoters, splice sites and transcription factor binding sites), highlighting the power of pretraining on the complex patterns within non-coding DNA. In addition, the researchers showed that DNABERT, originally pretrained on the human genome, achieved excellent performance when fine-tuned and applied to model non-human genomic sequences ( cross-organism transferability).
 
---------
-Benefits
---------
-
-* The API can be used by biologists, data scientists, engineers, etc. The key values of the BioLM API is speed, scalability and cost.
-
-* The BioLM API allows scientists to programmatically interact with DNABERT, making it easier to integrate the model into their scientific workflows. The API accelerates workflow, allows for customization, and is designed to be highly scalable.
-
-* Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
-
-* The benefit of having access to multiple GPUs is parallel processing.
-
-
-
 ---------
 API Usage
 ---------
 
-The endpoint to Finetune DNABERT Classifier: https://biolm.ai/api/v1/finetune_run/
+The endpoint to Finetune DNABERT Classifier: `https://biolm.ai/api/v1/finetune_run/ <https://api.biolm.ai/#49366d6c-c4dd-4bae-9c26-b8fd7659b4a5>`_.
 
 ^^^^^^^^^^^^^^^
 Making Requests
@@ -544,27 +530,6 @@ Making Requests
             cat(res)
 
 
-+++++++++++++
-Definitions
-+++++++++++++
-
-hyperopt:
-    False specifies whether or not to perform hyperparameter optimization (hyperopt). If set to false, no optimization will be performed.
-
-input_json:
-    Is a nested JSON object that contains the data for training and validation, as well as configuration details like max_train and train (below)
-
-max_train:
-    40000 and "max_validate": 20000" set the maximum number of training and validation examples, respectively.
-
-train:
-    Is an array of objects, each containing a DNA sequence ("seq") and a corresponding label ("label"). These are the training examples for the fine-tuning process. The sequences are strings of characters representing nucleotide bases (adenine (A), cytosine (C), guanine (G), and thymine (T)), and the labels indicate the classification category for each sequence (e.g., "non-promoter" or "promoter"
-
-seq:
-    This key is associated with a string value that represents a DNA sequence. Each character in the string corresponds to a nucleotide base. The sequence provided is what the model will analyze and learn from during the fine-tuning process.
-
-label:
-    Each seq comes with a corresponding label, which is a string that categorizes the sequence. In the context of the provided example, the labels are "non-promoter" or "promoter". These labels are used as the target outputs for the classifier, meaning that the DNABERT model will learn to predict these labels from unseen DNA sequences after being trained on the provided examples. The classifier's goal is to determine whether a given DNA sequence functions as a promoter (a region of DNA that initiates transcription of a particular gene) or not.
 
 ^^^^^^^^^^^^^
 JSON Response
@@ -588,9 +553,32 @@ JSON Response
         "hyperopt": false
         }
 
-+++++++++++++
-Definitions
-+++++++++++++
+^^^^^^^^^^^^^^^^^^^^
+Request Definitions
+^^^^^^^^^^^^^^^^^^^^
+
+hyperopt:
+    False specifies whether or not to perform hyperparameter optimization (hyperopt). If set to false, no optimization will be performed.
+
+input_json:
+    Is a nested JSON object that contains the data for training and validation, as well as configuration details like max_train and train (below)
+
+max_train:
+    40000 and "max_validate": 20000" set the maximum number of training and validation examples, respectively.
+
+train:
+    Is an array of objects, each containing a DNA sequence ("seq") and a corresponding label ("label"). These are the training examples for the fine-tuning process. The sequences are strings of characters representing nucleotide bases (adenine (A), cytosine (C), guanine (G), and thymine (T)), and the labels indicate the classification category for each sequence (e.g., "non-promoter" or "promoter"
+
+seq:
+    This key is associated with a string value that represents a DNA sequence. Each character in the string corresponds to a nucleotide base. The sequence provided is what the model will analyze and learn from during the fine-tuning process.
+
+label:
+    Each seq comes with a corresponding label, which is a string that categorizes the sequence. In the context of the provided example, the labels are "non-promoter" or "promoter". These labels are used as the target outputs for the classifier, meaning that the DNABERT model will learn to predict these labels from unseen DNA sequences after being trained on the provided examples. The classifier's goal is to determine whether a given DNA sequence functions as a promoter (a region of DNA that initiates transcription of a particular gene) or not.
+
+
+^^^^^^^^^^^^^^^^^^^^
+Response Definitions
+^^^^^^^^^^^^^^^^^^^^
 
 Start_time:
     This field records the time when the task started processing. Null indicates that the process has not started yet.
@@ -610,31 +598,10 @@ algorithm:
 hyperopt:
     Indicates whether hyperparameter optimization is enabled for the task. false means that hyperparameter optimization is not being used. Hyperparameter optimization is a process to automatically select the best hyperparameters (settings) for a machine learning model to maximize its performance.
 
-------------------
-Model Background
-------------------
 
-DNABERT utilizes tokenized k-mer sequences as its foundational training data, where a k-mer is a DNA substring of length 'k'. Special tokens such as CLS (Class token), SEP (Separator token), and MASK (Mask token) are integrated into these sequences. The CLS token encapsulates the essence of the entire sequence, the SEP token acts as a delimiter, and MASK tokens represent masked k-mers during preliminary training.
+-------
+Related
+-------
 
-The architecture includes an embedding layer that converts tokenized sequences into vector representations, followed by 12 transformer blocks that capture the relationships between different tokens within the sequences. Symbols like Et, It, and Ot denote positional embedding, input embedding, and the last hidden state at each token, essential for understanding positional interrelationships among tokens.
+:doc:`/model-docs/dnabert/DNABERT_Additional`
 
-DNABERT undergoes general-purpose pre-training and task-specific fine-tuning, enhancing its adaptability across diverse genomic analysis tasks. It exhibits global attention patterns, focusing on pivotal regions within sequences, such as known binding sites, optimizing its analytical precision in genomic studies. (Ji et al., 2021)
-
-
------------------------
-Applications of DNABERT
------------------------
-
-* DNABERT can be employed to annotate genomic variants, helping to identify those that may have significant functional impacts. This is critical for understanding the genetic basis of diseases and could also be crucial in personalized medicine.
-
-* By understanding the genomic context and potential regulatory interactions, DNABERT could assist in optimizing the design of synthetic constructs to ensure their functionality and stability within microbial hosts.
-
-* DNABERT can be fine-tuned for identifying cis-regulatory elements or enhancers using ATAC-seq or DAP-seq data.
-
-* DNABERT-Prom (one of the fine-tuned models) successfully predicts proximal and core promoter regions.
-
-* DNABERT-TF accurately identifies transcription factor binding sites. Understanding where transcription factors bind can provide insights into the gene regulatory mechanisms and how they are altered in different diseases.
-
-* DNABERT-viz allows visualization of critical regions, contexts and sequence motifs.
-
-* DNABERT-Splice can be used to accurately recognize canonical and non-canonical splice sites. Accurate splice site prediction can aid in the study of splicing mechanisms and the identification of splicing-related disorders.

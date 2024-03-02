@@ -3,5 +3,6 @@ __author__ = """Nikhil Haas"""
 __email__ = "nikhil@biolm.ai"
 __version__ = '0.1.8'
 
+from biolmai.cls import *
 
 __all__ = []
