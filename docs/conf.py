@@ -60,7 +60,7 @@ author = "Nikhil Haas"
 # the built documents.
 #
 # The short X.Y version.
-version = '0.1.8'
+version = '0.1.9'
 # The full version, including alpha/beta/rc tags.
 release = version
 
