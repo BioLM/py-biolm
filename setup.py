@@ -10,7 +10,7 @@ with open("README.rst") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = ["Click>=6.0", "requests", "pandas", "aiohttp", "aiodns"]
+requirements = ["Click>=6.0", "requests", "pandas", "aiohttp"]
 
 test_requirements = [
     "pytest>=3",
@@ -38,6 +38,9 @@ setup(
             "biolmai=biolmai.cli:cli",
         ],
     },
+    extras_require={
+        "aiodns": ["aiodns"]
+    },
     install_requires=requirements,
     license="Apache Software License 2.0",
     long_description=readme + "\n\n" + history,
@@ -48,6 +51,6 @@ setup(
     test_suite="tests",
     tests_require=test_requirements,
     url="https://github.com/BioLM/py-biolm",
-    version='0.1.9',
+    version='0.1.10',
     zip_safe=False,
 )
