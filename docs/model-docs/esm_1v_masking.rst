@@ -10,7 +10,7 @@ ESM-1V Masking
     :author: Zeeshan Siddiqui
     :class-container: sd-p-2 sd-outline-muted sd-rounded-1
 
-On this page, we will show and explain the use of ESM-1V. As well as document the BioLM API for folding, demonstrate no-code and code interfaces to folding.
+On this page, we will show and explain the use of ESM-1V. As well as document the BioLM API for predicting the impact of single amino acid substitutions on protein function, and demonstrate no-code and code interfaces for variant effect predictions. 
 
 -----------
 Description
@@ -36,17 +36,6 @@ Benefits
 * Our unique API UI Chat allows users to interact with our API and access multiple language models without the need to code!
 
 * The benefit of having access to multiple GPUs is parallel processing.
-
------------
-Performance
------------
-
-Graph of average RPS for varying number of sequences
-
-.. note::
-
-   We are in the process of adding a graph.
-
 
 
 ---------
