@@ -36,6 +36,7 @@ extensions = [
     "sphinx_design",
     "myst_parser",
     "sphinx_new_tab_link",
+    "sphinx_reredirects",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -161,3 +162,10 @@ texinfo_documents = [
         "Miscellaneous",
     ),
 ]
+
+# Redirects
+redirects = {
+     "model-docs/esmfold/ESMFold_Additional": "https://biolm.ai/models/esmfold/",
+    "model-docs/esmfold/ESMFold_API": "https://biolm.ai/models/esmfold/",
+    "model-docs/esmfold/index": "https://biolm.ai/models/esmfold/",
+}
