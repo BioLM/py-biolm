@@ -25,8 +25,8 @@ BROWSER := python -c "$$BROWSER_PYSCRIPT"
 
 RS ?= 12345
 
-K ?= 
-X ?= 8
+k ?= 
+x ?= 8
 
 help:
 	@python -c "$$PRINT_HELP_PYSCRIPT" < $(MAKEFILE_LIST)
@@ -78,10 +78,10 @@ setup-tox:
 
 
 test: ## run tests quickly with the default Python
-	pytest -s --durations=5 --randomly-seed="$(RS)" $(if $(K),-k "$(K)") -n 0
+	pytest -s --durations=5 --randomly-seed="$(RS)" $(if $(k),-k "$(k)") -n 0
 
 ptest: ## run tests quickly with the default Python
-	pytest -s --durations=5 --randomly-seed="$(RS)" $(if $(K),-k "$(K)") -n $(X)
+	pytest -s --durations=5 --randomly-seed="$(RS)" $(if $(k),-k "$(k)") -n $(x)
 
 test-all: ## run tests on every Python version with tox
 	tox

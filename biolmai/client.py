@@ -168,12 +168,23 @@ class BioLMApiClient:
         self.unwrap_single = unwrap_single
         self._headers = CredentialsProvider.get_auth_headers(api_key)
         self._http_client = HttpClient(self.base_url, self._headers, self.timeout)
-        self._throttle = Throttle(self._fetch_rps_limit())
+        self._rps_limit = None
+        self._throttle = None
+        self._rps_limit_lock = asyncio.Lock()  # Only locks on initial GET of throttle info, then throttle cached
 
-    def _fetch_rps_limit(self) -> Optional[int]:
+    async def _ensure_throttle(self):
+        if self._throttle is not None:
+            return
+        async with self._rps_limit_lock:
+            if self._throttle is not None:
+                return
+            self._rps_limit = await self._fetch_rps_limit_async()
+            self._throttle = Throttle(self._rps_limit)
+
+    async def _fetch_rps_limit_async(self) -> Optional[int]:
         try:
-            with httpx.Client(base_url=self.base_url, headers=self._headers, timeout=5.0) as client:
-                resp = client.get(f"/{self.model_name}")
+            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=5.0) as client:
+                resp = await client.get(f"/{self.model_name}")
                 if resp.status_code == 200:
                     meta = resp.json()
                     return meta.get("rps_limit") or meta.get("max_rps") or meta.get("requests_per_second")
@@ -184,6 +195,7 @@ class BioLMApiClient:
     async def _api_call(
         self, endpoint: str, payload: dict, raw: bool = False
     ) -> Union[dict, Tuple[Any, httpx.Response]]:
+        await self._ensure_throttle()
         async with self._throttle.limit():
             resp = await self._http_client.post(endpoint, payload)
         content_type = resp.headers.get("Content-Type", "")
@@ -355,5 +367,5 @@ class BioLMApiClient:
 
 # Synchronous wrapper for compatibility
 @_synchronizer.sync
-class BioLMModel(BioLMApiClient):
+class BioLMApi(BioLMApiClient):
     pass

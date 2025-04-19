@@ -26,17 +26,18 @@ class BioLM:
         api_key (Optional[str]): API key for authentication.
     """
 
-    def __init__(
-        self,
+    def __new__(
+        cls,
         *,
         entity: str,
         action: str,
-        type: str,
+        type: Optional[str] = None,
         items: Union[Any, List[Any]],
         params: Optional[dict] = None,
         api_key: Optional[str] = None,
         **kwargs
     ):
+        self = super().__new__(cls)
         self.entity = entity
         self.action = action
         self.type = type
@@ -44,6 +45,7 @@ class BioLM:
         self.params = params
         self.api_key = api_key
         self._class_kwargs = kwargs
+        return self.run()
 
     def run(self) -> Any:
         """
@@ -56,12 +58,25 @@ class BioLM:
         else:
             items = [self.items]
 
-        # Prepare items as list of dicts with type as key
-        items_dicts = [{self.type: v} for v in items]
+        # If items are already dicts, use as-is; else make dicts by pairing items with type
+        if all(isinstance(v, dict) for v in items):
+            items_dicts = items
+        else:
+            if self.type is None:
+                raise ValueError("If `items` are not dicts, `type` must be specified.")
+            items_dicts = [{self.type: v} for v in items]
 
         unwrap_single = self._class_kwargs.pop('unwrap_single', True)
 
         # Instantiate BioLMModel with correct settings
+
+        # Need these for the `action` method on BioLMApi; other kwargs to BioLMApi init
+        action_kwargs = {k: v for k, v in dict(
+            stop_on_error=self._class_kwargs.pop('stop_on_error', None),
+            output=self._class_kwargs.pop('output', None),
+            file_path=self._class_kwargs.pop('file_path', None),
+        ).items() if v is not None}
+
         model = BioLMApi(
             self.entity,
             api_key=self.api_key,
@@ -87,6 +102,7 @@ class BioLM:
             'items': items_dicts,
             'params': self.params,
         }
+        kwargs.update(action_kwargs)
         # Remove None values
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
