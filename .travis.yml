@@ -10,7 +10,8 @@ cache: pip
 before_cache:
   - rm -f $HOME/.cache/pip/log/debug.log
 install:
-- pip install 'tox-travis<=0.13' setuptools wheel
+- pip install pip setuptools wheel
+- pip install -U 'tox>=4.0.0,<=4.25.0'
 script:
 - tox
 after_script:
