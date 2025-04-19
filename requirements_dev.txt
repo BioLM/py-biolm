@@ -3,6 +3,7 @@ bump2version
 wheel
 flake8
 tox>=4.0.0,<=4.25.0
+typing-extensions>=4.8.0
 coverage
 Sphinx
 twine
