@@ -1,7 +1,7 @@
 """Top-level package for BioLM AI."""
 __author__ = """Nikhil Haas"""
 __email__ = "nikhil@biolm.ai"
-__version__ = '0.1.10'
+__version__ = '0.2.0'
 
 from biolmai.cls import *
 
