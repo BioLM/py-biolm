@@ -44,6 +44,14 @@ biolmai.cli module
    :undoc-members:
    :show-inheritance:
 
+biolmai.client module
+---------------------
+
+.. automodule:: biolmai.client
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 biolmai.cls module
 ------------------
 

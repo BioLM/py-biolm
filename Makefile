@@ -23,6 +23,11 @@ export PRINT_HELP_PYSCRIPT
 
 BROWSER := python -c "$$BROWSER_PYSCRIPT"
 
+RS ?= 12345
+
+K ?= 
+X ?= 8
+
 help:
 	@python -c "$$PRINT_HELP_PYSCRIPT" < $(MAKEFILE_LIST)
 
@@ -61,14 +66,28 @@ lint/flake8: ## check style with flake8
 
 lint: lint/ruff lint/black lint/flake8 ## check style with ruff, black, flake8
 
+setup-tox:
+	pyenv install -s 3.13.3
+	pyenv install -s 3.12.10
+	pyenv install -s 3.11.6
+	pyenv install -s 3.10.13
+	pyenv install -s 3.9.22
+	pyenv install -s 3.8.20
+	pyenv install -s 3.7.17
+	pyenv local 3.11.6 3.7.17 3.8.20 3.9.22 3.10.13 3.12.10 3.13.3
+
+
 test: ## run tests quickly with the default Python
-	pytest --durations=5 --randomly-seed="$$RS"
+	pytest -s --durations=5 --randomly-seed="$(RS)" $(if $(K),-k "$(K)") -n 0
+
+ptest: ## run tests quickly with the default Python
+	pytest -s --durations=5 --randomly-seed="$(RS)" $(if $(K),-k "$(K)") -n $(X)
 
 test-all: ## run tests on every Python version with tox
 	tox
 
 test-parallel: ## run tests on every Python version with tox
-	tox --parallel 6
+	tox --parallel 8
 
 coverage: ## check code coverage quickly with the default Python
 	coverage run --source biolmai -m pytest
@@ -83,7 +102,7 @@ docs: ## generate Sphinx HTML documentation, including API docs
 	sphinx-apidoc -o docs/ biolmai
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
-	$(BROWSER) docs/_build/html/index.html
+	# $(BROWSER) docs/_build/html/index.html
 
 servedocs: docs ## compile the docs watching for changes
 	watchmedo shell-command -p '*.rst' -c '$(MAKE) -C docs html' -R -D .

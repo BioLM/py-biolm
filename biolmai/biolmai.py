@@ -3,3 +3,97 @@
 import logging
 
 log = logging.getLogger("biolm_util")
+
+# File: biolmai/universal_client.py
+
+from typing import Optional, Union, List, Dict, Any
+from biolmai.client import BioLMApi
+
+class BioLM:
+    """
+    Universal client for BioLM API.
+
+    Args:
+        entity (str): The entity name (model, database, calculation, etc).
+        action (str): The action to perform (e.g., 'generate', 'encode', 'predict', 'search', 'finetune').
+        type (str): The type of item (e.g., 'sequence', 'pdb', 'fasta_str').
+        item (Union[Any, List[Any]]): The item(s) to process.
+        params (Optional[dict]): Optional parameters for the action.
+        raise_httpx (bool): Whether to raise HTTPX errors.
+        stop_on_error (bool): Stop on first error if True.
+        output (str): 'memory' or 'disk'.
+        file_path (Optional[str]): Output file path if output='disk'.
+        api_key (Optional[str]): API key for authentication.
+    """
+
+    def __init__(
+        self,
+        *,
+        entity: str,
+        action: str,
+        type: str,
+        items: Union[Any, List[Any]],
+        params: Optional[dict] = None,
+        api_key: Optional[str] = None,
+        **kwargs
+    ):
+        self.entity = entity
+        self.action = action
+        self.type = type
+        self.items = items
+        self.params = params
+        self.api_key = api_key
+        self._class_kwargs = kwargs
+
+    def run(self) -> Any:
+        """
+        Run the specified action on the entity with the given item(s).
+        Returns the result(s), unpacked if a single item was provided.
+        """
+        # Always pass a list of items to BioLMModel
+        if isinstance(self.items, list):
+            items = self.items
+        else:
+            items = [self.items]
+
+        # Prepare items as list of dicts with type as key
+        items_dicts = [{self.type: v} for v in items]
+
+        unwrap_single = self._class_kwargs.pop('unwrap_single', True)
+
+        # Instantiate BioLMModel with correct settings
+        model = BioLMApi(
+            self.entity,
+            api_key=self.api_key,
+            unwrap_single=unwrap_single,
+            **self._class_kwargs,
+        )
+
+        # Map action to method
+        action_map = {
+            'generate': model.generate,
+            'predict': model.predict,
+            'encode': model.encode,
+            'search': getattr(model, 'search', None),
+            'finetune': getattr(model, 'finetune', None),
+            'lookup': model.lookup,
+        }
+        if self.action not in action_map or action_map[self.action] is None:
+            raise ValueError(f"Action '{self.action}' is not amongst the available actions {', '.join(action_map.keys())}.")
+
+        # Prepare kwargs for the method
+        method = action_map[self.action]
+        kwargs = {
+            'items': items_dicts,
+            'params': self.params,
+        }
+        # Remove None values
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+        # Call the method
+        result = method(**kwargs)
+
+        return result
+
+# Example usage:
+# result = BioLM(entity="esmfold", action="predict", type="sequence", item="MKT...").run()

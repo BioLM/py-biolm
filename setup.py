@@ -10,7 +10,7 @@ with open("README.rst") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = ["Click>=6.0", "requests", "pandas", "aiohttp"]
+requirements = ["Click>=6.0", "requests", "aiohttp", "httpx>=0.23.0", "synchronicity>=0.5.0"]
 
 test_requirements = [
     "pytest>=3",
@@ -31,6 +31,8 @@ setup(
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
     description="Python client and SDK for https://biolm.ai",
     entry_points={
