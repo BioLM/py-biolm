@@ -80,13 +80,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13"
 ]
 dependencies = [
-    "httpx>=0.28.1",
+    "httpx==0.28.1",
     "httpcore==1.0.8",
     "Click>=6.0",
     "requests",
     "aiohttp==3.8.6",
     "aiodns==3.1.1",
-    "synchronicity>=0.9.1",
+    "synchronicity==0.9.11",
 ]
 optional-dependencies = { aiodns = ["aiodns"] }
 scripts = { biolmai = "biolmai.cli:cli" }
