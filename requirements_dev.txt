@@ -27,6 +27,7 @@ myst-parser
 pytest-xdist
 pytest-asyncio
 aiohttp
+httpx
 aiodns
 watchdog
 sphinx-new-tab-link
