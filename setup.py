@@ -10,7 +10,7 @@ with open("README.rst") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = ["Click>=6.0", "requests", "aiohttp", "httpx>=0.23.0", "synchronicity>=0.5.0", "aiodns"]
+requirements = ["Click>=6.0", "requests", "aiohttp==3.8.6", "httpx>=0.28.1", "httpcore==1.0.8", "synchronicity>=0.9.11", "aiodns==3.1.1"]
 
 test_requirements = [
     "pytest>=3",
