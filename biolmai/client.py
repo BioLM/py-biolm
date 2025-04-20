@@ -13,6 +13,22 @@ from synchronicity import Synchronizer
 from collections import namedtuple, OrderedDict
 from contextlib import asynccontextmanager
 
+import sys
+
+def debug(msg):
+    sys.stderr.write(msg + "\n")
+    sys.stderr.flush()
+
+import logging
+import sys
+
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stderr,
+    format="%(asctime)s %(levelname)s %(message)s",
+    force=True,  # Python 3.8+
+)
+
 BASE_DOMAIN = "https://biolm.ai"
 USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
@@ -134,7 +150,9 @@ class HttpClient:
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        print("DEBUG async post: endpoint =", endpoint)
+        debug("DEBUG async post: endpoint =" + endpoint)
+        if "Content-Type" not in client.headers:
+            client.headers["Content-Type"] = "application/json"
         return await client.post(endpoint, json=payload)
 
     async def close(self):
@@ -174,9 +192,11 @@ class BioLMApiClient:
             self._throttle = Throttle(self._rps_limit)
 
     async def _fetch_rps_limit_async(self) -> Optional[int]:
+        return None
+        # Not implemented yet
         try:
             async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=5.0) as client:
-                resp = await client.get(f"/{self.model_name}")
+                resp = await client.get(f"/{self.model_name}/")
                 if resp.status_code == 200:
                     meta = resp.json()
                     return meta.get("rps_limit") or meta.get("max_rps") or meta.get("requests_per_second")
@@ -192,13 +212,23 @@ class BioLMApiClient:
             resp = await self._http_client.post(endpoint, payload)
         content_type = resp.headers.get("Content-Type", "")
 
-        if resp.status_code >= 400:
+        assert hasattr(resp, 'status_code') or hasattr(resp, 'status') or 'status' in resp or 'status_code' in resp
+
+        try:
+            resp_json = resp.json()
+        except Exception:
+            resp_json = ''
+
+        assert resp.status_code
+        if resp.status_code >= 400 or 'error' in resp_json:
             if 'application/json' in content_type:
                 try:
-                    error_json = resp.json()
+                    error_json = resp_json
                     # If the API already returns a dict with "error" or similar, just return it
                     if isinstance(error_json, (dict, list)):
-                        error_json['status_code'] = resp.status_code
+                        DEFAULT_STATUS_CODE = 502
+                        stat = error_json.get('status', DEFAULT_STATUS_CODE)
+                        error_json['status_code'] = resp.status_code or error_json.get('status_code', stat)
                         if raw:
                             return (error_json, resp)
                         if self.raise_httpx:
@@ -217,7 +247,7 @@ class BioLMApiClient:
                 raise httpx.HTTPStatusError(message=resp.text, request=resp.request, response=resp)
             return error_info
 
-        data = resp.json() if 'application/json' in content_type else {"error": resp.text}
+        data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
         return (data, resp) if raw else data
 
     async def _batch_call(
@@ -232,8 +262,8 @@ class BioLMApiClient:
     ):
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")  # Make sure no starting slash, it's in `base_url``
-        print("DEBUG async _batch_call: base_url =", self.base_url)
-        print("DEBUG async _batch_call: full URL =", self.base_url + endpoint)
+        debug("DEBUG async _batch_call: base_url =" + self.base_url)
+        debug("DEBUG async _batch_call: full URL =" + self.base_url + endpoint)
         results = []
         single = len(items) == 1
         file_handle = None
@@ -246,6 +276,7 @@ class BioLMApiClient:
                 payload['params'] = params
             try:
                 res = await self._api_call(endpoint, payload, raw=raw if func == 'lookup' else False)
+                debug(f"DEBUG async _api_call: endpoint={endpoint}, status={res.get('status_code')}")
             except Exception as e:
                 if self.raise_httpx:
                     raise
