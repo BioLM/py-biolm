@@ -96,22 +96,9 @@ class Throttle:
             yield
 
 class HttpClient:
-    def __init__(self, base_url: str, headers: Dict[str, str], timeout: httpx.Timeout):
-        self._base_url = base_url.rstrip("/")
-        self._headers = headers
-        self._timeout = timeout
-        self._async_client: Optional[httpx.AsyncClient] = None
 
-    async def get_async_client(self) -> httpx.AsyncClient:
-        if self._async_client is None or getattr(self._async_client, 'is_closed', False):
-            self._async_client = httpx.AsyncClient(
-                base_url=self._base_url,
-                headers=self._headers,
-                timeout=self._timeout,
-            )
-        return self._async_client
     def __init__(self, base_url: str, headers: Dict[str, str], timeout: httpx.Timeout):
-        self._base_url = base_url.rstrip("/")
+        self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
         self._timeout = timeout
         self._async_client: Optional[httpx.AsyncClient] = None
