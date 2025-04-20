@@ -232,8 +232,8 @@ class BioLMApiClient:
     ):
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")  # Make sure no starting slash, it's in `base_url``
-        print("DEBUG async _batch_call: base_url =", self._base_url)
-        print("DEBUG async _batch_call: full URL =", self._base_url + endpoint)
+        print("DEBUG async _batch_call: base_url =", self.base_url)
+        print("DEBUG async _batch_call: full URL =", self.base_url + endpoint)
         results = []
         single = len(items) == 1
         file_handle = None
