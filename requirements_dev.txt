@@ -28,8 +28,8 @@ myst-parser
 pytest-xdist
 pytest-asyncio
 aiohttp
-httpx>=0.28.1
-httpcore>=1.0.8
+httpx>=0.23.0
+httpcore
 aiodns
 watchdog
 sphinx-new-tab-link
