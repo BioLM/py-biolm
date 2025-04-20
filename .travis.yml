@@ -18,7 +18,7 @@ install:
   - pip install -r requirements_dev.txt
 script:
 - pip freeze
-- make ptest
+- make test-parallel
 after_script:
 - ./ci_docs_test.sh
 deploy:
