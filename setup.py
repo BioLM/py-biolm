@@ -40,9 +40,6 @@ setup(
             "biolmai=biolmai.cli:cli",
         ],
     },
-    extras_require={
-        "aiodns": ["aiodns"]
-    },
     install_requires=requirements,
     license="Apache Software License 2.0",
     long_description=readme + "\n\n" + history,
