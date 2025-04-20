@@ -134,6 +134,7 @@ class HttpClient:
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
+        print("DEBUG async post: endpoint =", endpoint)
         return await client.post(endpoint, json=payload)
 
     async def close(self):
@@ -231,6 +232,8 @@ class BioLMApiClient:
     ):
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")  # Make sure no starting slash, it's in `base_url``
+        print("DEBUG async _batch_call: base_url =", self._base_url)
+        print("DEBUG async _batch_call: full URL =", self._base_url + endpoint)
         results = []
         single = len(items) == 1
         file_handle = None

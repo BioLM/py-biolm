@@ -19,6 +19,7 @@ install:
   - python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox tox-travis
 
 script:
+- pip freeze
 - tox
 after_script:
 - ./ci_docs_test.sh
