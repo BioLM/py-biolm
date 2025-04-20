@@ -192,7 +192,7 @@ class BioLMApiClient:
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
-        semaphore: int | None = None,
+        semaphore: Optional[int] = None,
     ):
         self.model_name = model_name
         self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
