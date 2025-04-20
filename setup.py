@@ -19,6 +19,7 @@ requirements = [
     "aiodns",
     "aiohttp<=3.8.6; python_version < '3.12'",
     "aiohttp>=3.9.0; python_version >= '3.12'",
+    "async-lru"
 ]
 
 test_requirements = [
