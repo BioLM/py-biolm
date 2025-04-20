@@ -10,14 +10,15 @@ cache: pip
 before_cache:
   - rm -f $HOME/.cache/pip/log/debug.log
 install:
+  - pip install -r requirements_dev.txt
   # - |
   #   if [[ $TRAVIS_PYTHON_VERSION == "3.7" ]]; then
   #     pip install "pip<23.3" "setuptools<70" "wheel<0.41"
   #   else
   #     pip install -U 'pip<25' setuptools wheel
   #   fi
-  # - python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox tox-travis
-  # - pip install -e .
+  - python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox tox-travis
+  - pip install -e .
 script:
 - pip freeze
 - tox
