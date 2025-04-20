@@ -16,8 +16,7 @@ install:
   #   else
   #     pip install -U 'pip<25' setuptools wheel
   #   fi
-  - pip install -U 'tox>=4.0.0,<=4.25.0'
-  - pip install tox-travis
+  - python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox tox-travis
 
 script:
 - tox
