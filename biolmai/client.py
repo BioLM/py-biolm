@@ -44,7 +44,6 @@ logging.basicConfig(
     force=True,  # Python 3.8+
 )
 
-BASE_DOMAIN = "https://biolm.ai"
 USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
@@ -160,11 +159,9 @@ class HttpClient:
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        debug("DEBUG async post: endpoint =" + endpoint)
         if "Content-Type" not in client.headers:
             client.headers["Content-Type"] = "application/json"
         r = await client.post(endpoint, json=payload)
-        debug("DEBUG async url: url =" + str(r.url))
         return r  # FIX: return the response object
 
     async def close(self):
@@ -274,8 +271,6 @@ class BioLMApiClient:
     ):
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")  # Make sure no starting slash, it's in `base_url``
-        debug("DEBUG async _batch_call: base_url =" + self.base_url)
-        debug("DEBUG async _batch_call: full URL =" + self.base_url + endpoint)
         results = []
         single = len(items) == 1
         file_handle = None
@@ -288,7 +283,6 @@ class BioLMApiClient:
                 payload['params'] = params
             try:
                 res = await self._api_call(endpoint, payload, raw=raw if func == 'lookup' else False)
-                debug(f"DEBUG async _api_call: endpoint={endpoint}, status={res.get('status_code') if isinstance(res, dict) else None}")
             except Exception as e:
                 if self.raise_httpx:
                     raise

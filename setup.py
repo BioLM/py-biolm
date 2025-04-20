@@ -13,13 +13,11 @@ with open("HISTORY.rst") as history_file:
 requirements = [
     "Click>=6.0",
     "requests",
-    "httpx==0.27.2",
-    "httpcore==1.0.8",
-    "synchronicity==0.9.11",
-    "aiodns==3.1.1",
-    "numpy",
-    "pandas>=2.0.0",
-    "aiohttp==3.8.6; python_version < '3.12'",
+    "httpx>=0.23.0",
+    "httpcore",
+    "synchronicity>=0.5.0",
+    "aiodns",
+    "aiohttp<=3.8.6; python_version < '3.12'",
     "aiohttp>=3.9.0; python_version >= '3.12'",
 ]
 
