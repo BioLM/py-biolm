@@ -1,6 +1,7 @@
 import functools
 import httpx._content
 from httpx import ByteStream
+from typing import Any, Tuple, Dict
 from json import dumps as json_dumps
 from typing import Callable
 from httpx import AsyncHTTPTransport
@@ -18,7 +19,8 @@ from synchronicity import Synchronizer
 from collections import namedtuple, OrderedDict
 from contextlib import asynccontextmanager
 
-def custom_httpx_encode_json(json: Any) -> tuple[dict[str, str], ByteStream]:
+
+def custom_httpx_encode_json(json: Any) -> Tuple[Dict[str, str], ByteStream]:
     # disable ascii for json_dumps 
     body = json_dumps(json, ensure_ascii=False).encode("utf-8")
     content_length = str(len(body))
