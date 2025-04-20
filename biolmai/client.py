@@ -1,4 +1,5 @@
 import functools
+import time
 from async_lru import alru_cache
 import httpx._content
 from httpx import ByteStream
@@ -99,6 +100,41 @@ def type_check(param_types: Dict[str, Any]):
     return decorator
 
 
+class AsyncRateLimiter:
+    def __init__(self, max_calls: int, period: float):
+        self._max_calls = max_calls
+        self._period = period
+        self._lock = asyncio.Lock()
+        self._calls = []
+
+    @asynccontextmanager
+    async def limit(self):
+        async with self._lock:
+            now = time.monotonic()
+            # Remove calls outside the window
+            self._calls = [t for t in self._calls if now - t < self._period]
+            if len(self._calls) >= self._max_calls:
+                sleep_time = self._period - (now - self._calls[0])
+                await asyncio.sleep(max(0, sleep_time))
+                now = time.monotonic()
+                self._calls = [t for t in self._calls if now - t < self._period]
+            self._calls.append(time.monotonic())
+        yield
+
+def parse_rate_limit(rate: str):
+    # e.g. "1000/second", "60/minute"
+    if not rate:
+        return None
+    num, per = rate.strip().split("/")
+    num = int(num)
+    per = per.strip().lower()
+    if per == "second":
+        return num, 1.0
+    elif per == "minute":
+        return num, 60.0
+    else:
+        raise ValueError(f"Unknown rate period: {per}")
+
 class CredentialsProvider:
     @staticmethod
     def get_auth_headers(api_key: Optional[str] = None) -> Dict[str, str]:
@@ -118,17 +154,6 @@ class CredentialsProvider:
             }
         raise AssertionError("No credentials found. Set BIOLMAI_TOKEN or run `biolmai login`.")
 
-class Throttle:
-    def __init__(self, max_rps: Optional[int]):
-        self._sem = asyncio.Semaphore(max_rps) if max_rps else None
-
-    @asynccontextmanager
-    async def limit(self):
-        if self._sem:
-            async with self._sem:
-                yield
-        else:
-            yield
 
 class HttpClient:
 
@@ -188,11 +213,12 @@ class BioLMApiClient:
         self,
         model_name: str,
         api_key: Optional[str] = None,
-        base_url: str = "https://biolm.ai/api/v3",
+        base_url: str = "http://localhost:8888/api/v3",
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
-        semaphore: Optional[int] = None,
+        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = None,
+        rate_limit: 'Optional[str]' = None,
     ):
         self.model_name = model_name
         self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
@@ -201,18 +227,61 @@ class BioLMApiClient:
         self.unwrap_single = unwrap_single
         self._headers = CredentialsProvider.get_auth_headers(api_key)
         self._http_client = HttpClient(self.base_url, self._headers, self.timeout)
-        self._rps_limit = None
-        self._throttle = None
-        self._rps_limit_lock = asyncio.Lock()  # Only locks on initial GET of throttle info, then throttle cached
+        self._semaphore = None
+        self._rate_limiter = None
+        self._rate_limit_lock = asyncio.Lock()
+        self._rate_limit_initialized = False
 
-    async def _ensure_throttle(self):
-        if self._throttle is not None:
+        # Concurrency limit
+        if isinstance(semaphore, asyncio.Semaphore):
+            self._semaphore = semaphore
+        elif isinstance(semaphore, int):
+            self._semaphore = asyncio.Semaphore(semaphore)
+
+        # RPS limit
+        if rate_limit:
+            max_calls, period = parse_rate_limit(rate_limit)
+            self._rate_limiter = AsyncRateLimiter(max_calls, period)
+            self._rate_limit_initialized = True
+
+
+    async def _ensure_rate_limit(self):
+        if self._rate_limit_initialized:
             return
-        async with self._rps_limit_lock:
-            if self._throttle is not None:
+        async with self._rate_limit_lock:
+            if self._rate_limit_initialized:
                 return
-            self._rps_limit = await self._fetch_rps_limit_async()
-            self._throttle = Throttle(self._rps_limit)
+            # Only fetch if user did NOT provide rate_limit
+            if self._rate_limiter is None:
+                schema = await self.schema(self.model_name, "encode")
+                throttle_rate = schema.get("throttle_rate") if schema else None
+                if throttle_rate:
+                    max_calls, period = parse_rate_limit(throttle_rate)
+                    self._rate_limiter = AsyncRateLimiter(max_calls, period)
+            self._rate_limit_initialized = True
+
+    @asynccontextmanager
+    async def _limit(self):
+        """
+         Usage:
+            # No throttling: BioLMApiClient(...)
+            # Concurrency limit: BioLMApiClient(..., semaphore=5)
+            # User's own semaphore: BioLMApiClient(..., semaphore=my_semaphore)
+            # RPS limit: BioLMApiClient(..., rate_limit="1000/second")
+            # Both: BioLMApiClient(..., semaphore=5, rate_limit="1000/second")
+        """
+        if self._semaphore:
+            async with self._semaphore:
+                if self._rate_limiter:
+                    async with self._rate_limiter.limit():
+                        yield
+                else:
+                    yield
+        elif self._rate_limiter:
+            async with self._rate_limiter.limit():
+                yield
+        else:
+            yield
 
     @alru_cache(maxsize=8)
     async def schema(
@@ -273,8 +342,8 @@ class BioLMApiClient:
     async def _api_call(
         self, endpoint: str, payload: dict, raw: bool = False
     ) -> Union[dict, Tuple[Any, httpx.Response]]:
-        await self._ensure_throttle()
-        async with self._throttle.limit():
+        await self._ensure_rate_limit()
+        async with self._limit():
             resp = await self._http_client.post(endpoint, payload)
         content_type = resp.headers.get("Content-Type", "")
 
