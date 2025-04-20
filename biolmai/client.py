@@ -204,8 +204,6 @@ class BioLMApiClient:
         self._rps_limit = None
         self._throttle = None
         self._rps_limit_lock = asyncio.Lock()  # Only locks on initial GET of throttle info, then throttle cached
-        self._schema_cache: Dict[Tuple[str, str], dict] = {}
-
 
     async def _ensure_throttle(self):
         if self._throttle is not None:
@@ -226,15 +224,11 @@ class BioLMApiClient:
         Fetch the JSON schema for a given model and action, with caching.
         Returns the schema dict if successful, else None.
         """
-        cache_key = (model, action)
-        if cache_key in self._schema_cache:
-            return self._schema_cache[cache_key]
         endpoint = f"schema/{model}/{action}/"
         try:
             resp = await self._http_client.get(endpoint)
             if resp.status_code == 200:
                 schema = resp.json()
-                self._schema_cache[cache_key] = schema  # Cache it
                 return schema
             else:
                 return None
@@ -373,7 +367,10 @@ class BioLMApiClient:
         raw: bool = False,
     ):
         max_batch = await self._get_max_batch_size(self.model_name, func) or 1
-        batches = [items[i:i+max_batch] for i in range(0, len(items), max_batch)]
+
+        def batch_generator(items, max_batch):
+            for i in range(0, len(items), max_batch):
+                yield items[i:i+max_batch]
 
         results = []
         if stop_on_error:
@@ -382,7 +379,7 @@ class BioLMApiClient:
             if output == 'disk':
                 path = file_path or f"{self.model_name}_{func}_output.jsonl"
                 file_handle = open(path, 'w', encoding='utf-8')
-            for batch in batches:
+            for batch in batch_generator(items, max_batch):
                 batch_results = await self._batch_call(
                     func, batch, params=params, stop_on_error=stop_on_error,
                     output='memory', file_path=None, raw=raw
@@ -409,7 +406,7 @@ class BioLMApiClient:
                     func, batch, params=params, stop_on_error=stop_on_error,
                     output='memory', file_path=None, raw=raw
                 )
-                for batch in batches
+                for batch in batch_generator(items, max_batch)
             ]
             batch_results = await asyncio.gather(*tasks)
             # Flatten results
