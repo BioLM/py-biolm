@@ -242,7 +242,8 @@ class BioLMApiClient:
         file_path: Optional[str] = None,
         raw: bool = False,
     ):
-        endpoint = f"/{self.model_name}/{func}/"
+        endpoint = f"{self.model_name}/{func}/"
+        endpoint = endpoint.lstrip("/")  # Make sure no starting slash, it's in `base_url``
         results = []
         single = len(items) == 1
         file_handle = None
