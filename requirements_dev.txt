@@ -9,7 +9,7 @@ pytest-asyncio
 pytest-xdist
 pytest-randomly
 anyio==4.2.0; python_version >= "3.8"
-filelock==3.18.0; python_version >= "3.8"
+filelock>=3.12.2; python_version >= "3.8"
 pyproject-api==1.9.0; python_version >= "3.8"
 black==23.3.0; python_version >= "3.8"
 tomli>=2.2.1; python_version < "3.11"
