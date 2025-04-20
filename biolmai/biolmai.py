@@ -25,7 +25,6 @@ class BioLM:
         file_path (Optional[str]): Output file path if output='disk'.
         api_key (Optional[str]): API key for authentication.
     """
-
     def __new__(
         cls,
         *,

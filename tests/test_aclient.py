@@ -191,3 +191,5 @@ async def test_invalid_input_items_type(model, monkeypatch):
     monkeypatch.setattr(model, "_batch_call", lambda *a, **kw: None)
     with pytest.raises(TypeError, match="Parameter 'items' must be of type list, tuple"):
         await model.predict(items={"sequence": "MDNELE"})
+
+
