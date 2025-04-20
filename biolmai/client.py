@@ -143,6 +143,10 @@ class HttpClient:
 
     async def post(self, endpoint: str, payload: dict) -> httpx.Response:
         client = await self.get_async_client()
+        # Remove leading slash, ensure trailing slash
+        endpoint = endpoint.lstrip("/")
+        if not endpoint.endswith("/"):
+            endpoint += "/"
         return await client.post(endpoint, json=payload)
 
     async def close(self):
@@ -162,7 +166,7 @@ class BioLMApiClient:
         unwrap_single: bool = False,
     ):
         self.model_name = model_name
-        self.base_url = base_url.rstrip("/")
+        self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
         self.timeout = timeout
         self.raise_httpx = raise_httpx
         self.unwrap_single = unwrap_single
