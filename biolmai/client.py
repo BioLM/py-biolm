@@ -39,12 +39,14 @@ def debug(msg):
 
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    stream=sys.stderr,
-    format="%(asctime)s %(levelname)s %(message)s",
-    force=True,  # Python 3.8+
-)
+# Turn this on to dev lots of logs
+if os.environ.get("DEBUG", False):
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)s %(message)s",
+        force=True,  # Python 3.8+
+    )
 
 USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
