@@ -213,7 +213,7 @@ class BioLMApiClient:
         self,
         model_name: str,
         api_key: Optional[str] = None,
-        base_url: str = "http://localhost:8888/api/v3",
+        base_url: str = "https://biolm.ai/api/v3",
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
