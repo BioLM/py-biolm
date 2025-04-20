@@ -10,15 +10,15 @@ with open("README.rst") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = ["Click>=6.0", "requests", "aiohttp", "httpx>=0.23.0", "synchronicity>=0.5.0"]
+requirements = ["Click>=6.0", "requests", "aiohttp", "httpx>=0.23.0", "synchronicity>=0.5.0", "aiodns"]
 
 test_requirements = [
     "pytest>=3",
 ]
 
 setup(
-    author="Nikhil Haas",
-    author_email="nhaas@biolm.ai",
+    author="BioLM",
+    author_email="support@biolm.ai",
     python_requires=">=3.6",
     classifiers=[
         "Development Status :: 2 - Pre-Alpha",
@@ -34,7 +34,7 @@ setup(
         "Programming Language :: Python :: 3.12",
         "Programming Language :: Python :: 3.13",
     ],
-    description="Python client and SDK for https://biolm.ai",
+    description="BioLM Python client",
     entry_points={
         "console_scripts": [
             "biolmai=biolmai.cli:cli",
