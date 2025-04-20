@@ -1,5 +1,10 @@
 import functools
+import httpx._content
+from httpx import ByteStream
+from json import dumps as json_dumps
 from typing import Callable
+from httpx import AsyncHTTPTransport
+# Removed: from httpx._transports.default import AsyncResolver
 try:
     from importlib.metadata import version
 except ImportError:
@@ -13,6 +18,17 @@ from synchronicity import Synchronizer
 from collections import namedtuple, OrderedDict
 from contextlib import asynccontextmanager
 
+def custom_httpx_encode_json(json: Any) -> tuple[dict[str, str], ByteStream]:
+    # disable ascii for json_dumps 
+    body = json_dumps(json, ensure_ascii=False).encode("utf-8")
+    content_length = str(len(body))
+    content_type = "application/json"
+    headers = {"Content-Length": content_length, "Content-Type": content_type}
+    return headers, ByteStream(body)
+
+# fix encoding utf-8 bug
+httpx._content.encode_json = custom_httpx_encode_json
+
 import sys
 
 def debug(msg):
@@ -20,7 +36,6 @@ def debug(msg):
     sys.stderr.flush()
 
 import logging
-import sys
 
 logging.basicConfig(
     level=logging.INFO,
@@ -119,13 +134,8 @@ class HttpClient:
         self._timeout = timeout
         self._async_client: Optional[httpx.AsyncClient] = None
         self._transport = None
-        # Try to use aiodns if available
-        try:
-            from httpx import AsyncHTTPTransport
-            from httpx._transports.default import AsyncResolver
-            self._transport = AsyncHTTPTransport(resolver=AsyncResolver())
-        except ImportError:
-            self._transport = None
+        # Removed AsyncResolver, use default resolver
+        self._transport = AsyncHTTPTransport()
 
     async def get_async_client(self) -> httpx.AsyncClient:
         if self._async_client is None or getattr(self._async_client, 'is_closed', False):
@@ -153,7 +163,9 @@ class HttpClient:
         debug("DEBUG async post: endpoint =" + endpoint)
         if "Content-Type" not in client.headers:
             client.headers["Content-Type"] = "application/json"
-        return await client.post(endpoint, json=payload)
+        r = await client.post(endpoint, json=payload)
+        debug("DEBUG async url: url =" + str(r.url))
+        return r  # FIX: return the response object
 
     async def close(self):
         if self._async_client:
@@ -276,7 +288,7 @@ class BioLMApiClient:
                 payload['params'] = params
             try:
                 res = await self._api_call(endpoint, payload, raw=raw if func == 'lookup' else False)
-                debug(f"DEBUG async _api_call: endpoint={endpoint}, status={res.get('status_code')}")
+                debug(f"DEBUG async _api_call: endpoint={endpoint}, status={res.get('status_code') if isinstance(res, dict) else None}")
             except Exception as e:
                 if self.raise_httpx:
                     raise
@@ -377,13 +389,6 @@ class BioLMApiClient:
 
     async def shutdown(self):
         await self._http_client.close()
-
-    async def __aenter__(self):
-        # Optionally, you could initialize resources here
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self.shutdown()
 
     async def __aenter__(self):
         return self

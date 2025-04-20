@@ -1,6 +1,6 @@
 Click>=6.0
 requests
-httpx==0.28.1
+httpx==0.27.2
 httpcore==1.0.8
 aiodns==3.1.1
 synchronicity==0.9.11
@@ -13,4 +13,4 @@ pyproject-api==1.9.0; python_version >= "3.8"
 black==23.3.0; python_version >= "3.8"
 tomli>=2.2.1; python_version < "3.11"
 aiohttp==3.8.6; python_version < "3.12"
-aiohttp>=3.9.0; python_version >= "3.12"
+aiohttp>=3.9.0; python_version >= "3.12"<

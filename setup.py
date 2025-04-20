@@ -13,7 +13,7 @@ with open("HISTORY.rst") as history_file:
 requirements = [
     "Click>=6.0",
     "requests",
-    "httpx==0.28.1",
+    "httpx==0.27.2",
     "httpcore==1.0.8",
     "synchronicity==0.9.11",
     "aiodns==3.1.1",
