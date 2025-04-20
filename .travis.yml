@@ -16,8 +16,8 @@ install:
   #   else
   #     pip install -U 'pip<25' setuptools wheel
   #   fi
-  - python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox tox-travis
-  - pip install -e .
+  # - python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox tox-travis
+  # - pip install -e .
 script:
 - pip freeze
 - tox
