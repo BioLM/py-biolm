@@ -86,6 +86,7 @@ dependencies = [
     "requests",
     "aiohttp",
     "aiodns",
+    "synchronicity>=0.5.0",
 ]
 optional-dependencies = { aiodns = ["aiodns"] }
 scripts = { biolmai = "biolmai.cli:cli" }
