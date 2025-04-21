@@ -10,36 +10,45 @@ with open("README.rst") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = ["Click>=6.0", "requests", "pandas", "aiohttp"]
+requirements = [
+    "Click>=6.0",
+    "requests",
+    "httpx>=0.23.0",
+    "httpcore",
+    "synchronicity>=0.5.0",
+    "aiodns",
+    "aiohttp<=3.8.6; python_version < '3.12'",
+    "aiohttp>=3.9.0; python_version >= '3.12'",
+    "async-lru",
+    "aiofiles",
+]
 
 test_requirements = [
     "pytest>=3",
 ]
 
 setup(
-    author="Nikhil Haas",
-    author_email="nhaas@biolm.ai",
-    python_requires=">=3.6",
+    author="BioLM",
+    author_email="support@biolm.ai",
+    python_requires=">=3.7",
     classifiers=[
-        "Development Status :: 2 - Pre-Alpha",
+        "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: Apache Software License",
         "Natural Language :: English",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
     ],
-    description="Python client and SDK for https://biolm.ai",
+    description="BioLM Python client",
     entry_points={
         "console_scripts": [
             "biolmai=biolmai.cli:cli",
         ],
-    },
-    extras_require={
-        "aiodns": ["aiodns"]
     },
     install_requires=requirements,
     license="Apache Software License 2.0",
@@ -51,6 +60,6 @@ setup(
     test_suite="tests",
     tests_require=test_requirements,
     url="https://github.com/BioLM/py-biolm",
-    version='0.1.10',
+    version='0.2.2',
     zip_safe=False,
 )

@@ -1,69 +1,49 @@
-==========================
-Welcome to BioLM AI's Docs
-==========================
+===================================
+Welcome to Our Python Client Docs
+===================================
 
-.. grid:: 2
+.. include:: python-client/quickstart.rst
+   :start-line: 1
+   :end-line: 27
 
-    .. grid-item-card::  All Models
-       :margin: auto
-       :text-align: center
-       :link: model-docs-home
-       :link-type: ref
+.. include:: python-client/overview.rst
+   :start-line: 1
+   :end-line: 17
 
-       .. image:: _static/model_docs_icon.png
-          :scale: 10 %
-          :alt: alternate text
+.. toctree::
+   :maxdepth: 2
+   :caption: Python Client:
+   :hidden:
 
-    .. grid-item-card::  API Reference
-       :margin: auto
-       :text-align: center
-       :link: https://api.biolm.ai
+   python-client/installation
+   python-client/authentication
+   python-client/quickstart
+   python-client/overview
+   python-client/features
+   python-client/usage
+   python-client/batching
+   python-client/error_handling
+   python-client/rate_limiting
+   python-client/disk_output
+   python-client/async_sync
+   python-client/api_biolm
+   python-client/api_client
+   python-client/faq
+   modules.rst
 
-       .. image:: _static/api_reference_icon.png
-          :scale: 10 %
-          :alt: alternate text
+.. toctree::
+   :maxdepth: 2
+   :caption: REST API:
+   :hidden:
 
-.. grid:: 2
+   api_docs/index
 
-    .. grid-item-card::  Python SDK
-       :margin: auto
-       :text-align: center
-       :link: quickstart-sdk
-       :link-type: ref
+.. toctree::
+   :maxdepth: 2
+   :caption: Tutorials & Guides:
+   :hidden:
 
-       .. image:: _static/python_sdk_icon.png
-          :scale: 10 %
-          :alt: alternate text
-
-    .. grid-item-card::  Bio-Chat Agents
-       :margin: auto
-       :text-align: center
-       :link: https://biolm.ai/ui/chat-agents/
-
-       .. image:: _static/chat_agents_icon.png
-          :scale: 10 %
-          :alt: alternate text
-
-.. grid:: 2
-
-    .. grid-item-card::  Jupyter Notebooks
-       :margin: auto
-       :text-align: center
-       :link: https://jupyter.biolm.ai/lab?path=0_Introduction.ipynb
-
-       .. image:: _static/jupyter_notebooks_icon.png
-          :scale: 10 %
-          :alt: alternate text
-
-    .. grid-item-card::  Back to BioLM
-       :margin: auto
-       :text-align: center
-       :link: https://biolm.ai
-
-       .. image:: _static/tutorials_icon.png
-          :scale: 10 %
-          :alt: alternate text
-
+   tutorials_use_cases/notebooks
 
 .. toctree::
    :maxdepth: 2
@@ -81,30 +61,4 @@ Welcome to BioLM AI's Docs
    model-docs/protgpt2/index
    model-docs/dnabert/index
    model-docs/finetuning/index
-
-
-.. toctree::
-   :maxdepth: 2
-   :caption: REST API:
-   :hidden:
-
-   api_docs/index
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Tutorials & Guides:
-   :hidden:
-
-   tutorials_use_cases/notebooks
-
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Python Client:
-   :hidden:
-
-   python-client/index
-   python-client/usage.rst
-   modules.rst
-
 
