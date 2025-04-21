@@ -38,7 +38,7 @@ clean-build: ## remove build artifacts
 	rm -fr dist/
 	rm -fr .eggs/
 	find . -name '*.egg-info' -exec rm -fr {} +
-	find . -name '*.egg' -exec rm -f {} +
+	find . -name '*.egg' -exec rm -rf {} +
 
 clean-pyc: ## remove Python file artifacts
 	find . -name '*.pyc' -exec rm -f {} +
@@ -56,13 +56,13 @@ clean-ruff: ## remove ruff artifacts
 	rm -fr .ruff_cache/
 
 lint/ruff: ## run ruff to check Python code style
-	ruff biolmai/ tests/
+	ruff biolm/ tests/
 
 lint/black: ## run black to check and format Python code style
-	black --check biolmai/ tests/
+	black --check biolm/ tests/
 
 lint/flake8: ## check style with flake8
-	flake8 biolmai/ tests/
+	flake8 biolm/ tests/
 
 lint: lint/ruff lint/black lint/flake8 ## check style with ruff, black, flake8
 
@@ -90,16 +90,15 @@ test-parallel: ## run tests on every Python version with tox
 	tox --parallel 8
 
 coverage: ## check code coverage quickly with the default Python
-	coverage run --source biolmai -m pytest
+	coverage run --source biolm -m pytest
 	coverage report -m
 	coverage html
 	$(BROWSER) htmlcov/index.html
 
 docs: ## generate Sphinx HTML documentation, including API docs
 	mkdir -p docs/_static
-	rm -f docs/biolmai.rst
 	rm -f docs/modules.rst
-	sphinx-apidoc -o docs/ biolmai
+	sphinx-apidoc -o docs/ biolm
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	$(BROWSER) docs/_build/html/index.html

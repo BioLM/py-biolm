@@ -26,7 +26,7 @@ Making Requests
 ^^^^^^^^^^^^^^^
 
 Using ESMFold single chain as an example, folding requests to the endpoints can be made with
-in several ways including 'python requests' or the biolmai SDK
+in several ways including 'python requests' or the biolm SDK
 
 .. tab-set::
 
@@ -72,15 +72,15 @@ in several ways including 'python requests' or the biolmai SDK
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
+    .. tab-item:: biolm SDK
         :sync: sdk
 
         .. code:: sdk
 
-            import biolmai
+            import biolm
             seqs = ["MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFAQSQLHQQDRKWPRLPDYFAIGRTTALALHTVSGQKILYPQDREISEVLLQLPELQNIAGKRALILRGNGGRELIGDTLTARGAEVTFCECYQRCAIHYDGAEEAMRWQAREVTMVVVTSGEMLQQLWSLIPQWYREHWLLHCRLLVVSERLAKLARELGWQDIKVADNADNDALLRALQ"]
 
-            cls = biolmai.ESMFoldSingleChain()
+            cls = biolm.ESMFoldSingleChain()
             resp = cls.predict(seqs)
 
     .. tab-item:: R

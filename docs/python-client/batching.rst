@@ -110,7 +110,7 @@ Batch Size and Schema
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApi
+    from biolm.client import BioLMApi
     model = BioLMApi("esm2-8m")
     schema = model.schema("esm2-8m", "encode")
     max_batch = model.extract_max_items(schema)

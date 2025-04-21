@@ -103,15 +103,15 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
+    .. tab-item:: biolm SDK
         :sync: sdk
 
         .. code:: sdk
 
-            import biolmai
+            import biolm
             seqs = ["MAETAVINHKKRKNSPRIVQSNDLTEAAYSLSRDQKRMLYLFVDQIRKSDGTLQEHDGICEIHVAKYAEIFGLTSAEASKDIRQALKSFAGKEVVFYRPEEDAGDEKGYESFPWFIKRAHSPSRGLYSVHINPYLIPFFIGLQNRFTQFRLSETKEITNPYAMRLYESLCRYRKPDGSGIVSLKIDWIIERYQLPQSYQRMPDFRRRFLQVCVNEINSRTPMRLSYIEKKKGRQTTHIVFSFRDITSMTTG"]
 
-            cls = biolmai.ESM2_650M()
+            cls = biolm.ESM2_650M()
             resp = cls.encode(seqs, params={
                     "include": [
                         "mean",
@@ -310,15 +310,15 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolmai SDK
+    .. tab-item:: biolm SDK
         :sync: sdk
 
         .. code:: sdk
 
-            import biolmai
+            import biolm
             seqs = ["MAETAVINHKKRKNSPRI<mask>QSNDLTEAAYSLSRDQKRMLYLFVDQIRKSDGTLQEHDGICEIHVAKYAEIFGLTSAEASKDIRQALKSFAGKEVVFYRPEEDAGDEKGYESFPWFIKRAHSPSRGLYSVHINPYLIPFFIGLQNRFTQFRLSETKEITNPYAMRLYESLCQYRKPDGSGIVSLKIDWIIERYQLPQSYQRMPDFRRRFLQVCVNEINSRTPMRLSYIEKKKGRQTTHIVFSFRDITSMTTG"]
 
-            cls = biolmai.ESM2_650M()
+            cls = biolm.ESM2_650M()
             resp = cls.predict(seqs)
 
     .. tab-item:: R
