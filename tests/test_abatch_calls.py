@@ -85,7 +85,6 @@ async def test_large_batch_encode_stop_on_error(model):
     def run_biolm():
         return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=False, raise_httpx=False)
     results_biolm = await loop.run_in_executor(None, run_biolm)
-    # print(results_biolm)
     # Should get the first batch and the second one should be errors
     assert len(results_async) == 16
     assert len(results_internal) == 16

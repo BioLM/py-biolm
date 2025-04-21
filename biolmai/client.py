@@ -534,6 +534,10 @@ class BioLMApiClient:
                         if stop_on_error:
                             break
                     elif isinstance(batch_results, list):
+                        assert len(batch_results) == len(batch), (
+                            f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                            "This is a contract violation."
+                        )
                         results.extend(batch_results)
                         if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
                             break
@@ -577,6 +581,10 @@ class BioLMApiClient:
                     else:
                         if not isinstance(batch_results, list):
                             batch_results = [batch_results]
+                        assert len(batch_results) == len(batch), (
+                            f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                            "This is a contract violation."
+                        )
                         for res in batch_results:
                             to_dump = res[0] if (raw and isinstance(res, tuple)) else res
                             await file_handle.write(json.dumps(to_dump) + '\n')
@@ -611,6 +619,10 @@ class BioLMApiClient:
                 else:
                     if not isinstance(batch_results, list):
                         batch_results = [batch_results]
+                    assert len(batch_results) == len(batch), (
+                        f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                        "This is a contract violation."
+                    )
                     results.extend(batch_results)
                     if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
                         break
