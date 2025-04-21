@@ -10,7 +10,7 @@ if os.environ.get("BIOLMAI_LOCAL", False):
 else:
     BASE_DOMAIN = "https://biolm.ai"
 
-USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
+USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolm")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 GEN_TOKEN_URL = f"{BASE_DOMAIN}/ui/accounts/user-api-tokens/"
 MULTIPROCESS_THREADS = os.environ.get("BIOLMAI_THREADS", 1)

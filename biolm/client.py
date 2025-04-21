@@ -53,7 +53,7 @@ if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
         force=True,  # Python 3.8+
     )
 
-USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
+USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolm")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
@@ -155,7 +155,7 @@ class CredentialsProvider:
                 "Cookie": f"access={access};refresh={refresh}",
                 "Content-Type": "application/json",
             }
-        raise AssertionError("No credentials found. Set BIOLMAI_TOKEN or run `biolmai login`.")
+        raise AssertionError("No credentials found. Set BIOLMAI_TOKEN or run `biolm login`.")
 
 
 class HttpClient:

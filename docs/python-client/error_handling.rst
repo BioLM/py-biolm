@@ -58,7 +58,7 @@ Examples
 
 .. code-block:: python
 
-    from biolmai import BioLM
+    from biolm import BioLM
     try:
         result = BioLM(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
     except Exception as e:
@@ -82,7 +82,7 @@ Examples
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApi
+    from biolm.client import BioLMApi
     model = BioLMApi("esm2-8m", raise_httpx=False, retry_error_batches=True)
     result = model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
     # If a batch fails, each item is retried individually
@@ -110,7 +110,7 @@ If you set `raise_httpx=True`, you must catch exceptions:
 
 .. code-block:: python
 
-    from biolmai import BioLM
+    from biolm import BioLM
     try:
         result = BioLM(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
     except Exception as e:
