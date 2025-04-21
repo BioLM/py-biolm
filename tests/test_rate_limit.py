@@ -1,7 +1,12 @@
+import sys
 import asyncio
 import time
 import unittest
-from unittest.mock import AsyncMock, patch
+if sys.version_info < (3, 8):
+    from asynctest import CoroutineMock as AsyncMock
+    from unittest.mock import patch
+else:
+    from unittest.mock import AsyncMock, patch
 
 from biolmai.client import AsyncRateLimiter, BioLMApiClient
 
