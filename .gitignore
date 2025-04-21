@@ -107,6 +107,3 @@ ENV/
 
 # Mac
 *.DS_Store
-
-biolm.egg-info/
-docs/_build/
