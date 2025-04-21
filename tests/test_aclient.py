@@ -1,10 +1,7 @@
-# File: tests/test_client_async.py
-import pytest
 import json
-import asyncio
-from biolmai.client import BioLMApi, LookupResult
-
 import logging
+
+from biolmai.client import BioLMApi
 
 LOGGER = logging.getLogger(__name__)
 

@@ -1,8 +1,7 @@
-# File: tests/test_schema_live.py
-
 import pytest
-import asyncio
+
 from biolmai.client import BioLMApiClient
+
 
 @pytest.mark.asyncio
 async def test_schema_max_items_is_int_live():

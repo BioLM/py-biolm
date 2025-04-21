@@ -1,9 +1,9 @@
-# File: tests/test_retry_error_batches_live.py
+import json
 
 import pytest
-import asyncio
-import json
+
 from biolmai.client import BioLMApiClient
+
 
 @pytest.mark.asyncio
 async def test_retry_error_batches_live_partial_batch():

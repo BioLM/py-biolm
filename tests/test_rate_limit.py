@@ -1,11 +1,10 @@
-# File: tests/test_throttle_and_semaphore.py
-
-import unittest
 import asyncio
 import time
+import unittest
 from unittest.mock import AsyncMock, patch
 
 from biolmai.client import AsyncRateLimiter, BioLMApiClient
+
 
 class TestAsyncRateLimiter(unittest.IsolatedAsyncioTestCase):
     async def test_rate_limiter_allows_max_calls_per_second(self):

@@ -1,8 +1,9 @@
-import pytest
-import asyncio
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 import biolmai.client as client_mod
+
 
 @pytest.mark.asyncio
 async def test_get_max_batch_size_returns_value_from_schema():

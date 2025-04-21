@@ -1,7 +1,13 @@
 import pytest
-import asyncio
-from unittest.mock import AsyncMock
+import sys
+
 from biolmai.client import BioLMApiClient
+
+if sys.version_info < (3, 8):
+    from asynctest import CoroutineMock as AsyncMock
+else:
+    from unittest.mock import AsyncMock
+
 
 @pytest.fixture
 def model():

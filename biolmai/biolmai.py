@@ -1,13 +1,11 @@
 """Main module."""
-
 import logging
 
 log = logging.getLogger("biolm_util")
 
-# File: biolmai/universal_client.py
-
-from typing import Optional, Union, List, Dict, Any
+from typing import Optional, Union, List, Any
 from biolmai.client import BioLMApi, is_list_of_lists
+
 
 class BioLM:
     """
@@ -74,7 +72,7 @@ class BioLM:
             if self.type is None:
                 raise ValueError("If `items` are not dicts, `type` must be specified.")
             items_dicts = [{self.type: v} for v in items]
-        
+
         unwrap_single = self._class_kwargs.pop('unwrap_single', True)
 
         # Instantiate BioLMModel with correct settings

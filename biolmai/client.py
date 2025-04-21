@@ -1,33 +1,32 @@
+import asyncio
 import functools
-import aiofiles
-from itertools import tee, islice
-import collections.abc
-from itertools import chain
+import json
+import os
 import time
-from async_lru import alru_cache
-import httpx._content
-from httpx import ByteStream
-from typing import Any, Tuple, Dict
+from collections import namedtuple, OrderedDict
+from contextlib import asynccontextmanager
+from itertools import chain
+from itertools import tee, islice
 from json import dumps as json_dumps
 from typing import Callable
+from typing import Optional, Union, List, Any, Dict, Tuple
+
+import aiofiles
+import httpx
+import httpx._content
+from async_lru import alru_cache
 from httpx import AsyncHTTPTransport
-# Removed: from httpx._transports.default import AsyncResolver
+from httpx import ByteStream
+from synchronicity import Synchronizer
+
 try:
     from importlib.metadata import version
 except ImportError:
     from importlib_metadata import version
-import asyncio
-import httpx
-import os
-import json
-from typing import Optional, Union, List, Any, Dict, Tuple
-from synchronicity import Synchronizer
-from collections import namedtuple, OrderedDict
-from contextlib import asynccontextmanager
 
 
 def custom_httpx_encode_json(json: Any) -> Tuple[Dict[str, str], ByteStream]:
-    # disable ascii for json_dumps 
+    # disable ascii for json_dumps
     body = json_dumps(json, ensure_ascii=False).encode("utf-8")
     content_length = str(len(body))
     content_type = "application/json"
@@ -278,7 +277,6 @@ class BioLMApiClient:
             self._rate_limiter = AsyncRateLimiter(max_calls, period)
             self._rate_limit_initialized = True
 
-
     async def _ensure_rate_limit(self):
             if self._rate_limit_lock is None:
                 self._rate_limit_lock = asyncio.Lock()
@@ -293,7 +291,7 @@ class BioLMApiClient:
                     if throttle_rate:
                         max_calls, period = parse_rate_limit(throttle_rate)
                         self._rate_limiter = AsyncRateLimiter(max_calls, period)
-                self._rate_limit_initialized = True  
+                self._rate_limit_initialized = True
 
     @asynccontextmanager
     async def _limit(self):
@@ -420,22 +418,12 @@ class BioLMApiClient:
         data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
         return (data, resp) if raw else data
 
-    async def call(
-        self,
-        func: str,
-        items: List[dict],
-        params: Optional[dict] = None,
-        stop_on_error: bool = False,
-        output: str = 'memory',
-        file_path: Optional[str] = None,
-        raw: bool = False,
-    ):
+    async def call(self, func: str, items: List[dict], params: Optional[dict] = None, raw: bool = False):
         if not items:
             return items
 
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")
-        single = len(items) == 1
         payload = {'items': items} if func != 'lookup' else {'query': items}
         if params:
             payload['params'] = params
@@ -472,10 +460,7 @@ class BioLMApiClient:
         async def retry_batch_individually(batch):
             out = []
             for item in batch:
-                single_result = await self.call(
-                    func, [item], params=params, stop_on_error=stop_on_error,
-                    output='memory', file_path=None, raw=raw
-                )
+                single_result = await self.call(func, [item], params=params, raw=raw)
                 if isinstance(single_result, list) and len(single_result) == 1:
                     out.append(single_result[0])
                 else:
@@ -488,10 +473,7 @@ class BioLMApiClient:
                 path = file_path or f"{self.model_name}_{func}_output.jsonl"
                 async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
                     for batch in all_batches:
-                        batch_results = await self.call(
-                            func, batch, params=params, stop_on_error=stop_on_error,
-                            output='memory', file_path=None, raw=raw
-                        )
+                        batch_results = await self.call(func, batch, params=params, raw=raw)
                         if (
                             self.retry_error_batches and
                             isinstance(batch_results, dict) and
@@ -519,10 +501,7 @@ class BioLMApiClient:
                 return
             else:
                 for batch in all_batches:
-                    batch_results = await self.call(
-                        func, batch, params=params, stop_on_error=stop_on_error,
-                        output='memory', file_path=None, raw=raw
-                    )
+                    batch_results = await self.call(func, batch, params=params, raw=raw)
                     if (
                         self.retry_error_batches and
                         isinstance(batch_results, dict) and
@@ -552,10 +531,7 @@ class BioLMApiClient:
             path = file_path or f"{self.model_name}_{func}_output.jsonl"
             async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
                 for batch in batch_iterable(all_items, max_batch):
-                    batch_results = await self.call(
-                        func, batch, params=params, stop_on_error=stop_on_error,
-                        output='memory', file_path=None, raw=raw
-                    )
+                    batch_results = await self.call(func, batch, params=params, raw=raw)
 
                     if (
                         self.retry_error_batches and
@@ -595,10 +571,7 @@ class BioLMApiClient:
             return
         else:
             for batch in batch_iterable(all_items, max_batch):
-                batch_results = await self.call(
-                    func, batch, params=params, stop_on_error=stop_on_error,
-                    output='memory', file_path=None, raw=raw
-                )
+                batch_results = await self.call(func, batch, params=params, raw=raw)
 
                 if (
                     self.retry_error_batches and
@@ -702,9 +675,7 @@ class BioLMApiClient:
         file_path: Optional[str] = None,
     ):
         items = query if isinstance(query, list) else [query]
-        res = await self.call(
-            "lookup", items, params=None, stop_on_error=False, output=output, file_path=file_path, raw=raw
-        )
+        res = await self.call("lookup", items, params=None, raw=raw)
         if raw:
             single = len(items) == 1
             if single:

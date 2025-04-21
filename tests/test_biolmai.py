@@ -1,10 +1,9 @@
-# File: tests/test_biolmai.py
-import httpx
-
-import pytest
-import random
 import json
-from biolmai.client import LookupResult
+import random
+
+import httpx
+import pytest
+
 from biolmai.biolmai import BioLM
 
 N = 6
@@ -200,4 +199,3 @@ def test_biolm_generate_num_samples():
     for idx, res in enumerate(result):
         assert isinstance(res, dict), f"Result at index {idx} is not a dict"
         assert expected_key in res, f"Expected key '{expected_key}' not found in result at index {idx}"
- 

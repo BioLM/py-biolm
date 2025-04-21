@@ -1,9 +1,11 @@
-import pytest
 import asyncio
 import random
-import string
-from biolmai.client import BioLMApiClient, batch_iterable
+
+import pytest
+
 from biolmai.biolmai import BioLM
+from biolmai.client import BioLMApiClient, batch_iterable
+
 
 def random_sequence(length=5):
     return ''.join(random.choices('ACDEFGHIKLMNPQRSTVWYB', k=length))

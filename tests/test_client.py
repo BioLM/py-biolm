@@ -1,8 +1,9 @@
-import pytest
 import json
-from biolmai.client import BioLMApi, LookupResult
-
 import logging
+
+import pytest
+
+from biolmai.client import BioLMApi
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def test_invalid_sequence_single(model):
     # Should exist a single [0] error for the 0th 'sequence' item
     assert "Consecutive occurrences of ':' " in res['error']['items__0__sequence'][0]
     # Should really be HTTP 422, but need to change API-side
-    assert res["status_code"] in (400, 422)  
+    assert res["status_code"] in (400, 422)
 
 def test_mixed_sequence_batch_lol_items_first_invalid(model):
     items = [[{"sequence": "MENDELSEMYEFF::FEEFMLYRRTELSYYYUPPPPPU"}],
