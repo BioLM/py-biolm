@@ -39,9 +39,11 @@ def insert_random_single_occurence(text, so):
     # Negative: invalid type (not a valid key for the model)
     ("esm2-8m", "encode", "not_a_type", "MSILVTRPSPA", None, dict, "error"),
     # Edge: empty items list
-    ("esm2-8m", "encode", "sequence", [], None, ValueError, None),
+    ("esm2-8m", "encode", "sequence", [], None, list, None),
     # Edge: None as items
     ("esm2-8m", "encode", "sequence", None, None, dict, "error"),
+    # Edge: dict as items
+    ("esm2-8m", "encode", "sequence", {'hi': 'bye'}, None, dict, "error"),
 ])
 def test_biolm_run_single_items(entity, action, type_, items, params, expected_type, expected_key):
     # Handle expected Exception types
@@ -89,16 +91,32 @@ def test_biolm_predict_invalid_sequence_raise_httpx():
         result = BioLM(entity="esm1v-all", action="predict", type="sequence", items=bad_seq, raise_httpx=True)
 
 def test_biolm_predict_good_and_invalid_sequences_no_raise_httpx():
-    base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
-    seqs = ["".join(return_shuffle(list(base_seq)))[:30] for _ in range(int(N / 2))]
-    bad_seqs = ["".join(return_shuffle(list(base_seq)))[:30] + "i1" for _ in range(int(N / 2))]
-    all_seqs = seqs + bad_seqs
-    random.shuffle(all_seqs)
-    result = BioLM(entity="esm2-8m", action="encode", type="sequence", items=all_seqs, raise_httpx=False)
+    good_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQH"
+    total = 24  # 3 batches of 8
+    batch_size = 8  # Current maxSize of esm2-8m
+    # Start with all good
+    all_seqs = [good_seq for _ in range(total)]
+
+    # Insert bads at scattered positions, but not in every batch
+    bad_indices = [10, 11,]
+    for idx in bad_indices:
+        all_seqs[idx] = good_seq + "i1"
+
+    # Now, at least one batch (e.g., batch 0, or 2) should be good
+    result = BioLM(
+        entity="esm2-8m",
+        action="encode",
+        type="sequence",
+        items=all_seqs,
+        raise_httpx=False,
+        stop_on_error=False
+    )
     assert isinstance(result, list)
     assert len(result) == len(all_seqs)
     assert any("error" in r for r in result)
     assert any("embeddings" in r for r in result)
+
+
 
 def test_biolm_predict_good_and_invalid_sequences_raise_httpx():
     base_seq = "MSILVTRPSPAGEELVSRLRTLGQVAWHH"

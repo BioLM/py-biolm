@@ -67,8 +67,8 @@ async def test_mixed_sequence_batch(model):
 
 @pytest.mark.asyncio
 async def test_mixed_valid_invalid_sequence_batch_continue_on_error(model):
-    items = [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},
-             {"sequence": "MDNELE"}]
+    items = [[{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+             [{"sequence": "MDNELE"}]]
     result = await model.predict(items=items, stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 2
@@ -82,6 +82,17 @@ async def test_mixed_valid_invalid_sequence_batch_stop_on_error(model):
              {"sequence": "MDNELE"}]
     result = await model.predict(items=items, stop_on_error=True)
     assert isinstance(result, list)
+    assert len(result) == 2
+    assert len(result) == 2
+    assert "error" in result[0]
+    assert "error" in result[1]
+
+@pytest.mark.asyncio
+async def test_mixed_valid_invalid_sequence_nonbatch_stop_on_error(model):
+    items = [[{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+             [{"sequence": "MDNELE"}]]
+    result = await model.predict(items=items, stop_on_error=True)
+    assert isinstance(result, list)
     assert len(result) == 1
     assert len(result) == 1
     assert "error" in result[0]
@@ -89,15 +100,35 @@ async def test_mixed_valid_invalid_sequence_batch_stop_on_error(model):
 @pytest.mark.asyncio
 async def test_stop_on_error_with_previous_success(model):
     items = [
-        {"sequence": "MDNELE"},
-        {"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},
-        {"sequence": "MDNELE"}
+        [{"sequence": "MDNELE"}],
+        [{"sequence": "MDNELE"}],
+        [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+        [{"sequence": "MDNELE"}]
     ]
     result = await model.predict(items=items, stop_on_error=True)
     assert isinstance(result, list)
-    assert len(result) == 2
+    assert len(result) == 3
     assert "pdb" in result[0]
-    assert "error" in result[1]
+    assert "pdb" in result[1]
+    assert "error" in result[2]
+    assert 'items__0__sequence' in result[2].get('error')
+
+@pytest.mark.asyncio
+async def test_stop_on_error_with_previous_success_reordered(model):
+    items = [
+        {"sequence": "MDNELE"},
+        {"sequence": "MDNELE"},  # ESMFold allow two per req, so first two is one batch
+        {"sequence": "MDNELE"},  # The entire second batch is bad
+        {"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},  # Second batch is bad
+    ]
+    result = await model.predict(items=items, stop_on_error=True)
+    assert isinstance(result, list)
+    assert len(result) == 4
+    assert "pdb" in result[0]
+    assert "pdb" in result[1]
+    assert "error" in result[2]
+    assert 'items__1__sequence' in result[2].get('error')
+    assert 'items__1__sequence' in result[3].get('error')
 
 @pytest.mark.asyncio
 async def test_raise_httpx():
@@ -154,7 +185,7 @@ async def test_batch_predict_to_disk(tmp_path, model):
 
 @pytest.mark.asyncio
 async def test_batch_predict_to_disk_stop_on_error(tmp_path, model):
-    items = [{"sequence": "MDNELE"}, {"sequence": "DN::A"}, {"sequence": "ISOTYPE"}]
+    items = [[{"sequence": "MDNELE"}], [{"sequence": "DN::A"}], [{"sequence": "ISOTYPE"}]]
     file_path = tmp_path / "batch.jsonl"
     await model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=True)
     assert file_path.exists()
@@ -171,7 +202,7 @@ async def test_batch_predict_to_disk_stop_on_error(tmp_path, model):
 
 @pytest.mark.asyncio
 async def test_batch_predict_to_disk_continue_on_error(tmp_path, model):
-    items = [{"sequence": "MDNELE"}, {"sequence": "DN::A"}, {"sequence": "ISOTYPE"}]
+    items = [[{"sequence": "MDNELE"}], [{"sequence": "DN::A"}], [{"sequence": "ISOTYPE"}]]
     file_path = tmp_path / "batch.jsonl"
     await model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=False)
     assert file_path.exists()
@@ -188,7 +219,8 @@ async def test_batch_predict_to_disk_continue_on_error(tmp_path, model):
 
 @pytest.mark.asyncio
 async def test_invalid_input_items_type(model, monkeypatch):
-    monkeypatch.setattr(model, "_batch_call", lambda *a, **kw: None)
+    # Defensive: monkeypatch the _batch_call_autoschema_or_manual method to return None
+    monkeypatch.setattr(model, "_batch_call_autoschema_or_manual", lambda *a, **kw: None)
     with pytest.raises(TypeError, match="Parameter 'items' must be of type list, tuple"):
         await model.predict(items={"sequence": "MDNELE"})
 

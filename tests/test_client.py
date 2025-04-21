@@ -47,21 +47,32 @@ def test_invalid_sequence_single(model):
     # Should really be HTTP 422, but need to change API-side
     assert res["status_code"] in (400, 422)  
 
-def test_mixed_sequence_batch(model):
-    items = [{"sequence": "MENDELSEMYEFF:FEEFMLYRRTELSYYYUPPPPPU"},
-             {"sequence": "MDNELE"}]
+def test_mixed_sequence_batch_lol_items_first_invalid(model):
+    items = [[{"sequence": "MENDELSEMYEFF::FEEFMLYRRTELSYYYUPPPPPU"}],
+             [{"sequence": "MDNELE"}]]
     result = model.predict(items=items)
     assert isinstance(result, list)
     assert len(result) == 2
-    assert "mean_plddt" in result[0]
-    assert "pdb" in result[0]
+    assert "error" in result[0]
     assert "mean_plddt" in result[1]
     assert "pdb" in result[1]
 
+def test_mixed_sequence_batch_lol_items_first_invalid_multiple_in_batch(model):
+    items = [[{"sequence": "MENDELSEMYEFF::FEEFMLYRRTELSYYYUPPPPPU"},
+              {"sequence": "invalid123"}],
+             [{"sequence": "MDNELE"}]]
+    result = model.predict(items=items)
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert "error" in result[0]
+    assert "error" in result[1]
+    assert "mean_plddt" in result[2]
+    assert "pdb" in result[2]
+
 
 def test_mixed_valid_invalid_sequence_batch_continue_on_error(model):
-    items = [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},
-             {"sequence": "MDNELE"}]
+    items = [[{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+             [{"sequence": "MDNELE"}]]
     result = model.predict(items=items, stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 2
@@ -70,8 +81,8 @@ def test_mixed_valid_invalid_sequence_batch_continue_on_error(model):
     assert "pdb" in result[1]
 
 def test_mixed_valid_invalid_sequence_batch_stop_on_error(model):
-    items = [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},
-             {"sequence": "MDNELE"}]
+    items = [[{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+             [{"sequence": "MDNELE"}]]
     result = model.predict(items=items, stop_on_error=True)
     assert isinstance(result, list)
     assert len(result) == 1
@@ -81,15 +92,17 @@ def test_mixed_valid_invalid_sequence_batch_stop_on_error(model):
 
 def test_stop_on_error_with_previous_success(model):
     items = [
-        {"sequence": "MDNELE"},
-        {"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},
-        {"sequence": "MDNELE"}
+        [{"sequence": "MDNELE"}],
+        [{"sequence": "MDNELE"}],
+        [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+        [{"sequence": "MDNELE"}],
     ]
     result = model.predict(items=items, stop_on_error=True)
     assert isinstance(result, list)
-    assert len(result) == 2
+    assert len(result) == 3
     assert "pdb" in result[0]
-    assert "error" in result[1]
+    assert "pdb" in result[1]
+    assert "error" in result[2]
 
 def test_raise_httpx():
     model = BioLMApi("esmfold", raise_httpx=True)
@@ -144,7 +157,7 @@ def test_batch_predict_to_disk(tmp_path, model):
         assert "mean_plddt" in rec
 
 def test_batch_predict_to_disk_stop_on_error(tmp_path, model):
-    items = [{"sequence": "MDNELE"}, {"sequence": "DN::A"}, {"sequence": "ISOTYPE"}]
+    items = [[{"sequence": "MDNELE"}], [{"sequence": "DN::A"}], [{"sequence": "ISOTYPE"}]]
     file_path = tmp_path / "batch.jsonl"
     model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=True)
     assert file_path.exists()
@@ -160,7 +173,7 @@ def test_batch_predict_to_disk_stop_on_error(tmp_path, model):
             assert "error" in rec
 
 def test_batch_predict_to_disk_continue_on_error(tmp_path, model):
-    items = [{"sequence": "MDNELE"}, {"sequence": "DN::A"}, {"sequence": "ISOTYPE"}]
+    items = [[{"sequence": "MDNELE"}], [{"sequence": "DN::A"}], [{"sequence": "ISOTYPE"}]]
     file_path = tmp_path / "batch.jsonl"
     model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=False)
     assert file_path.exists()
@@ -175,9 +188,30 @@ def test_batch_predict_to_disk_continue_on_error(tmp_path, model):
         else:
             assert "mean_plddt" in rec
 
+def test_batch_predict_to_disk_continue_on_error_multiple_per_batch(tmp_path, model):
+    items = [[{"sequence": "MDNELE"},
+              {"sequence": "MDNELE"}],
+             [{"sequence": "DN::A"},
+              {"sequence": "MDNELE"}],
+             [{"sequence": "ISOTYPE"},
+              {"sequence": "ISOTYPE"}]]
+    file_path = tmp_path / "batch_multiple.jsonl"
+    model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=False)
+    assert file_path.exists()
+    lines = file_path.read_text().splitlines()
+    LOGGER.warning(lines)
+    assert len(lines) == 6
+    for i, line in enumerate(lines):
+        rec = json.loads(line)
+        assert isinstance(rec, dict)
+        if i in (2, 3):
+            assert "error" in rec
+        else:
+            assert "mean_plddt" in rec
+
 def test_invalid_input_items_type(model, monkeypatch):
-    # Monkeypatch the _batch_call method to return None
-    monkeypatch.setattr(model, "_batch_call", lambda *a, **kw: None)
+    # Defensive: monkeypatch the _batch_call_autoschema_or_manual method to return None
+    monkeypatch.setattr(model, "_batch_call_autoschema_or_manual", lambda *a, **kw: None)
     # Should raise TypeError because items is not a list/tuple
     with pytest.raises(TypeError, match="Parameter 'items' must be of type list, tuple"):
         model.predict(items={"sequence": "MDNELE"})

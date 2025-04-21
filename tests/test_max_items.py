@@ -1,5 +1,3 @@
-# File: tests/test_max_batch_size.py
-
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch
@@ -137,7 +135,7 @@ def test_extract_max_items_none_if_no_properties():
     assert client_mod.BioLMApiClient.extract_max_items(schema) is None
 
 @pytest.mark.asyncio
-async def test__batch_call_with_schema_uses_max_batch(monkeypatch):
+async def test_batch_call_with_schema_uses_max_batch(monkeypatch):
     # This test ensures that _batch_call_with_schema uses the max batch size from schema
     model_name = "test-model"
     action = "encode"
@@ -146,34 +144,34 @@ async def test__batch_call_with_schema_uses_max_batch(monkeypatch):
     api_client = client_mod.BioLMApiClient(model_name)
     # Patch _get_max_batch_size to return max_batch
     monkeypatch.setattr(api_client, "_get_max_batch_size", AsyncMock(return_value=max_batch))
-    # Patch _batch_call to just return the items it receives
-    monkeypatch.setattr(api_client, "_batch_call", AsyncMock(side_effect=lambda *a, **kw: a[1]))
+    # Patch _batch_call/batch_call to just return the items it receives
+    monkeypatch.setattr(api_client, "call", AsyncMock(side_effect=lambda *a, **kw: a[1]))
     # Call _batch_call_with_schema
-    results = await api_client._batch_call_with_schema(action, items)
+    results = await api_client._batch_call_autoschema_or_manual(action, items)
     # Should be a flat list of all items, in order
     assert isinstance(results, list)
     assert len(results) == len(items)
     # Should have been called ceil(len(items)/max_batch) times
-    assert api_client._batch_call.call_count == 3
+    assert api_client.call.call_count == 3
     # Each call should have received at most max_batch items
-    for call in api_client._batch_call.call_args_list:
+    for call in api_client.call.call_args_list:
         batch = call.args[1]
         assert len(batch) <= max_batch
 
 @pytest.mark.asyncio
-async def test__batch_call_with_schema_default_to_1(monkeypatch):
+async def test_batch_call_with_schema_default_to_1(monkeypatch):
     # If _get_max_batch_size returns None, should default to 1
     model_name = "test-model"
     action = "encode"
     items = [{"sequence": f"SEQ{i}"} for i in range(2)]
     api_client = client_mod.BioLMApiClient(model_name)
     monkeypatch.setattr(api_client, "_get_max_batch_size", AsyncMock(return_value=None))
-    monkeypatch.setattr(api_client, "_batch_call", AsyncMock(side_effect=lambda *a, **kw: a[1]))
-    results = await api_client._batch_call_with_schema(action, items)
+    monkeypatch.setattr(api_client, "call", AsyncMock(side_effect=lambda *a, **kw: a[1]))
+    results = await api_client._batch_call_autoschema_or_manual(action, items)
     assert isinstance(results, list)
     assert len(results) == len(items)
-    assert api_client._batch_call.call_count == 2
-    for call in api_client._batch_call.call_args_list:
+    assert api_client.call.call_count == 2
+    for call in api_client.call.call_args_list:
         batch = call.args[1]
         assert len(batch) == 1
 

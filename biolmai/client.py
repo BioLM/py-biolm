@@ -1,4 +1,8 @@
 import functools
+import aiofiles
+from itertools import tee, islice
+import collections.abc
+from itertools import chain
 import time
 from async_lru import alru_cache
 import httpx._content
@@ -91,10 +95,10 @@ def type_check(param_types: Dict[str, Any]):
                             f"Parameter '{param}' must be of type {type_names}, got {type(value).__name__}"
                         )
                     # Check for empty list/tuple
-                    if isinstance(value, (list, tuple)) and len(value) == 0:
-                        raise ValueError(
-                            f"Parameter '{param}' must not be an empty {type(value).__name__}"
-                        )
+                    # if isinstance(value, (list, tuple)) and len(value) == 0:
+                    #     raise ValueError(
+                    #         f"Parameter '{param}' must not be an empty {type(value).__name__}"
+                    #     )
             return func(*args, **kwargs)
         return wrapper
     return decorator
@@ -192,7 +196,7 @@ class HttpClient:
         if "Content-Type" not in client.headers:
             client.headers["Content-Type"] = "application/json"
         r = await client.post(endpoint, json=payload)
-        return r  # FIX: return the response object
+        return r
 
     async def get(self, endpoint: str) -> httpx.Response:
         client = await self.get_async_client()
@@ -207,6 +211,32 @@ class HttpClient:
             await self._async_client.aclose()
             self._async_client = None
 
+
+def is_list_of_lists(items, check_n=10):
+    # Accepts any iterable, checks first N items for list/tuple-ness
+    # Returns (is_list_of_lists, first_n_items, rest_iter)
+    if isinstance(items, (list, tuple)):
+        if not items:
+            return False, [], iter(())
+        first_n = items[:check_n]
+        is_lol = all(isinstance(x, (list, tuple)) for x in first_n)
+        return is_lol, first_n, iter(items[check_n:])
+    # For iterators/generators
+    items, items_copy = tee(items)
+    first_n = list(islice(items_copy, check_n))
+    is_lol = all(isinstance(x, (list, tuple)) for x in first_n) and bool(first_n)
+    return is_lol, first_n, items
+
+def batch_iterable(iterable, batch_size):
+    # Yields lists of up to batch_size from any iterable, deleting as we go
+    batch = []
+    for item in iterable:
+        batch.append(item)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
 
 class BioLMApiClient:
     def __init__(
@@ -385,7 +415,7 @@ class BioLMApiClient:
         data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
         return (data, resp) if raw else data
 
-    async def _batch_call(
+    async def call(
         self,
         func: str,
         items: List[dict],
@@ -395,115 +425,155 @@ class BioLMApiClient:
         file_path: Optional[str] = None,
         raw: bool = False,
     ):
+        if not items:
+            return items
+
         endpoint = f"{self.model_name}/{func}/"
-        endpoint = endpoint.lstrip("/")  # Make sure no starting slash, it's in `base_url``
+        endpoint = endpoint.lstrip("/")
         results = []
         single = len(items) == 1
-        file_handle = None
+        # Send the whole batch at once
+        payload = {'items': items} if func != 'lookup' else {'query': items}
+        if params:
+            payload['params'] = params
+        try:
+            res = await self._api_call(endpoint, payload, raw=raw if func == 'lookup' else False)
+        except Exception as e:
+            if self.raise_httpx:
+                raise
+            res = self._format_exception(e, 0)
+        res = self._format_result(res)
+        # If error dict, duplicate for each item in the batch only if stop_on_error is False
+        if isinstance(res, dict) and ('error' in res or 'status_code' in res):
+            results.extend([res] * len(items))
+        elif isinstance(res, (list, tuple)):
+            results.extend(res)
+        else:
+            results.append(res)
         if output == 'disk':
             path = file_path or f"{self.model_name}_{func}_output.jsonl"
-            file_handle = open(path, 'w', encoding='utf-8')
-        for idx, item in enumerate(items):
-            payload = {'items': [item]} if func != 'lookup' else {'query': item}
-            if params:
-                payload['params'] = params
-            try:
-                res = await self._api_call(endpoint, payload, raw=raw if func == 'lookup' else False)
-            except Exception as e:
-                if self.raise_httpx:
-                    raise
-                res = self._format_exception(e, idx)
-            res = self._format_result(res)
-            results.append(res)
-            if file_handle:
+            async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
                 to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                file_handle.write(json.dumps(to_dump) + '\n')
-                file_handle.flush()
-            if stop_on_error and isinstance(res, dict) and ('error' in res or 'status_code' in res):
-                break
-        if file_handle:
-            file_handle.close()
+                await file_handle.write(json.dumps(to_dump) + '\n')
+                await file_handle.flush()
         return self._unwrap_single(results) if self.unwrap_single is True and single else results
 
-    async def _batch_call_with_schema(
+    async def _batch_call_autoschema_or_manual(
         self,
         func: str,
-        items: List[dict],
+        items,
         params: Optional[dict] = None,
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
         raw: bool = False,
     ):
+        if not items:
+            return items
+
+        is_lol, first_n, rest_iter = is_list_of_lists(items)
+        results = []
+
+        if is_lol:
+            all_batches = chain(first_n, rest_iter)
+            if output == 'disk':
+                path = file_path or f"{self.model_name}_{func}_output.jsonl"
+                async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                    for batch in all_batches:
+                        batch_results = await self.call(
+                            func, batch, params=params, stop_on_error=stop_on_error,
+                            output='memory', file_path=None, raw=raw
+                        )
+                        # Write each result to disk
+                        if isinstance(batch_results, list):
+                            for res in batch_results:
+                                await file_handle.write(json.dumps(res) + '\n')
+                        else:
+                            await file_handle.write(json.dumps(batch_results) + '\n')
+                        await file_handle.flush()
+                        if stop_on_error and (
+                            (isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results)) or
+                            (isinstance(batch_results, list) and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results))
+                        ):
+                            break
+                return
+            else:
+                for batch in all_batches:
+                    batch_results = await self.call(
+                        func, batch, params=params, stop_on_error=stop_on_error,
+                        output='memory', file_path=None, raw=raw
+                    )
+                    if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                        results.extend([batch_results] * len(batch))
+                        if stop_on_error:
+                            break
+                    elif isinstance(batch_results, list):
+                        results.extend(batch_results)
+                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                            break
+                    else:
+                        results.append(batch_results)
+                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+
+        # Otherwise, treat as flat iterable and batch as needed
+        all_items = chain(first_n, rest_iter)
         max_batch = await self._get_max_batch_size(self.model_name, func) or 1
 
-        def batch_generator(items, max_batch):
-            for i in range(0, len(items), max_batch):
-                yield items[i:i+max_batch]
-
-        results = []
-        if stop_on_error:
-            # Sequential: stop at first error
-            file_handle = None
-            if output == 'disk':
-                path = file_path or f"{self.model_name}_{func}_output.jsonl"
-                file_handle = open(path, 'w', encoding='utf-8')
-            for batch in batch_generator(items, max_batch):
-                batch_results = await self._batch_call(
-                    func, batch, params=params, stop_on_error=stop_on_error,
-                    output='memory', file_path=None, raw=raw
-                )
-                if not isinstance(batch_results, list):
-                    batch_results = [batch_results]
-                for res in batch_results:
-                    results.append(res)
-                    if file_handle:
-                        to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                        file_handle.write(json.dumps(to_dump) + '\n')
-                        file_handle.flush()
-                    if isinstance(res, dict) and ('error' in res or 'status_code' in res):
-                        if file_handle:
-                            file_handle.close()
-                        return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
-            if file_handle:
-                file_handle.close()
-            return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+        if output == 'disk':
+            path = file_path or f"{self.model_name}_{func}_output.jsonl"
+            async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                for batch in batch_iterable(all_items, max_batch):
+                    batch_results = await self.call(
+                        func, batch, params=params, stop_on_error=stop_on_error,
+                        output='memory', file_path=None, raw=raw
+                    )
+                    if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                        for _ in batch:
+                            await file_handle.write(json.dumps(batch_results) + '\n')
+                        await file_handle.flush()
+                        if stop_on_error:
+                            break
+                    else:
+                        if not isinstance(batch_results, list):
+                            batch_results = [batch_results]
+                        for res in batch_results:
+                            to_dump = res[0] if (raw and isinstance(res, tuple)) else res
+                            await file_handle.write(json.dumps(to_dump) + '\n')
+                        await file_handle.flush()
+                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                            break
+            return
         else:
-            # Concurrent: gather all batches
-            tasks = [
-                self._batch_call(
+            for batch in batch_iterable(all_items, max_batch):
+                batch_results = await self.call(
                     func, batch, params=params, stop_on_error=stop_on_error,
                     output='memory', file_path=None, raw=raw
                 )
-                for batch in batch_generator(items, max_batch)
-            ]
-            batch_results = await asyncio.gather(*tasks)
-            # Flatten results
-            results = []
-            for res in batch_results:
-                if isinstance(res, list):
-                    results.extend(res)
+                if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                    results.extend([batch_results] * len(batch))
+                    if stop_on_error:
+                        break
                 else:
-                    results.append(res)
-            if output == 'disk':
-                path = file_path or f"{self.model_name}_{func}_output.jsonl"
-                with open(path, 'w', encoding='utf-8') as file_handle:
-                    for res in results:
-                        to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                        file_handle.write(json.dumps(to_dump) + '\n')
+                    if not isinstance(batch_results, list):
+                        batch_results = [batch_results]
+                    results.extend(batch_results)
+                    if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                        break
             return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+
 
     @staticmethod
     def _format_result(res: Union[dict, List[dict], Tuple[dict, int]]) -> Union[dict, List[dict], Tuple[dict, int]]:
         if isinstance(res, dict) and 'results' in res:
-            first_result = res['results'][0]  # Sending one at a time
-            return first_result
+            return res['results']
         elif isinstance(res, list):
+            if all(isinstance(x, dict) for x in res):
+                return res
             raise ValueError("Unexpected response format")
         elif isinstance(res, dict) and ('error' in res or 'status_code' in res):
             return res
         return res
-    
+
 
     def _format_exception(self, exc: Exception, index: int) -> dict:
         return {"error": str(exc), "index": index}
@@ -514,6 +584,7 @@ class BioLMApiClient:
             return result[0]
         return result
 
+    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
     async def generate(
         self,
         *,
@@ -523,7 +594,7 @@ class BioLMApiClient:
         output: str = 'memory',
         file_path: Optional[str] = None,
     ):
-        return await self._batch_call_with_schema(
+        return await self._batch_call_autoschema_or_manual(
             "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
         )
 
@@ -537,7 +608,7 @@ class BioLMApiClient:
         output: str = 'memory',
         file_path: Optional[str] = None,
     ):
-        return await self._batch_call_with_schema(
+        return await self._batch_call_autoschema_or_manual(
             "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
         )
 
@@ -551,7 +622,7 @@ class BioLMApiClient:
         output: str = 'memory',
         file_path: Optional[str] = None,
     ):
-        return await self._batch_call_with_schema(
+        return await self._batch_call_autoschema_or_manual(
             "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
         )
 
@@ -564,7 +635,7 @@ class BioLMApiClient:
         file_path: Optional[str] = None,
     ):
         items = query if isinstance(query, list) else [query]
-        res = await self._batch_call(
+        res = await self.call(
             "lookup", items, params=None, stop_on_error=False, output=output, file_path=file_path, raw=raw
         )
         if raw:
