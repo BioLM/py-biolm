@@ -249,6 +249,8 @@ class BioLMApiClient:
         unwrap_single: bool = False,
         semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = None,
         rate_limit: 'Optional[str]' = None,
+        retry_error_batches: bool = False,
+
     ):
         self.model_name = model_name
         self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
@@ -261,6 +263,8 @@ class BioLMApiClient:
         self._rate_limiter = None
         self._rate_limit_lock = None
         self._rate_limit_initialized = False
+        self.retry_error_batches = retry_error_batches
+
 
         # Concurrency limit
         if isinstance(semaphore, asyncio.Semaphore):
@@ -431,9 +435,7 @@ class BioLMApiClient:
 
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")
-        results = []
         single = len(items) == 1
-        # Send the whole batch at once
         payload = {'items': items} if func != 'lookup' else {'query': items}
         if params:
             payload['params'] = params
@@ -444,20 +446,12 @@ class BioLMApiClient:
                 raise
             res = self._format_exception(e, 0)
         res = self._format_result(res)
-        # If error dict, duplicate for each item in the batch only if stop_on_error is False
         if isinstance(res, dict) and ('error' in res or 'status_code' in res):
-            results.extend([res] * len(items))
+            return res
         elif isinstance(res, (list, tuple)):
-            results.extend(res)
+            return list(res)
         else:
-            results.append(res)
-        if output == 'disk':
-            path = file_path or f"{self.model_name}_{func}_output.jsonl"
-            async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
-                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                await file_handle.write(json.dumps(to_dump) + '\n')
-                await file_handle.flush()
-        return self._unwrap_single(results) if self.unwrap_single is True and single else results
+            return res
 
     async def _batch_call_autoschema_or_manual(
         self,
@@ -475,6 +469,19 @@ class BioLMApiClient:
         is_lol, first_n, rest_iter = is_list_of_lists(items)
         results = []
 
+        async def retry_batch_individually(batch):
+            out = []
+            for item in batch:
+                single_result = await self.call(
+                    func, [item], params=params, stop_on_error=stop_on_error,
+                    output='memory', file_path=None, raw=raw
+                )
+                if isinstance(single_result, list) and len(single_result) == 1:
+                    out.append(single_result[0])
+                else:
+                    out.append(single_result)
+            return out
+
         if is_lol:
             all_batches = chain(first_n, rest_iter)
             if output == 'disk':
@@ -485,13 +492,25 @@ class BioLMApiClient:
                             func, batch, params=params, stop_on_error=stop_on_error,
                             output='memory', file_path=None, raw=raw
                         )
-                        # Write each result to disk
+                        if (
+                            self.retry_error_batches and
+                            isinstance(batch_results, dict) and
+                            ('error' in batch_results or 'status_code' in batch_results)
+                        ):
+                            batch_results = await retry_batch_individually(batch)
+
                         if isinstance(batch_results, list):
+                            assert len(batch_results) == len(batch), (
+                                f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                                "This is a contract violation."
+                            )
                             for res in batch_results:
                                 await file_handle.write(json.dumps(res) + '\n')
                         else:
-                            await file_handle.write(json.dumps(batch_results) + '\n')
+                            for _ in batch:
+                                await file_handle.write(json.dumps(batch_results) + '\n')
                         await file_handle.flush()
+
                         if stop_on_error and (
                             (isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results)) or
                             (isinstance(batch_results, list) and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results))
@@ -504,6 +523,12 @@ class BioLMApiClient:
                         func, batch, params=params, stop_on_error=stop_on_error,
                         output='memory', file_path=None, raw=raw
                     )
+                    if (
+                        self.retry_error_batches and
+                        isinstance(batch_results, dict) and
+                        ('error' in batch_results or 'status_code' in batch_results)
+                    ):
+                        batch_results = await retry_batch_individually(batch)
                     if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
                         results.extend([batch_results] * len(batch))
                         if stop_on_error:
@@ -516,7 +541,6 @@ class BioLMApiClient:
                         results.append(batch_results)
                 return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
 
-        # Otherwise, treat as flat iterable and batch as needed
         all_items = chain(first_n, rest_iter)
         max_batch = await self._get_max_batch_size(self.model_name, func) or 1
 
@@ -528,6 +552,22 @@ class BioLMApiClient:
                         func, batch, params=params, stop_on_error=stop_on_error,
                         output='memory', file_path=None, raw=raw
                     )
+
+                    if (
+                        self.retry_error_batches and
+                        isinstance(batch_results, dict) and
+                        ('error' in batch_results or 'status_code' in batch_results)
+                    ):
+                        batch_results = await retry_batch_individually(batch)
+                        # After retry, always treat as list
+                        for res in batch_results:
+                            to_dump = res[0] if (raw and isinstance(res, tuple)) else res
+                            await file_handle.write(json.dumps(to_dump) + '\n')
+                        await file_handle.flush()
+                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                            break
+                        continue  # move to next batch
+
                     if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
                         for _ in batch:
                             await file_handle.write(json.dumps(batch_results) + '\n')
@@ -543,6 +583,7 @@ class BioLMApiClient:
                         await file_handle.flush()
                         if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
                             break
+
             return
         else:
             for batch in batch_iterable(all_items, max_batch):
@@ -550,6 +591,19 @@ class BioLMApiClient:
                     func, batch, params=params, stop_on_error=stop_on_error,
                     output='memory', file_path=None, raw=raw
                 )
+
+                if (
+                    self.retry_error_batches and
+                    isinstance(batch_results, dict) and
+                    ('error' in batch_results or 'status_code' in batch_results)
+                ):
+                    batch_results = await retry_batch_individually(batch)
+                    results.extend(batch_results)
+                    if stop_on_error and any(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                        break
+                    continue  # move to next batch
+
+
                 if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
                     results.extend([batch_results] * len(batch))
                     if stop_on_error:
@@ -560,8 +614,8 @@ class BioLMApiClient:
                     results.extend(batch_results)
                     if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
                         break
-            return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
 
+            return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
 
     @staticmethod
     def _format_result(res: Union[dict, List[dict], Tuple[dict, int]]) -> Union[dict, List[dict], Tuple[dict, int]]:
