@@ -1,6 +1,6 @@
 """API inference classes."""
-from biolmai.api import APIEndpoint, GenerateAction, PredictAction, TransformAction, EncodeAction
-from biolmai.validate import (AAExtended,
+from biolm.api import APIEndpoint, GenerateAction, PredictAction, TransformAction, EncodeAction
+from biolm.validate import (AAExtended,
                               AAExtendedPlusExtra,
                               AAUnambiguous,
                               AAUnambiguousPlusExtra,

@@ -4,7 +4,7 @@ import logging
 log = logging.getLogger("biolm_util")
 
 from typing import Optional, Union, List, Any
-from biolmai.client import BioLMApi, is_list_of_lists
+from biolm.client import BioLMApi, is_list_of_lists
 
 
 class BioLM:
