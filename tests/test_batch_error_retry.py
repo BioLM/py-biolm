@@ -12,7 +12,6 @@ async def test_retry_error_batches_live_partial_batch():
     items[3]["sequence"] = "BAD::BAD"  # Invalid sequence triggers error
     client = BioLMApiClient("esm2-8m", retry_error_batches=True, raise_httpx=False)
     results = await client._batch_call_autoschema_or_manual("encode", items)
-    print("RESULTS:", results)
     assert len(results) == 8
     for i, r in enumerate(results):
         if i == 3:

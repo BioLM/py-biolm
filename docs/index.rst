@@ -64,6 +64,40 @@ Welcome to BioLM AI's Docs
           :scale: 10 %
           :alt: alternate text
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Python Client:
+   :hidden:
+
+   python-client/installation
+   python-client/authentication
+   python-client/quickstart
+   python-client/overview
+   python-client/features
+   python-client/usage
+   python-client/batching
+   python-client/error_handling
+   python-client/rate_limiting
+   python-client/disk_output
+   python-client/async_sync
+   python-client/api_biolm
+   python-client/api_client
+   python-client/faq
+   modules.rst
+
+.. toctree::
+   :maxdepth: 2
+   :caption: REST API:
+   :hidden:
+
+   api_docs/index
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Tutorials & Guides:
+   :hidden:
+
+   tutorials_use_cases/notebooks
 
 .. toctree::
    :maxdepth: 2
@@ -81,30 +115,4 @@ Welcome to BioLM AI's Docs
    model-docs/protgpt2/index
    model-docs/dnabert/index
    model-docs/finetuning/index
-
-
-.. toctree::
-   :maxdepth: 2
-   :caption: REST API:
-   :hidden:
-
-   api_docs/index
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Tutorials & Guides:
-   :hidden:
-
-   tutorials_use_cases/notebooks
-
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Python Client:
-   :hidden:
-
-   python-client/index
-   python-client/usage.rst
-   modules.rst
-
 

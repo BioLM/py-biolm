@@ -6,11 +6,10 @@ Get Started
 .. toctree::
    :titlesonly:
 
-   get_started/installation.rst
-   get_started/authentication.rst
-   get_started/quickstart.rst
+   installation.rst
+   authentication.rst
+   quickstart.rst
    overview
-   quickstart
    features
    usage
    error_handling
@@ -18,7 +17,8 @@ Get Started
    rate_limiting
    disk_output
    async_sync
-   api_reference
+   api_biolm
+   api_client
    faq
 
 * :ref:`modindex`
