@@ -4,8 +4,12 @@ import inspect
 import time
 from functools import lru_cache
 
-import numpy as np
-import pandas as pd
+try:
+    import numpy as np
+    import pandas as pd
+except ImportError:
+    pass
+
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry

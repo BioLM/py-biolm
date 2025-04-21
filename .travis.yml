@@ -1,16 +1,17 @@
 language: python
 dist: focal
 python:
-- "3.11-dev"
-- "3.10-dev"
+- 3.13
+- 3.12
+- 3.11
+- 3.10
 - 3.9
 - 3.8
-- 3.7
 cache: pip
 before_cache:
   - rm -f $HOME/.cache/pip/log/debug.log
 install:
-- pip install 'tox-travis<=0.13' setuptools wheel
+  - python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox tox-travis
 script:
 - tox
 after_script:
@@ -22,7 +23,7 @@ deploy:
   cleanup: true
   on:
     repo: BioLM/py-biolm
-    python: "3.10-dev"
+    python: 3.10
     branch: production
 env:
   global:
