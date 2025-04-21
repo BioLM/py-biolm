@@ -259,7 +259,7 @@ class BioLMApiClient:
         self._http_client = HttpClient(self.base_url, self._headers, self.timeout)
         self._semaphore = None
         self._rate_limiter = None
-        self._rate_limit_lock = asyncio.Lock()
+        self._rate_limit_lock = None
         self._rate_limit_initialized = False
 
         # Concurrency limit
@@ -276,19 +276,20 @@ class BioLMApiClient:
 
 
     async def _ensure_rate_limit(self):
-        if self._rate_limit_initialized:
-            return
-        async with self._rate_limit_lock:
+            if self._rate_limit_lock is None:
+                self._rate_limit_lock = asyncio.Lock()
             if self._rate_limit_initialized:
                 return
-            # Only fetch if user did NOT provide rate_limit
-            if self._rate_limiter is None:
-                schema = await self.schema(self.model_name, "encode")
-                throttle_rate = schema.get("throttle_rate") if schema else None
-                if throttle_rate:
-                    max_calls, period = parse_rate_limit(throttle_rate)
-                    self._rate_limiter = AsyncRateLimiter(max_calls, period)
-            self._rate_limit_initialized = True
+            async with self._rate_limit_lock:
+                if self._rate_limit_initialized:
+                    return
+                if self._rate_limiter is None:
+                    schema = await self.schema(self.model_name, "encode")
+                    throttle_rate = schema.get("throttle_rate") if schema else None
+                    if throttle_rate:
+                        max_calls, period = parse_rate_limit(throttle_rate)
+                        self._rate_limiter = AsyncRateLimiter(max_calls, period)
+                self._rate_limit_initialized = True  
 
     @asynccontextmanager
     async def _limit(self):
