@@ -4,22 +4,25 @@
 Quickstart
 ==========
 
-To use BioLM AI in a project::
+Install the package:
 
-    import biolmai
+.. code-block:: bash
 
+    pip install biolmai
 
-There are numerous Python classes in the SDK, each of which can help you make
-an efficient request to a BioLM model endpoint. In order to make a request
-to an API, a class has one or more actionable methods that the model allows,
-such as Predict, Generate, Encode, and others. For details see each Class's documentation.
+Basic usage:
 
-Below are some examples showcasing various functionalities of the SDK.
+.. code-block:: python
 
+    from biolmai import BioLM
 
+    # Encode a single sequence
+    result = BioLM(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
 
-Example Prediction
+    # Predict a batch of sequences
+    result = BioLM(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"])
 
-Example Encoding
+    # Write results to disk
+    BioLM(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
 
-Example Generation
+For advanced usage, see :doc:`usage`.
