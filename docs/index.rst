@@ -6,20 +6,6 @@ Welcome to Our Python Client Docs
    :start-line: 1
    :end-line: 27
 
-Asynchronous usage:
-
-.. code-block:: python
-
-    from biolm.client import BioLMApiClient
-    import asyncio
-
-    async def main():
-        model = BioLMApiClient("esmfold")
-        result = await model.predict(items=[{"sequence": "MDNELE"}])
-        print(result)
-
-    asyncio.run(main())
-
 .. include:: python-client/overview.rst
    :start-line: 1
    :end-line: 17

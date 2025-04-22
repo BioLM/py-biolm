@@ -2,12 +2,12 @@
 BioLMApi and BioLMApiClient
 ========================
 
-.. autoclass:: biolm.client.BioLMApi
+.. autoclass:: biolmai.client.BioLMApi
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autoclass:: biolm.client.BioLMApiClient
+.. autoclass:: biolmai.client.BioLMApiClient
    :members:
    :undoc-members:
    :show-inheritance:
@@ -31,7 +31,7 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
 
 .. code-block:: python
 
-    from biolm.client import BioLMApi
+    from biolmai.client import BioLMApi
 
     # ESM2-8M: encode a batch
     model = BioLMApi("esm2-8m")
@@ -56,7 +56,7 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
     result = model._batch_call_autoschema_or_manual("encode", batches)
 
     # Async usage
-    from biolm.client import BioLMApiClient
+    from biolmai.client import BioLMApiClient
     import asyncio
 
     async def main():

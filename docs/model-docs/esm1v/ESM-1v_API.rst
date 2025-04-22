@@ -87,15 +87,15 @@ Making Requests
             print(response.text)
 
 
-    .. tab-item:: biolm SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
 
-            import biolm
+            import biolmai
             seqs = ["QERLEUTGR<mask>SLYNIVAT"]
 
-            cls = biolm.ESM1v1()
+            cls = biolmai.ESM1v1()
             resp = cls.Predict(seqs)
 
     .. tab-item:: R

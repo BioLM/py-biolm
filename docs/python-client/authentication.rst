@@ -55,13 +55,13 @@ For Python
 CLI authentication
 ------------------
 
-Alternatively, with the :code:`biolm` package installed, in your Terminal run :code:`biolm login`.
+Alternatively, with the :code:`biolmai` package installed, in your Terminal run :code:`biolmai login`.
 When prompted, enter your username and password.
 
 
 .. code:: shell
 
-    $ biolm login
+    $ biolmai login
 
     # Username:
     # Password:

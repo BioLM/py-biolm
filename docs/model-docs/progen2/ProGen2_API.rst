@@ -107,15 +107,15 @@ Making Generate Requests
             print(response.text)
 
 
-    .. tab-item:: biolm SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
 
-            import biolm
+            import biolmai
             ctxts = ["EVQ"]
 
-            cls = biolm.ProGen2Oas()
+            cls = biolmai.ProGen2Oas()
             resp = cls.generate(ctxts, params={
                     "temperature": 0.7,
                     "top_p": 0.6,
