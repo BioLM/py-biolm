@@ -76,15 +76,15 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolm SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
 
-            import biolm
+            import biolmai
             seqs = [""MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFAQSQLHQQDRKWPRLPDYFAIGRTTALALHTVSGQKILYPQDREISEVLLQLPELQNIAGKRALILRGNGGRELIGDTLTARGAEVTFCECYQRCAIHYDGAEEAMRWQAREVTMVVVTSGEMLQQLWSLIPQWYREHWLLHCRLLVVSERLAKLARELGWQDIKVADNADNDALLRALQ"]
 
-            cls = biolm.BioLMToxv1()
+            cls = biolmai.BioLMToxv1()
             resp = cls.transform(seqs)
 
     .. tab-item:: R
@@ -207,15 +207,15 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolm SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
 
-            import biolm
+            import biolmai
             seqs = [""MSILVTRPSPAGEELVSRLRTLGQVAWHFPLIEFSPGQQLPQLADQLAALGESDLLFALSQHAVAFAQSQLHQQDRKWPRLPDYFAIGRTTALALHTVSGQKILYPQDREISEVLLQLPELQNIAGKRALILRGNGGRELIGDTLTARGAEVTFCECYQRCAIHYDGAEEAMRWQAREVTMVVVTSGEMLQQLWSLIPQWYREHWLLHCRLLVVSERLAKLARELGWQDIKVADNADNDALLRALQ"]
 
-            cls = biolm.BioLMToxv1()
+            cls = biolmai.BioLMToxv1()
             resp = cls.predict(seqs)
 
     .. tab-item:: R

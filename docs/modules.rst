@@ -1,7 +1,7 @@
-biolm
-=====
+biolmai
+=======
 
 .. toctree::
    :maxdepth: 4
 
-   biolm
+   biolmai

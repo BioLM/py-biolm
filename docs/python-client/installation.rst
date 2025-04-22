@@ -12,7 +12,7 @@ To install BioLM AI, run this command in your terminal:
 
 .. code-block:: console
 
-    $ pip install biolm
+    $ pip install biolmai
 
 This is the preferred method to install BioLM AI, as it will always install the most recent stable release.
 

@@ -6,7 +6,7 @@ import stat
 import click
 import requests
 
-from biolm.const import ACCESS_TOK_PATH, BASE_DOMAIN, GEN_TOKEN_URL, USER_BIOLM_DIR
+from biolmai.const import ACCESS_TOK_PATH, BASE_DOMAIN, GEN_TOKEN_URL, USER_BIOLM_DIR
 
 
 def validate_user_auth(api_token=None, access=None, refresh=None):
@@ -43,7 +43,7 @@ def refresh_access_token(refresh):
         pretty_json = pprint.pformat(json_response, indent=2)
         click.echo(pretty_json)
         click.echo(
-            "Token refresh failed! Please login by " "running `biolm login`.\n"
+            "Token refresh failed! Please login by " "running `biolmai login`.\n"
         )
         return False
     else:
@@ -79,7 +79,7 @@ def get_auth_status():
         msg = (
             f"No https://biolm.ai credentials found. Please "
             f"set the environment variable BIOLMAI_TOKEN to a token from "
-            f"{GEN_TOKEN_URL}, or login by running `biolm login`."
+            f"{GEN_TOKEN_URL}, or login by running `biolmai login`."
         )
         click.echo(msg)
 
@@ -151,7 +151,7 @@ def get_api_token():
 def get_user_auth_header():
     """Returns a dict with the appropriate Authorization header, either using
     an API token from BIOLMAI_TOKEN environment variable, or by reading the
-    credentials file at ~/.biolm/credntials next."""
+    credentials file at ~/.biolmai/credntials next."""
     api_token = os.environ.get("BIOLMAI_TOKEN", None)
     if api_token:
         headers = {"Authorization": f"Token {api_token}"}
@@ -167,7 +167,7 @@ def get_user_auth_header():
     else:
         err = (
             "No https://biolm.ai credentials found. Please run "
-            "`biolm status` to debug."
+            "`biolmai status` to debug."
         )
         raise AssertionError(err)
     return headers

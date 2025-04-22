@@ -6,8 +6,8 @@ from typing import Dict, List
 import aiohttp.resolver
 from aiohttp import ClientSession
 
-from biolm.auth import get_user_auth_header
-from biolm.const import BASE_API_URL, BASE_API_URL_V1, MULTIPROCESS_THREADS
+from biolmai.auth import get_user_auth_header
+from biolmai.const import BASE_API_URL, BASE_API_URL_V1, MULTIPROCESS_THREADS
 
 aiohttp.resolver.DefaultResolver = aiohttp.resolver.AsyncResolver
 
@@ -175,8 +175,8 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
     #         access_refresh_dict = json.load(f)
     #     refresh = access_refresh_dict.get('refresh')
     #     if not refresh_access_token(refresh):
-    #         err = "Unauthenticated! Please run `biolm status` to debug or " \
-    #               "`biolm login`."
+    #         err = "Unauthenticated! Please run `biolmai status` to debug or " \
+    #               "`biolmai login`."
     #         raise AssertionError(err)
     #     headers = get_user_auth_header()  # Need to re-get these now
     #     response = retry_minutes(session, url, headers, payload, tout, mins=10)
@@ -220,7 +220,7 @@ def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key
     api_resp = [item for sublist in api_resp for item in sublist]
     api_resp = sorted(api_resp, key=lambda x: x["batch_id"])
     # print(api_resp)
-    # api_resp = biolm.api_call(model_name, action, headers, payload,
+    # api_resp = biolmai.api_call(model_name, action, headers, payload,
     #                             response_key)
     # resp_json = api_resp.json()
     # batch_id = int(grouped_df.batch.iloc[0])

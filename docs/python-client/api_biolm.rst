@@ -2,7 +2,7 @@
 BioLM
 ======
 
-.. autoclass:: biolm.biolm.BioLM
+.. autoclass:: biolmai.biolmai.BioLM
    :members:
    :undoc-members:
    :show-inheritance:

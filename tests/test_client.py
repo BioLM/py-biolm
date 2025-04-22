@@ -3,7 +3,7 @@ import logging
 
 import pytest
 
-from biolm.client import BioLMApi
+from biolmai.client import BioLMApi
 
 LOGGER = logging.getLogger(__name__)
 

@@ -85,15 +85,15 @@ Making Requests
 
             print(response.text)
 
-    .. tab-item:: biolm SDK
+    .. tab-item:: biolmai SDK
         :sync: sdk
 
         .. code:: sdk
 
-                import biolm
+                import biolmai
                 seqs = ["EVQLVESGPGLVQPGKSLRLSCVASGFTFSGYGMHWVRQAPGKGLEWIALIIYDESNKYYADSVKGRFTISRDNSKNTLYLQMSSLRAEDTAVFYCAKVKFYDPTAPNDYWGQGTLVTVSS"]
 
-                cls = biolm.AbLangHeavy()
+                cls = biolmai.AbLangHeavy()
                 resp = cls.encode(seqs, params={
                         "include": [
                             "seqcoding"
