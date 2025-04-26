@@ -17,7 +17,7 @@ it's usage for classification and embedding extraction on BioLM.*
 Endpoints
 ---------------
 
-The BioLM endpoint for BioLMTox is `https://biolm.ai/api/v1/models/biolmtox_v1/<model_action>/ <https://api.biolm.ai/#8616fff6-33c4-416b-9557-429da180ef92>`_.
+The BioLM endpoint for BioLMTox is ```https://biolm.ai/api/v1/models/biolmtox_v1/<model_action>/ <https://api.biolm.ai/#8616fff6-33c4-416b-9557-429da180ef92>```_.
 
 
 
@@ -25,7 +25,7 @@ The BioLM endpoint for BioLMTox is `https://biolm.ai/api/v1/models/biolmtox_v1/<
 Embedding API Usage
 ---------------------------
 
-The endpoint for BioLMTox embedding extraction is `https://biolm.ai/api/v1/models/biolmtox_v1/transform/ <https://api.biolm.ai/#723bb851-3fa0-40fa-b4eb-f56b16d954f5>`_.
+The endpoint for BioLMTox embedding extraction is ```https://biolm.ai/api/v1/models/biolmtox_v1/transform/ <https://api.biolm.ai/#723bb851-3fa0-40fa-b4eb-f56b16d954f5>```_.
 
 ^^^^^^^^^^^^^^^^^^^^^
 Making Requests
@@ -156,7 +156,7 @@ predictions:
 ---------------------------
 Prediction API Usage
 ---------------------------
-The endpoint for BioLMTox toxin classification is `https://biolm.ai/api/v1/models/biolmtox_v1/predict/ <https://api.biolm.ai/#8616fff6-33c4-416b-9557-429da180ef92>`_.
+The endpoint for BioLMTox toxin classification is ```https://biolm.ai/api/v1/models/biolmtox_v1/predict/ <https://api.biolm.ai/#8616fff6-33c4-416b-9557-429da180ef92>```_.
 
 ^^^^^^^^^^^^^^^^^^^^
 Making Requests

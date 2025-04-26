@@ -23,11 +23,11 @@ API Usage
 here are 2 BioLM endpoints corresponding to ProteInfer GO and EC.
 These endpoints are
 
-* ProteInfer EC with an endpoint at `https://biolm.ai/api/v2/proteinfer-ec/ <https://api.biolm.ai/#9bcdd520-f163-4624-bd55-ff73103526a5>`_
-* ProteInfer GO with an endpoint at `https://biolm.ai/api/v2/proteinfer-go/ <https://api.biolm.ai/#ab42dafe-1c8d-4b35-9186-25abec5d9615>`_
+* ProteInfer EC with an endpoint at ```https://biolm.ai/api/v2/proteinfer-ec/ <https://api.biolm.ai/#9bcdd520-f163-4624-bd55-ff73103526a5>```_
+* ProteInfer GO with an endpoint at ```https://biolm.ai/api/v2/proteinfer-go/ <https://api.biolm.ai/#ab42dafe-1c8d-4b35-9186-25abec5d9615>```_
 
 Each of these endpoints can be accessed with the predict action by appending predict to the urls above.
-For example, the BioLM ProteInfer EC prediction endpoint is `https://biolm.ai/api/v2/proteinfer-ec/predict/ <https://api.biolm.ai/#9bcdd520-f163-4624-bd55-ff73103526a5>`_.
+For example, the BioLM ProteInfer EC prediction endpoint is ```https://biolm.ai/api/v2/proteinfer-ec/predict/ <https://api.biolm.ai/#9bcdd520-f163-4624-bd55-ff73103526a5>```_.
 
 
 ^^^^^^^^^^^^^^^

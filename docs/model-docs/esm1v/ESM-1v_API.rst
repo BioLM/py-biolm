@@ -20,12 +20,12 @@ API Usage
 There are 6 BioLM endpoints corresponding to 5 different sized ESM-1v model endpoints and 1 endpoint combining all 5 models.
 These endpoints are:
 
-* ESM-1v model 1 with an endpoint at `https://biolm.ai/api/v2/esm1v-n1/predict/ <https://api.biolm.ai/#ce3145ea-d930-44a8-a468-4d39710381f7>`_
-* ESM-1v model 2 with an endpoint at `https://biolm.ai/api/v2/esm1v-n2/predict/ <https://api.biolm.ai/#abd06778-9836-431a-937b-cfa0479b2632>`_
-* ESM-1v model 3 with an endpoint at `https://biolm.ai/api/v2/esm1v-n3/predict/ <https://api.biolm.ai/#e5e4e266-a42e-455e-8813-3184c170735c>`_
-* ESM-1v model 4 with an endpoint at `https://biolm.ai/api/v2/esm1v-n4/predict/ <https://api.biolm.ai/#2708787e-a1f3-4d3c-aa07-311079c947cc>`_
-* ESM-1v model 5 with an endpoint at `https://biolm.ai/api/v2/esm1v-n5/predict/ <https://api.biolm.ai/#9191c028-bab4-4e7e-b986-0f80d546f6f0>`_
-* ESM-1v all models with an endpoint at `https://biolm.ai/api/v2/esm1v-all/predict/ <https://api.biolm.ai/#67f77d96-c4d8-4a1f-953a-d26330c27315>`_
+* ESM-1v model 1 with an endpoint at ```https://biolm.ai/api/v2/esm1v-n1/predict/ <https://api.biolm.ai/#ce3145ea-d930-44a8-a468-4d39710381f7>```_
+* ESM-1v model 2 with an endpoint at ```https://biolm.ai/api/v2/esm1v-n2/predict/ <https://api.biolm.ai/#abd06778-9836-431a-937b-cfa0479b2632>```_
+* ESM-1v model 3 with an endpoint at ```https://biolm.ai/api/v2/esm1v-n3/predict/ <https://api.biolm.ai/#e5e4e266-a42e-455e-8813-3184c170735c>```_
+* ESM-1v model 4 with an endpoint at ```https://biolm.ai/api/v2/esm1v-n4/predict/ <https://api.biolm.ai/#2708787e-a1f3-4d3c-aa07-311079c947cc>```_
+* ESM-1v model 5 with an endpoint at ```https://biolm.ai/api/v2/esm1v-n5/predict/ <https://api.biolm.ai/#9191c028-bab4-4e7e-b986-0f80d546f6f0>```_
+* ESM-1v all models with an endpoint at ```https://biolm.ai/api/v2/esm1v-all/predict/ <https://api.biolm.ai/#67f77d96-c4d8-4a1f-953a-d26330c27315>```_
 
 
 The BioLM API ESM-1v predict endpoints have been customized to return the likelihoods for every AA unmasked at any <mask> position, so you can easily see how the likelihood of the sequence being functional with the wild-type residue compares to a single-AA mutation at that position.
@@ -34,7 +34,7 @@ Furthermore, the BioLM API has 5 distinct endpoints, as there are five models tr
 The best results are achieved by averaging the likelihoods given by all 5 models for a given AA at a given position corresponding to the 6th BioLM API endpoint.
 
 For example, using the ESM-1v model 1, the predict API endpoint is
-`https://biolm.ai/api/v2/esm1v-n1/predict/ <https://api.biolm.ai/#ce3145ea-d930-44a8-a468-4d39710381f7>`_.
+```https://biolm.ai/api/v2/esm1v-n1/predict/ <https://api.biolm.ai/#ce3145ea-d930-44a8-a468-4d39710381f7>```_.
 
 
 ^^^^^^^^^^^^^^^

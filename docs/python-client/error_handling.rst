@@ -58,9 +58,9 @@ Examples
 
 .. code-block:: python
 
-    from biolmai import BioLM
+    from biolmai import biolm
     try:
-        result = BioLM(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
+        result = biolm(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
     except Exception as e:
         print("Caught exception:", e)
 
@@ -68,14 +68,14 @@ Examples
 
 .. code-block:: python
 
-    result = BioLM(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ"], raise_httpx=False, stop_on_error=False)
+    result = biolm(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ"], raise_httpx=False, stop_on_error=False)
     # result[0] is a normal result, result[1] is a dict with "error" and "status_code"
 
 **3. Stop on first error:**
 
 .. code-block:: python
 
-    result = BioLM(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ", "ANOTHER"], raise_httpx=False, stop_on_error=True)
+    result = biolm(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ", "ANOTHER"], raise_httpx=False, stop_on_error=True)
     # Only results up to and including the first error are returned
 
 **4. Retrying failed batches as single items (BioLMApi only):**
@@ -110,9 +110,9 @@ If you set `raise_httpx=True`, you must catch exceptions:
 
 .. code-block:: python
 
-    from biolmai import BioLM
+    from biolmai import biolm
     try:
-        result = BioLM(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
+        result = biolm(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
     except Exception as e:
         print("Caught exception:", e)
 
@@ -120,7 +120,7 @@ If you set `raise_httpx=False`, you can check for errors in the results:
 
 .. code-block:: python
 
-    result = BioLM(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ"], raise_httpx=False)
+    result = biolm(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ"], raise_httpx=False)
     for r in result:
         if "error" in r:
             print("Error:", r["error"])

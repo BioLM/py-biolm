@@ -27,7 +27,7 @@ ProtGPT2's ability to produce sequences quickly and its capacity to be fine-tune
 API Usage: Finetune ProtGPT2 Generator
 --------------------------------------
 
-The endpoint to Finetune ProtGPT2 Generator: `https://biolm.ai/api/v1/finetune_run/ <https://api.biolm.ai/#5c9d7905-d411-4000-896a-80651828ac7a>`_
+The endpoint to Finetune ProtGPT2 Generator: ```https://biolm.ai/api/v1/finetune_run/ <https://api.biolm.ai/#5c9d7905-d411-4000-896a-80651828ac7a>```_
 
 ^^^^^^^^^^^^^^^
 Making Requests

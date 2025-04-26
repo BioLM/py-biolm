@@ -21,11 +21,11 @@ There are 5 BioLM endpoints corresponding to 5 different sized ESM-2 models.
 These model sizes, with M representing millions of parameters and B representing billions of
 parameters, are:
 
-* esm2_t6_8M_UR50D, 6 layers and 8M parameters, endpoint at `https://biolm.ai/api/v2/esm2-8m/<model_action>/ <https://api.biolm.ai/#571be64b-f9f4-4303-8ff8-6abc67abb80c>`_
-* esm2_t12_35M_UR50D, 12 layers and 35M parameters, endpoint at `https://biolm.ai/api/v2/esm2-35m/<model_action>/ <https://api.biolm.ai/#a4355a60-93d4-43b5-a2d6-83519065b225>`_
-* esm2_t30_150M_UR50D, 30 layers and 150M parameters, endpoint at  `https://biolm.ai/api/v2/esm2-150m/<model_action>/ <https://api.biolm.ai/#7afcd793-f9a9-4dab-b931-340648531130>`_
-* esm2_t33_650M_UR50D,  33 layers and 650M parameters, endpoint at `https://biolm.ai/api/v2/esm2-650m/<model_action>/ <https://api.biolm.ai/#48318bdc-ff48-47ac-a464-f67fdec2e20b>`_
-* esm2_t36_3B_UR50D, 36 layers and 3B parameters, endpoint at `https://biolm.ai/api/v2/esm2-3B/<model_action>/ <https://api.biolm.ai/#31743328-cbef-49eb-8650-26fd9d9bc43f>`_
+* esm2_t6_8M_UR50D, 6 layers and 8M parameters, endpoint at ```https://biolm.ai/api/v2/esm2-8m/<model_action>/ <https://api.biolm.ai/#571be64b-f9f4-4303-8ff8-6abc67abb80c>```_
+* esm2_t12_35M_UR50D, 12 layers and 35M parameters, endpoint at ```https://biolm.ai/api/v2/esm2-35m/<model_action>/ <https://api.biolm.ai/#a4355a60-93d4-43b5-a2d6-83519065b225>```_
+* esm2_t30_150M_UR50D, 30 layers and 150M parameters, endpoint at  ```https://biolm.ai/api/v2/esm2-150m/<model_action>/ <https://api.biolm.ai/#7afcd793-f9a9-4dab-b931-340648531130>```_
+* esm2_t33_650M_UR50D,  33 layers and 650M parameters, endpoint at ```https://biolm.ai/api/v2/esm2-650m/<model_action>/ <https://api.biolm.ai/#48318bdc-ff48-47ac-a464-f67fdec2e20b>```_
+* esm2_t36_3B_UR50D, 36 layers and 3B parameters, endpoint at ```https://biolm.ai/api/v2/esm2-3B/<model_action>/ <https://api.biolm.ai/#31743328-cbef-49eb-8650-26fd9d9bc43f>```_
 
 
 
@@ -36,7 +36,7 @@ Embedding API Usage
 The encode action produces embeddings, contacts, attention maps and logits.
 Appending 'encode/' to model endpoints above gives access to these outputs.
 
-Using the 650M model as an example, the encode endpoint is `https://biolm.ai/api/v2/esm2-650m/encode/ <https://api.biolm.ai/#daa50ec7-0da2-4bff-ab4c-3ead7f377154>`_
+Using the 650M model as an example, the encode endpoint is ```https://biolm.ai/api/v2/esm2-650m/encode/ <https://api.biolm.ai/#daa50ec7-0da2-4bff-ab4c-3ead7f377154>```_
 
 ^^^^^^^^^^^^^^^^^^^^^^
 Making Requests
@@ -252,7 +252,7 @@ The predict action returns model computed logits from masked sequences (one
 or more amino acids are masked and unknown to the model)
 Appending 'predict/' to model endpoints above gives access to these outputs.
 
-Using the 650M model as an example, the predict endpoint is `https://biolm.ai/api/v2/esm2-650m/predict/ <https://api.biolm.ai/#f26afcaa-1745-486b-99eb-89e752f7dba1>`_.
+Using the 650M model as an example, the predict endpoint is ```https://biolm.ai/api/v2/esm2-650m/predict/ <https://api.biolm.ai/#f26afcaa-1745-486b-99eb-89e752f7dba1>```_.
 
 ^^^^^^^^^^^^^^^^^^^^^^^^
 Making Requests

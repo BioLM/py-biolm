@@ -16,7 +16,7 @@ its usage on BioLM for generating de-novo and natural sequences.*
 API Usage
 ---------
 
-The endpoint for querying ESM-IF1 is `https://biolm.ai/api/v2/esm-if1/generate/ <https://api.biolm.ai/#52d05714-d3a1-42c7-a845-c91c921f0a36>`_.
+The endpoint for querying ESM-IF1 is ```https://biolm.ai/api/v2/esm-if1/generate/ <https://api.biolm.ai/#52d05714-d3a1-42c7-a845-c91c921f0a36>```_.
 
 It allows a maximum of 2 requested structures to be sent via JSON in each POST request.
 
@@ -165,7 +165,7 @@ params:
 
 chain:
     The chain identifier for the sequence to inverse-folding. This is usually
-    a value such as ``"A"``, ``"B"``, or ``C``, etc. and should be in the PDB.
+    a value such as ````"A"``````, ``````"B"``````, or ``````C````, etc. and should be in the PDB.
 
 num_samples:
     The number of inverse-folded sequences to generate.
@@ -174,7 +174,7 @@ temperature:
     Temperature parameter affecting the randomness in the sampling process.
     A lower value pushes the model toward recovering sequences
     in the training set, whereas a greater temperature will allow the model to
-    generate new and more unique sequences. At `t` near 1e-6, the model
+    generate new and more unique sequences. At ```t``` near 1e-6, the model
     will almost deterministically recover the sequences of natural proteins when
     given a PDB.
 
@@ -193,7 +193,7 @@ sequence:
 
 recovery:
    A score measuring how often sampled sequences match a/the native sequence. At lower
-   temperatures `t`, recover is greater since natural sequences from the training set
+   temperatures ```t```, recover is greater since natural sequences from the training set
    may be predicted. Recover is not equal to likelihood, but ranges between 0 to 1. It
    can be used as a score for ranking produced results.
 

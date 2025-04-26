@@ -19,8 +19,8 @@ Endpoints
 There are 2 BioLM endpoints corresponding to the AbLang Heavy and Light Chain models.
 
 
-* AbLang Heavy Chain endpoint at `https://biolm.ai/api/v2/ablang-heavy/<model_action>/ <https://api.biolm.ai/#1b94f7dc-5dd7-48c6-9944-d933d85bc601>`_
-* AbLang Light Chain endpoint at `https://biolm.ai/api/v2/ablang-light/<model_action>/ <https://api.biolm.ai/#867e99f1-7049-434b-a9a2-d6ff5da0986c>`_
+* AbLang Heavy Chain endpoint at ```https://biolm.ai/api/v2/ablang-heavy/<model_action>/ <https://api.biolm.ai/#1b94f7dc-5dd7-48c6-9944-d933d85bc601>```_
+* AbLang Light Chain endpoint at ```https://biolm.ai/api/v2/ablang-light/<model_action>/ <https://api.biolm.ai/#867e99f1-7049-434b-a9a2-d6ff5da0986c>```_
 
 Each of these endpoints has the encode, predict and generate actions
 
@@ -30,7 +30,7 @@ encode generates embeddings, predict returns the likelihoods for the sequence an
 Encode API Usage
 ----------------------------------------
 Using AbLang Heavy Chain as an example, the encode endpoint is at
-API endpoint for `https://biolm.ai/api/v2/ablang-heavy/encode/ <https://api.biolm.ai/#1b94f7dc-5dd7-48c6-9944-d933d85bc601>`_.
+API endpoint for ```https://biolm.ai/api/v2/ablang-heavy/encode/ <https://api.biolm.ai/#1b94f7dc-5dd7-48c6-9944-d933d85bc601>```_.
 
 
 ^^^^^^^^^^^^^^^

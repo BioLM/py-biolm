@@ -35,15 +35,15 @@ API Usage
 There are 4 BioLM endpoints corresponding to 4 different ProGen2 models.
 These models are:
 
-* ProGen2 OAS with an endpoint at `https://biolm.ai/api/v2/progen2-oas/generate/ <https://api.biolm.ai/#2424fa3a-144c-4d8e-8391-9e69b9df15d0>`_
-* ProGen2 Medium with an endpoint at `https://biolm.ai/api/v2/progen2-medium/generate/ <https://api.biolm.ai/#06aed4bf-34ac-46da-99d7-791a271c2c53>`_
-* ProGen2 Large with an endpoint at `https://biolm.ai/api/v2/progen2-large/generate/ <https://api.biolm.ai/#4526f1c0-6811-4b4c-9406-8fb774139bc4>`_
-* ProGen2 BFD90 with an endpoint at `https://biolm.ai/api/v2/progen2-bfd90/generate/ <https://api.biolm.ai/#769693ef-1022-4850-8124-06de134d5413>`_
+* ProGen2 OAS with an endpoint at ```https://biolm.ai/api/v2/progen2-oas/generate/ <https://api.biolm.ai/#2424fa3a-144c-4d8e-8391-9e69b9df15d0>```_
+* ProGen2 Medium with an endpoint at ```https://biolm.ai/api/v2/progen2-medium/generate/ <https://api.biolm.ai/#06aed4bf-34ac-46da-99d7-791a271c2c53>```_
+* ProGen2 Large with an endpoint at ```https://biolm.ai/api/v2/progen2-large/generate/ <https://api.biolm.ai/#4526f1c0-6811-4b4c-9406-8fb774139bc4>```_
+* ProGen2 BFD90 with an endpoint at ```https://biolm.ai/api/v2/progen2-bfd90/generate/ <https://api.biolm.ai/#769693ef-1022-4850-8124-06de134d5413>```_
 
 
 Each of these endpoints has the generate action. The generate action generates a sequence from a given sequence context.
 . For example, using the OAS endpoint the url would be
-`https://biolm.ai/api/v2/progen2-oas/generate/ <https://api.biolm.ai/#2424fa3a-144c-4d8e-8391-9e69b9df15d0>`_.
+```https://biolm.ai/api/v2/progen2-oas/generate/ <https://api.biolm.ai/#2424fa3a-144c-4d8e-8391-9e69b9df15d0>```_.
 
 
 ^^^^^^^^^^^^^^^^^^^^^^^^

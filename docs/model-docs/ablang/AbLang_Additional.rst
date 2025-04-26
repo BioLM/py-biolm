@@ -71,7 +71,7 @@ These representations have a wide range of potential applications for antibody d
 BioLM Benefits
 ----------------
 
-* Always-on, auto-scaling GPU-backed APIs (`Status Page`_); highly-scalable parallelization.
+* Always-on, auto-scaling GPU-backed APIs (```Status Page```_); highly-scalable parallelization.
 * Save money on infrastructure, GPU costs, and development time.
 * Quickly integrate multiple embeddings into your workflows.
 * Use our Chat Agents and other Web Apps to interact with bio-LLMs using no code.

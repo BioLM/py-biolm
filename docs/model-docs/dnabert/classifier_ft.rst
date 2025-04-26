@@ -24,7 +24,7 @@ Standard bioinformatics tools often struggle to capture such intricacies, necess
 API Usage
 ---------
 
-The endpoint to Finetune DNABERT Classifier: `https://biolm.ai/api/v1/finetune_run/ <https://api.biolm.ai/#49366d6c-c4dd-4bae-9c26-b8fd7659b4a5>`_.
+The endpoint to Finetune DNABERT Classifier: ```https://biolm.ai/api/v1/finetune_run/ <https://api.biolm.ai/#49366d6c-c4dd-4bae-9c26-b8fd7659b4a5>```_.
 
 ^^^^^^^^^^^^^^^
 Making Requests

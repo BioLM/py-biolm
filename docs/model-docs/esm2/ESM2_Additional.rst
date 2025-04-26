@@ -74,7 +74,7 @@ The embeddings can also be leveraged to anticipate the effects mutations have on
 BioLM Benefits
 ----------------
 
-* Always-on, auto-scaling GPU-backed APIs (`Status Page`_); highly-scalable parallelization.
+* Always-on, auto-scaling GPU-backed APIs (```Status Page```_); highly-scalable parallelization.
 * Save money on infrastructure, GPU costs, and development time.
 * Quickly integrate multiple embeddings and ESM-2 features into your workflows.
 * Use our Chat Agents and other Web Apps to interact with bio-LLMs using no code.
