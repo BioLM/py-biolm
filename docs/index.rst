@@ -45,20 +45,4 @@ Welcome to Our Python Client Docs
 
    tutorials_use_cases/notebooks
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Documentation:
-   :hidden:
-
-   model-docs/esm2/index
-   model-docs/esm1v/index
-   model-docs/esmfold/index
-   model-docs/esmif/index
-   model-docs/biolmtox/index
-   model-docs/progen2/index
-   model-docs/ablang/index
-   model-docs/proteinfer/index
-   model-docs/protgpt2/index
-   model-docs/dnabert/index
-   model-docs/finetuning/index
 
