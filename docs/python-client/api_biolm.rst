@@ -34,13 +34,13 @@ A universal, high-level client for the BioLM API. Instantiating this class immed
 .. code-block:: python
 
     # ESM2-8M: encode a single sequence
-    result = BioLM(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
+    result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
 
     # ESMFold: predict structure for a batch
-    result = BioLM(entity="esmfold", action="predict", type="sequence", items=["MDNELE", "MENDEL"])
+    result = biolm(entity="esmfold", action="predict", type="sequence", items=["MDNELE", "MENDEL"])
 
     # ProGen2-OAS: generate new sequences
-    result = BioLM(
+    result = biolm(
         entity="progen2-oas",
         action="generate",
         type="context",

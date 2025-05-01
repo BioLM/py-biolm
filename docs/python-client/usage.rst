@@ -6,19 +6,19 @@ Usage
 
 .. code-block:: python
 
-    from biolmai import BioLM
+    from biolmai import biolm
 
     # ESM2-8M: encode a single sequence
-    result = BioLM(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
+    result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
 
     # ESM2-8M: encode a batch of sequences
-    result = BioLM(entity="esm2-8m", action="encode", type="sequence", items=["SEQ1", "SEQ2"])
+    result = biolm(entity="esm2-8m", action="encode", type="sequence", items=["SEQ1", "SEQ2"])
 
     # ESMFold: predict structure for a batch
-    result = BioLM(entity="esmfold", action="predict", type="sequence", items=["MDNELE", "MENDEL"])
+    result = biolm(entity="esmfold", action="predict", type="sequence", items=["MDNELE", "MENDEL"])
 
     # ProGen2-OAS: generate new sequences from a context
-    result = BioLM(
+    result = biolm(
         entity="progen2-oas",
         action="generate",
         type="context",
@@ -28,7 +28,7 @@ Usage
     # result is a list of dicts with "sequence" keys
 
     # Write results to disk
-    BioLM(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
+    biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
 
 **Direct usage with BioLMApi (sync, advanced):**
 

@@ -6,8 +6,8 @@ Async and Sync Usage
 
 .. code-block:: python
 
-    from biolmai import BioLM
-    result = BioLM(entity="esmfold", action="predict", items="MDNELE")
+    from biolmai import biolm
+    result = biolm(entity="esmfold", action="predict", items="MDNELE")
 
 **Asynchronous usage:**
 
@@ -35,7 +35,7 @@ High-Level Summary
 Synchronous Usage (BioLM)
 ------------------------
 
-- **Convenient interface**: Just call `BioLM(...)` and get your result.
+- **Convenient interface**: Just call `biolm(...)` and get your result.
 - **Unpacks single-item results**: If you pass a single item, you get a single result (not a list).
 - **Runs in the main thread**: No need for `asyncio` or event loops.
 - **Great for Jupyter, scripts, and simple batch jobs**.
@@ -44,14 +44,14 @@ Synchronous Usage (BioLM)
 
 .. code-block:: python
 
-    from biolmai import BioLM
+    from biolmai import biolm
 
     # Single item: returns a dict
-    result = BioLM(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", items="MDNELE")
     print(result["mean_plddt"])
 
     # Batch: returns a list of dicts
-    result = BioLM(entity="esmfold", action="predict", items=["MDNELE", "MENDEL"])
+    result = biolm(entity="esmfold", action="predict", items=["MDNELE", "MENDEL"])
     print(result[0]["mean_plddt"], result[1]["mean_plddt"])
 
 ------------------------
