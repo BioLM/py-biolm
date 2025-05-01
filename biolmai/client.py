@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from itertools import chain
 from itertools import tee, islice
 from json import dumps as json_dumps
-from typing import Callable
+from typing import Callable, AsyncIterator
 from typing import Optional, Union, List, Any, Dict, Tuple
 
 import aiofiles
@@ -454,8 +454,11 @@ class BioLMApiClient:
         if not items:
             return items
 
+        # Determine if input is list-of-lists and flatten if needed
         is_lol, first_n, rest_iter = is_list_of_lists(items)
-        results = []
+        all_items = chain(first_n, rest_iter)
+        # Determine max batch size for chunking flat inputs
+        max_batch = await self._get_max_batch_size(self.model_name, func) or 1
 
         async def retry_batch_individually(batch):
             out = []
@@ -467,140 +470,62 @@ class BioLMApiClient:
                     out.append(single_result)
             return out
 
-        if is_lol:
-            all_batches = chain(first_n, rest_iter)
-            if output == 'disk':
-                path = file_path or f"{self.model_name}_{func}_output.jsonl"
-                async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
-                    for batch in all_batches:
-                        batch_results = await self.call(func, batch, params=params, raw=raw)
-                        if (
-                            self.retry_error_batches and
-                            isinstance(batch_results, dict) and
-                            ('error' in batch_results or 'status_code' in batch_results)
-                        ):
-                            batch_results = await retry_batch_individually(batch)
-
-                        if isinstance(batch_results, list):
-                            assert len(batch_results) == len(batch), (
-                                f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
-                                "This is a contract violation."
-                            )
-                            for res in batch_results:
-                                await file_handle.write(json.dumps(res) + '\n')
-                        else:
-                            for _ in batch:
-                                await file_handle.write(json.dumps(batch_results) + '\n')
-                        await file_handle.flush()
-
-                        if stop_on_error and (
-                            (isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results)) or
-                            (isinstance(batch_results, list) and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results))
-                        ):
-                            break
-                return
-            else:
-                for batch in all_batches:
-                    batch_results = await self.call(func, batch, params=params, raw=raw)
-                    if (
-                        self.retry_error_batches and
-                        isinstance(batch_results, dict) and
-                        ('error' in batch_results or 'status_code' in batch_results)
-                    ):
-                        batch_results = await retry_batch_individually(batch)
-                    if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                        results.extend([batch_results] * len(batch))
-                        if stop_on_error:
-                            break
-                    elif isinstance(batch_results, list):
-                        assert len(batch_results) == len(batch), (
-                            f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
-                            "This is a contract violation."
-                        )
-                        results.extend(batch_results)
-                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
-                            break
-                    else:
-                        results.append(batch_results)
-                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
-
-        all_items = chain(first_n, rest_iter)
-        max_batch = await self._get_max_batch_size(self.model_name, func) or 1
-
+        # Unified streaming-to-disk support for encode, predict, and generate
         if output == 'disk':
             path = file_path or f"{self.model_name}_{func}_output.jsonl"
             async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
-                for batch in batch_iterable(all_items, max_batch):
-                    batch_results = await self.call(func, batch, params=params, raw=raw)
-
-                    if (
-                        self.retry_error_batches and
-                        isinstance(batch_results, dict) and
-                        ('error' in batch_results or 'status_code' in batch_results)
-                    ):
-                        batch_results = await retry_batch_individually(batch)
-                        # After retry, always treat as list
-                        for res in batch_results:
-                            to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                            await file_handle.write(json.dumps(to_dump) + '\n')
+                # For flat predict, stream ordered results directly
+                if func == 'predict' and not is_lol:
+                    async for res in self.predict_stream_ordered_async(items=list(items), params=params):
+                        to_dump = res if not isinstance(res, tuple) else res[0]
+                        await file_handle.write(json.dumps(to_dump) + '\n')
                         await file_handle.flush()
-                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                        if stop_on_error and isinstance(to_dump, dict) and ('error' in to_dump or 'status_code' in to_dump):
                             break
-                        continue  # move to next batch
-
-                    if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                        for _ in batch:
-                            await file_handle.write(json.dumps(batch_results) + '\n')
-                        await file_handle.flush()
-                        if stop_on_error:
-                            break
-                    else:
-                        if not isinstance(batch_results, list):
-                            batch_results = [batch_results]
-                        assert len(batch_results) == len(batch), (
-                            f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
-                            "This is a contract violation."
-                        )
-                        for res in batch_results:
-                            to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                            await file_handle.write(json.dumps(to_dump) + '\n')
-                        await file_handle.flush()
-                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
-                            break
-
-            return
-        else:
-            for batch in batch_iterable(all_items, max_batch):
-                batch_results = await self.call(func, batch, params=params, raw=raw)
-
-                if (
-                    self.retry_error_batches and
-                    isinstance(batch_results, dict) and
-                    ('error' in batch_results or 'status_code' in batch_results)
-                ):
-                    batch_results = await retry_batch_individually(batch)
-                    results.extend(batch_results)
-                    if stop_on_error and any(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
-                        break
-                    continue  # move to next batch
-
-
-                if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                    results.extend([batch_results] * len(batch))
-                    if stop_on_error:
-                        break
                 else:
-                    if not isinstance(batch_results, list):
-                        batch_results = [batch_results]
-                    assert len(batch_results) == len(batch), (
-                        f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
-                        "This is a contract violation."
-                    )
-                    results.extend(batch_results)
-                    if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
-                        break
+                    # Batch-based streaming for encode, generate, and nested predict
+                    batches = all_items if is_lol else batch_iterable(all_items, max_batch)
+                    for batch in batches:
+                        batch_results = await self.call(func, batch, params=params, raw=raw)
+                        # Retry batch failure if configured
+                        if self.retry_error_batches and isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                            items_results = await retry_batch_individually(batch)
+                        else:
+                            # Prepare per-item results
+                            if isinstance(batch_results, dict):
+                                items_results = [batch_results] * len(batch)
+                            elif isinstance(batch_results, list):
+                                items_results = batch_results
+                            else:
+                                items_results = [batch_results]
+                        # Write each result to disk
+                        for res in items_results:
+                            to_dump = res[0] if (raw and isinstance(res, tuple)) else res
+                            await file_handle.write(json.dumps(to_dump) + '\n')
+                        await file_handle.flush()
+                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in items_results):
+                            break
+                return
 
-            return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+        # In-memory result aggregation
+        results = []
+        batches = all_items if is_lol else batch_iterable(all_items, max_batch)
+        for batch in batches:
+            batch_results = await self.call(func, batch, params=params, raw=raw)
+            # Retry batch failure if configured
+            if self.retry_error_batches and isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                batch_results = await retry_batch_individually(batch)
+            # Prepare per-item results
+            if isinstance(batch_results, dict):
+                items_results = [batch_results] * len(batch)
+            else:
+                items_results = batch_results if isinstance(batch_results, list) else [batch_results]
+            # Extend results
+            results.extend(items_results)
+            # Stop on error if all items in batch are errors
+            if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in items_results):
+                break
+        return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
 
     @staticmethod
     def _format_result(res: Union[dict, List[dict], Tuple[dict, int]]) -> Union[dict, List[dict], Tuple[dict, int]]:
@@ -692,6 +617,64 @@ class BioLMApiClient:
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.shutdown()
+
+    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    async def predict_stream_async(
+        self,
+        *,
+        items: List[dict],
+        params: Optional[dict] = None,
+    ) -> AsyncIterator[Tuple[int, dict]]:
+        """
+        Stream predict results as they arrive, yielding (index, result) pairs out-of-order.
+        """
+        endpoint = f"{self.model_name}/predict/"
+        # Schedule individual calls and map them to their indices
+        future_to_idx: Dict[asyncio.Task, int] = {}
+        tasks: List[asyncio.Task] = []
+        for idx, item in enumerate(items):
+            payload = {"items": [item]}
+            if params:
+                payload["params"] = params
+            task = asyncio.create_task(self._api_call(endpoint, payload))
+            future_to_idx[task] = idx
+            tasks.append(task)
+        pending = set(tasks)
+        # Process tasks as they complete
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                idx = future_to_idx[task]
+                try:
+                    raw_res = task.result()
+                    formatted = self._format_result(raw_res)
+                    if isinstance(formatted, list) and len(formatted) == 1:
+                        res = formatted[0]
+                    else:
+                        res = formatted
+                except Exception as e:
+                    if self.raise_httpx:
+                        raise
+                    res = self._format_exception(e, index=idx)
+                yield idx, res
+
+    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    async def predict_stream_ordered_async(
+        self,
+        *,
+        items: List[dict],
+        params: Optional[dict] = None,
+    ) -> AsyncIterator[dict]:
+        """
+        Stream predict results in order, buffering out-of-order results.
+        """
+        buffer: Dict[int, dict] = {}
+        next_idx = 0
+        async for idx, res in self.predict_stream_async(items=items, params=params):
+            buffer[idx] = res
+            while next_idx in buffer:
+                yield buffer.pop(next_idx)
+                next_idx += 1
 
 # Synchronous wrapper for compatibility
 @_synchronizer.sync

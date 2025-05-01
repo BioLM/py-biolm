@@ -16,6 +16,7 @@ Get Started
    batching
    rate_limiting
    disk_output
+   streaming
    async_sync
    api_biolm
    api_client
