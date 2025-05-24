@@ -24,6 +24,19 @@ try:
 except ImportError:
     from importlib_metadata import version
 
+# Telemetry imports
+import uuid
+import json as _json
+from urllib.parse import urlparse
+
+# "websockets" is a lightweight dependency (~50 KB) used for realtime telemetry
+# It is optional at runtime; if unavailable, telemetry is silently disabled.
+try:
+    import websockets  # type: ignore
+except ImportError:  # pragma: no cover – runtime fallback when websockets not installed
+    websockets = None  # type: ignore
+
+import contextlib
 
 def custom_httpx_encode_json(json: Any) -> Tuple[Dict[str, str], ByteStream]:
     # disable ascii for json_dumps
@@ -237,6 +250,37 @@ def batch_iterable(iterable, batch_size):
     if batch:
         yield batch
 
+class TelemetryListener:
+    """Simple async helper that connects to the server-side websocket channel
+    and prints each message (JSON decoded if possible).  It exits automatically
+    when the websocket connection is closed by the server.  It is designed to
+    stay alive across multiple API calls so the same channel can be reused.
+    
+    The listener captures all events in ``self.events`` so tests can assert on
+    them without scraping stdout.
+    """
+
+    def __init__(self, ws_url: str):
+        self.ws_url = ws_url
+        self.events: List[Any] = []
+        self._connected = asyncio.Event()
+
+    async def listen(self):  # pragma: no cover – executed in asyncio task
+        if websockets is None:
+            return  # websockets library not present – noop
+        try:
+            async with websockets.connect(self.ws_url) as ws:  # type: ignore
+                self._connected.set()
+                async for raw in ws:
+                    try:
+                        data = _json.loads(raw)
+                    except Exception:
+                        data = raw
+                    self.events.append(data)
+                    debug(f"[Telemetry] {data}")
+        except Exception as e:
+            debug(f"[Telemetry] Listener error: {e}")
+
 class BioLMApiClient:
     def __init__(
         self,
@@ -249,7 +293,8 @@ class BioLMApiClient:
         semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = None,
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
-
+        *,
+        telemetry: bool = True,
     ):
         self.model_name = model_name
         self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
@@ -263,7 +308,21 @@ class BioLMApiClient:
         self._rate_limit_lock = None
         self._rate_limit_initialized = False
         self.retry_error_batches = retry_error_batches
+        self.telemetry_enabled = telemetry and websockets is not None
 
+        # -- Telemetry state -------------------------------------------------
+        self._telemetry_channel: Optional[str] = None
+        self._telemetry_listener: Optional[TelemetryListener] = None
+        self._listener_task: Optional[asyncio.Task] = None
+        self._telemetry_event_cursor: int = 0  # Index into events list
+        # Stores events from the most-recent request (for tests / debugging)
+        self._last_telemetry_events: List[Any] = []
+
+        if self.telemetry_enabled:
+            # Generate a single channel for the lifetime of this client
+            self._telemetry_channel = f"telemetry_{uuid.uuid4().hex}"
+            # Inject header so every request uses the same channel
+            self._http_client._headers["X-Telemetry-Channel"] = self._telemetry_channel
 
         # Concurrency limit
         if isinstance(semaphore, asyncio.Semaphore):
@@ -376,8 +435,24 @@ class BioLMApiClient:
         self, endpoint: str, payload: dict, raw: bool = False
     ) -> Union[dict, Tuple[Any, httpx.Response]]:
         await self._ensure_rate_limit()
+        # --------------------------- Telemetry listener -----------------------
+        if self.telemetry_enabled and self._listener_task is None:
+            parsed = urlparse(self.base_url)
+            ws_scheme = "wss" if parsed.scheme == "https" else "ws"
+            host = parsed.netloc
+            ws_url = f"{ws_scheme}://{host}/ws/telemetry/{self._telemetry_channel}/"
+            self._telemetry_listener = TelemetryListener(ws_url)
+            self._listener_task = asyncio.create_task(self._telemetry_listener.listen())
+            # wait until websocket connected (avoid race)
+            try:
+                await asyncio.wait_for(self._telemetry_listener._connected.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                debug("[Telemetry] websocket connection timeout")
+
+        # --------------------------- Make HTTP call ---------------------------
         async with self._limit():
             resp = await self._http_client.post(endpoint, payload)
+
         content_type = resp.headers.get("Content-Type", "")
 
         assert hasattr(resp, 'status_code') or hasattr(resp, 'status') or 'status' in resp or 'status_code' in resp
@@ -416,6 +491,18 @@ class BioLMApiClient:
             return error_info
 
         data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
+
+        # ------------------------------------------------------------------
+        # Telemetry: give the background listener a tiny window to pick up
+        # the "response_sent" event then capture only the *new* events since
+        # the previous call.
+        # ------------------------------------------------------------------
+        if self.telemetry_enabled and self._telemetry_listener is not None:
+            await asyncio.sleep(0.05)  # small delay – tune as needed
+            new_events = self._telemetry_listener.events[self._telemetry_event_cursor :]
+            self._last_telemetry_events = list(new_events)
+            self._telemetry_event_cursor = len(self._telemetry_listener.events)
+
         return (data, resp) if raw else data
 
     async def call(self, func: str, items: List[dict], params: Optional[dict] = None, raw: bool = False):
@@ -686,6 +773,11 @@ class BioLMApiClient:
 
     async def shutdown(self):
         await self._http_client.close()
+        if self._listener_task is not None:
+            self._listener_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._listener_task
+            self._listener_task = None
 
     async def __aenter__(self):
         return self
@@ -697,3 +789,10 @@ class BioLMApiClient:
 @_synchronizer.sync
 class BioLMApi(BioLMApiClient):
     pass
+
+async def _ensure_listener_connected(self):
+    if self._listener_task is None:
+        # start a connection and *wait* until it's ready
+        ws = await websockets.connect(ws_url, extra_headers=hdrs)
+        self._telemetry_listener = TelemetryListener.from_open_ws(ws)
+        self._listener_task = asyncio.create_task(self._telemetry_listener.run())

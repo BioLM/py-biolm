@@ -21,6 +21,7 @@ requirements = [
     "aiohttp>=3.9.0; python_version >= '3.12'",
     "async-lru",
     "aiofiles",
+    "websockets>=11",
 ]
 
 test_requirements = [
