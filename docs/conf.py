@@ -80,6 +80,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "sphinx"
 
+# Dark mode syntax highlighting (Furo-specific)
+pygments_dark_style = "material"
+
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = False
 
@@ -98,14 +101,111 @@ html_theme = "furo"
 html_theme_options = {
     "top_of_page_button": None,
     "sidebar_hide_name": True,
-    "light_logo": "biolm_logomark_transparent.png",
-    "dark_logo": "biolm_logomark_transparent_for_dark.png",
+    "light_logo": "biolm_logo_light.svg",
+    "dark_logo": "biolm_logo_dark.svg",
+    
+    # Custom CSS variables for branding
+    "light_css_variables": {
+        # Primary brand colors - replace with your website's brand colors
+        "color-brand-primary": "#2563eb",  # Replace with your main brand color
+        "color-brand-content": "#2563eb",  # Links and interactive elements
+        
+        # Sidebar customization
+        "color-sidebar-brand-text": "#1f2937",
+        "color-sidebar-background": "#f8fafc",
+        "color-sidebar-background-border": "#e2e8f0",
+        
+        # Additional brand colors
+        "color-admonition-title-background--note": "#dbeafe",
+        "color-admonition-title--note": "#1e40af",
+        
+        # Header and navigation
+        "color-header-background": "#ffffff",
+        "color-header-text": "#1f2937",
+        
+        # Code blocks
+        "color-code-background": "#f1f5f9",
+        "color-code-foreground": "#334155",
+        
+        # Font families to match your website exactly
+        "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
+        "font-stack--monospace": '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+    },
+    
+    "dark_css_variables": {
+        # Dark mode brand colors
+        "color-brand-primary": "#60a5fa",  # Lighter version for dark mode
+        "color-brand-content": "#60a5fa",
+        
+        # Dark sidebar
+        "color-sidebar-background": "#1e293b",
+        "color-sidebar-background-border": "#334155",
+        "color-sidebar-brand-text": "#f1f5f9",
+        
+        # Dark mode code blocks
+        "color-code-background": "#1e293b",
+        "color-code-foreground": "#e2e8f0",
+        
+        # Additional dark mode styling
+        "color-highlight-on-target": "#374151",
+        
+        # Font families to match your website exactly (same as light mode)
+        "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
+        "font-stack--monospace": '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+    },
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
+
+# Custom CSS files
+html_css_files = [
+    'custom.css',
+]
+
+# Add Google Fonts (Inter and Roboto Mono to match website)
+html_css_files.extend([
+    'https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap',
+    'https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap',
+])
+
+# Additional branding options
+html_title = "BioLM AI Documentation"
+html_short_title = "BioLM AI"
+
+# Custom favicon (add your favicon.ico to _static folder)
+# html_favicon = "_static/favicon.ico"
+
+# Custom footer
+html_show_sphinx = False
+html_show_copyright = True
+
+# SEO and metadata
+html_meta = {
+    "description": "Official documentation for BioLM AI - Advanced biological language models and APIs",
+    "keywords": "BioLM, AI, machine learning, biology, protein, DNA, API",
+    "author": "BioLM.ai Team",
+    "viewport": "width=device-width, initial-scale=1",
+}
+
+# Social media cards / Open Graph
+html_theme_options.update({
+    "announcement": None,  # Add site-wide announcements here if needed
+    "footer_icons": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/yourusername/yourrepo",  # Update with your GitHub
+            "html": """
+                <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+                </svg>
+            """,
+            "class": "",
+        },
+    ],
+})
 
 
 # -- Options for HTMLHelp output ---------------------------------------
