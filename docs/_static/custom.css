@@ -1,0 +1,434 @@
+/* Custom CSS for BioLM Documentation */
+/* Fonts and colors matching your website exactly - Inter + Roboto Mono */
+
+/* Logo sizing for better visibility */
+.sidebar-brand img {
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    margin: 0 auto !important;
+    display: block !important;
+}
+
+.sidebar-brand {
+    text-align: center !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+}
+
+/* Ensure logo is responsive */
+@media (max-width: 768px) {
+    .sidebar-brand img {
+        max-width: 160px !important;
+    }
+}
+
+:root {
+    /* Font families matching your website exactly (Inter + Roboto Mono) */
+    --biolm-font-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    --biolm-font-mono: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    
+    /* Additional brand colors that can be used throughout */
+    --biolm-primary: #2563eb;
+    --biolm-secondary: #64748b;
+    --biolm-accent: #0ea5e9;
+    --biolm-success: #10b981;
+    --biolm-warning: #f59e0b;
+    --biolm-error: #ef4444;
+    --biolm-text-primary: #1f2937;
+    --biolm-text-secondary: #6b7280;
+    --biolm-bg-primary: #ffffff;
+    --biolm-bg-secondary: #f8fafc;
+}
+
+/* Apply Inter font to all text elements */
+body,
+html,
+.furo-content,
+.sidebar,
+.header,
+h1, h2, h3, h4, h5, h6,
+p, div, span, a, li, td, th {
+    font-family: var(--biolm-font-sans) !important;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* Inter's stylistic features */
+    font-variant-numeric: tabular-nums;
+}
+
+/* Apply Roboto Mono to code elements */
+code,
+pre,
+kbd,
+samp,
+tt,
+.highlight,
+.code-block,
+.literal {
+    font-family: var(--biolm-font-mono) !important;
+    font-feature-settings: "liga" 0; /* Disable ligatures for code */
+    font-variant-numeric: tabular-nums;
+}
+
+/* Custom header styling */
+.header {
+    background: linear-gradient(135deg, var(--biolm-primary) 0%, var(--biolm-accent) 100%);
+    color: white;
+}
+
+/* Custom button styling to match Tailwind CSS */
+.btn-primary,
+button[type="submit"],
+input[type="submit"] {
+    background-color: var(--biolm-primary);
+    border: 1px solid var(--biolm-primary);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem; /* Tailwind's rounded-md */
+    font-family: var(--biolm-font-sans) !important;
+    font-size: 0.875rem; /* Tailwind's text-sm */
+    font-weight: 500; /* Tailwind's font-medium */
+    line-height: 1.25;
+    cursor: pointer;
+    transition: all 0.15s ease-in-out;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-primary:hover,
+button[type="submit"]:hover,
+input[type="submit"]:hover {
+    background-color: var(--biolm-accent);
+    border-color: var(--biolm-accent);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Custom admonition styling */
+.admonition.tip {
+    border-left: 4px solid var(--biolm-success);
+}
+
+.admonition.warning {
+    border-left: 4px solid var(--biolm-warning);
+}
+
+.admonition.danger {
+    border-left: 4px solid var(--biolm-error);
+}
+
+/* Custom table styling */
+table.docutils {
+    border-collapse: collapse;
+    border: 1px solid #e2e8f0;
+}
+
+table.docutils th {
+    background-color: var(--biolm-bg-secondary);
+    color: var(--biolm-text-primary);
+    font-weight: 600;
+}
+
+/* Custom code block styling to match Tailwind CSS */
+pre {
+    background-color: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem; /* Tailwind's rounded-md */
+    padding: 1rem;
+    font-family: var(--biolm-font-mono) !important;
+    font-size: 0.875rem; /* Tailwind's text-sm */
+    line-height: 1.5;
+    overflow-x: auto;
+}
+
+/* Inline code styling */
+code:not(pre code) {
+    background-color: #f1f5f9;
+    color: #334155;
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem; /* Tailwind's rounded */
+    font-family: var(--biolm-font-mono) !important;
+    font-size: 0.875em;
+}
+
+/* Dark mode code block styling */
+[data-theme="dark"] pre,
+[data-theme="dark"] .highlight {
+    background-color: #1e293b !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .highlight-python .highlight,
+[data-theme="dark"] .highlight pre {
+    background-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+/* Dark mode inline code */
+[data-theme="dark"] code:not(pre code) {
+    background-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+/* Dark mode syntax highlighting */
+[data-theme="dark"] .highlight .k,
+[data-theme="dark"] .highlight .kn,
+[data-theme="dark"] .highlight .kd {
+    color: #c792ea !important; /* Keywords - purple */
+}
+
+[data-theme="dark"] .highlight .s,
+[data-theme="dark"] .highlight .s1,
+[data-theme="dark"] .highlight .s2 {
+    color: #c3e88d !important; /* Strings - green */
+}
+
+[data-theme="dark"] .highlight .c1,
+[data-theme="dark"] .highlight .cm {
+    color: #676e95 !important; /* Comments - gray */
+    font-style: italic;
+}
+
+[data-theme="dark"] .highlight .n,
+[data-theme="dark"] .highlight .nn {
+    color: #82b1ff !important; /* Names - blue */
+}
+
+[data-theme="dark"] .highlight .nb {
+    color: #ffcb6b !important; /* Built-ins - yellow */
+}
+
+[data-theme="dark"] .highlight .o {
+    color: #89ddff !important; /* Operators - cyan */
+}
+
+[data-theme="dark"] .highlight .p {
+    color: #e2e8f0 !important; /* Punctuation - light gray */
+}
+
+/* Copy button styling for dark mode */
+[data-theme="dark"] .copybtn {
+    background-color: #334155 !important;
+    border-color: #475569 !important;
+}
+
+[data-theme="dark"] .copybtn:hover {
+    background-color: #475569 !important;
+}
+
+[data-theme="dark"] .copybtn svg {
+    stroke: #e2e8f0 !important;
+}
+
+/* Code block container styling */
+[data-theme="dark"] .highlight-python,
+[data-theme="dark"] .highlight-bash,
+[data-theme="dark"] .highlight-json,
+[data-theme="dark"] .highlight-yaml {
+    background-color: #1e293b !important;
+    border-radius: 0.375rem !important;
+}
+
+/* Ensure all code containers have proper dark styling */
+[data-theme="dark"] div[class*="highlight"] {
+    background-color: #1e293b !important;
+}
+
+/* Additional Pygments token styling for dark mode */
+[data-theme="dark"] .highlight .mi,
+[data-theme="dark"] .highlight .mf {
+    color: #f78c6c !important; /* Numbers - orange */
+}
+
+[data-theme="dark"] .highlight .bp {
+    color: #82b1ff !important; /* Built-in pseudo - blue */
+}
+
+[data-theme="dark"] .highlight .ow {
+    color: #c792ea !important; /* Operator words - purple */
+}
+
+[data-theme="dark"] .highlight .nx {
+    color: #82b1ff !important; /* Other names - blue */
+}
+
+/* Custom navigation styling */
+.navigation a {
+    color: var(--biolm-primary);
+    text-decoration: none;
+}
+
+.navigation a:hover {
+    color: var(--biolm-accent);
+    text-decoration: underline;
+}
+
+/* Custom sidebar styling */
+.sidebar {
+    background-color: var(--biolm-bg-secondary);
+    border-right: 1px solid #e2e8f0;
+}
+
+/* Custom footer styling */
+.footer {
+    background-color: var(--biolm-text-primary);
+    color: white;
+    padding: 2rem 0;
+}
+
+/* Responsive design adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        background-color: white;
+    }
+    
+    .header {
+        padding: 1rem;
+    }
+}
+
+/* Custom search styling to match Tailwind CSS */
+.search-input {
+    border: 1px solid #d1d5db; /* Tailwind's gray-300 */
+    border-radius: 0.375rem; /* Tailwind's rounded-md */
+    padding: 0.5rem 0.75rem;
+    font-family: var(--biolm-font-sans) !important;
+    font-size: 1rem;
+    line-height: 1.5;
+    background-color: #ffffff;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: var(--biolm-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Custom link styling */
+a {
+    color: var(--biolm-primary);
+}
+
+a:hover {
+    color: var(--biolm-accent);
+}
+
+/* Custom heading styling to match Tailwind CSS */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--biolm-text-primary);
+    font-family: var(--biolm-font-sans) !important;
+    font-weight: 600; /* Tailwind's font-semibold */
+    line-height: 1.25; /* Tailwind's leading-tight */
+    letter-spacing: -0.025em; /* Tailwind's tracking-tight */
+}
+
+h1 {
+    font-size: 2.25rem; /* Tailwind's text-4xl */
+    border-bottom: 2px solid var(--biolm-primary);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+h2 {
+    font-size: 1.875rem; /* Tailwind's text-3xl */
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+}
+
+h3 {
+    font-size: 1.5rem; /* Tailwind's text-2xl */
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+h4 {
+    font-size: 1.25rem; /* Tailwind's text-xl */
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+}
+
+h5, h6 {
+    font-size: 1.125rem; /* Tailwind's text-lg */
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Dark mode heading styling - fix visibility */
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] h4,
+[data-theme="dark"] h5,
+[data-theme="dark"] h6 {
+    color: #f1f5f9 !important; /* Light text for dark backgrounds */
+}
+
+[data-theme="dark"] h1 {
+    border-bottom-color: #60a5fa !important; /* Lighter blue for dark mode */
+}
+
+/* Fix section header styling in dark mode */
+[data-theme="dark"] .section h1,
+[data-theme="dark"] .section h2,
+[data-theme="dark"] .section h3 {
+    color: #f1f5f9 !important;
+}
+
+/* Fix document title in dark mode */
+[data-theme="dark"] .document h1,
+[data-theme="dark"] .furo-content h1,
+[data-theme="dark"] .furo-content h2,
+[data-theme="dark"] .furo-content h3,
+[data-theme="dark"] .furo-content h4,
+[data-theme="dark"] .furo-content h5,
+[data-theme="dark"] .furo-content h6 {
+    color: #f1f5f9 !important;
+}
+
+/* Paragraph and text styling */
+p {
+    font-family: var(--biolm-font-sans) !important;
+    line-height: 1.75; /* Tailwind's leading-7 */
+    margin-bottom: 1rem;
+}
+
+/* Improve text readability */
+.furo-content {
+    font-size: 1rem; /* Tailwind's text-base */
+    line-height: 1.75; /* Tailwind's leading-7 */
+}
+
+/* Dark mode paragraph and content text styling */
+[data-theme="dark"] p,
+[data-theme="dark"] .furo-content,
+[data-theme="dark"] .furo-content p,
+[data-theme="dark"] .document {
+    color: #e2e8f0 !important; /* Light gray text for readability */
+}
+
+/* Dark mode list styling */
+[data-theme="dark"] ul li,
+[data-theme="dark"] ol li,
+[data-theme="dark"] dl dt,
+[data-theme="dark"] dl dd {
+    color: #e2e8f0 !important;
+}
+
+/* Custom blockquote styling */
+blockquote {
+    border-left: 4px solid var(--biolm-primary);
+    background-color: var(--biolm-bg-secondary);
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+/* Custom list styling */
+ul li::marker {
+    color: var(--biolm-primary);
+}
+
+ol li::marker {
+    color: var(--biolm-primary);
+} 
