@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import pprint
@@ -7,6 +8,47 @@ import click
 import requests
 
 from biolmai.const import ACCESS_TOK_PATH, BASE_DOMAIN, GEN_TOKEN_URL, USER_BIOLM_DIR
+
+
+def parse_credentials_file(file_path):
+    """Parse credentials file, handling JSON, Python dict syntax, and mixed types.
+    
+    Returns a dict with 'access' and 'refresh' keys as strings, or None if parsing fails.
+    Uses ast.literal_eval() which is safe and only evaluates Python literals.
+    """
+    try:
+        with open(file_path, 'r') as f:
+            content = f.read().strip()
+        
+        # Try JSON first
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            # Fall back to safe Python literal evaluation for dict syntax like {access: 123, refresh: 456}
+            # ast.literal_eval() is safe - it only evaluates literals, no code execution
+            try:
+                data = ast.literal_eval(content)
+            except (ValueError, SyntaxError):
+                return None
+        
+        # Ensure we have a dictionary
+        if not isinstance(data, dict):
+            return None
+            
+        # Extract access and refresh, converting to strings
+        access = data.get("access")
+        refresh = data.get("refresh")
+        
+        # Convert to strings if they exist
+        if access is not None:
+            access = str(access)
+        if refresh is not None:
+            refresh = str(refresh)
+            
+        return {"access": access, "refresh": refresh}
+        
+    except Exception:
+        return None
 
 
 def validate_user_auth(api_token=None, access=None, refresh=None):
@@ -61,8 +103,12 @@ def get_auth_status():
     elif os.path.exists(ACCESS_TOK_PATH):
         msg = f"Credentials file found {ACCESS_TOK_PATH}. Validating token..."
         click.echo(msg)
-        with open(ACCESS_TOK_PATH) as f:
-            access_refresh_dict = json.load(f)
+        access_refresh_dict = parse_credentials_file(ACCESS_TOK_PATH)
+        if access_refresh_dict is None:
+            click.echo(f"Error reading credentials file {ACCESS_TOK_PATH}.")
+            click.echo("The file may be corrupted or contain invalid data.")
+            click.echo("Please login again by running `biolmai login`.")
+            return
         access = access_refresh_dict.get("access")
         refresh = access_refresh_dict.get("refresh")
         resp = validate_user_auth(access=access, refresh=refresh)
@@ -156,8 +202,14 @@ def get_user_auth_header():
     if api_token:
         headers = {"Authorization": f"Token {api_token}"}
     elif os.path.exists(ACCESS_TOK_PATH):
-        with open(ACCESS_TOK_PATH) as f:
-            access_refresh_dict = json.load(f)
+        access_refresh_dict = parse_credentials_file(ACCESS_TOK_PATH)
+        if access_refresh_dict is None:
+            err = (
+                f"Error reading credentials file {ACCESS_TOK_PATH}. "
+                "The file may be corrupted or contain invalid data. "
+                "Please run `biolmai login` to re-authenticate."
+            )
+            raise AssertionError(err)
         access = access_refresh_dict.get("access")
         refresh = access_refresh_dict.get("refresh")
         headers = {
