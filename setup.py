@@ -54,7 +54,7 @@ setup(
     license="Apache Software License 2.0",
     long_description=readme + "\n\n" + history,
     include_package_data=True,
-    keywords="biolmai",
+    keywords=["biolmai", "biolm", "bioai", "bio-ai", "bio-lm", "bio-llm", "bio-language-model", "bio-language-models-api", "python-client"],
     name="biolmai",
     packages=find_packages(include=["biolmai", "biolmai.*"]),
     test_suite="tests",
