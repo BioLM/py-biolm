@@ -94,7 +94,7 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
 
         order = []
 
-        async def fake_post(endpoint, payload):
+        async def fake_post(endpoint, payload, extra_headers=None):
             order.append(time.monotonic())
             await asyncio.sleep(0.01)
             class FakeResp:
@@ -120,7 +120,7 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
         running = 0
         max_running = 0
 
-        async def fake_post(endpoint, payload):
+        async def fake_post(endpoint, payload, extra_headers=None):
             nonlocal running, max_running
             running += 1
             max_running = max(max_running, running)
@@ -145,7 +145,7 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
 
         order = []
 
-        async def fake_post(endpoint, payload):
+        async def fake_post(endpoint, payload, extra_headers=None):
             order.append(time.monotonic())
             class FakeResp:
                 status_code = 200
@@ -165,7 +165,7 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
 
         called = []
 
-        async def fake_post(endpoint, payload):
+        async def fake_post(endpoint, payload, extra_headers=None):
             called.append(1)
             class FakeResp:
                 status_code = 200

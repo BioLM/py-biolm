@@ -10,7 +10,12 @@ from biolmai.client import BioLMApiClient
 
 @pytest.fixture(scope='function')
 def model():
-    return BioLMApiClient("esmfold", raise_httpx=False, unwrap_single=False)
+    return BioLMApiClient(
+        "esmfold",
+        raise_httpx=False,
+        unwrap_single=False,
+        telemetry=True,
+    )
 
 @pytest.mark.asyncio
 async def test_valid_sequence(model):

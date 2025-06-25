@@ -28,6 +28,7 @@ except ImportError:
 import uuid
 import json as _json
 from urllib.parse import urlparse
+import inspect
 
 # "websockets" is a lightweight dependency (~50 KB) used for realtime telemetry
 # It is optional at runtime; if unavailable, telemetry is silently disabled.
@@ -70,6 +71,7 @@ USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
+DEFAULT_BASE_URL = "https://biolm.ai/api/v3"
 
 LookupResult = namedtuple("LookupResult", ["data", "raw"])
 
@@ -199,15 +201,23 @@ class HttpClient:
                 )
         return self._async_client
 
-    async def post(self, endpoint: str, payload: dict) -> httpx.Response:
+    async def post(self, endpoint: str, payload: dict, extra_headers: Optional[dict] = None) -> httpx.Response:
+        """POST with optional *extra_headers* added just for this request."""
         client = await self.get_async_client()
         # Remove leading slash, ensure trailing slash
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        if "Content-Type" not in client.headers:
-            client.headers["Content-Type"] = "application/json"
-        r = await client.post(endpoint, json=payload)
+
+        headers = None
+        if extra_headers:
+            headers = {**client.headers, **extra_headers}
+
+        if "Content-Type" not in (headers or client.headers):
+            # Ensure JSON content-type
+            (headers or client.headers)["Content-Type"] = "application/json"
+
+        r = await client.post(endpoint, json=payload, headers=headers)
         return r
 
     async def get(self, endpoint: str) -> httpx.Response:
@@ -260,10 +270,25 @@ class TelemetryListener:
     them without scraping stdout.
     """
 
-    def __init__(self, ws_url: str):
+    def __init__(self, ws_url: str, handler: Optional[Callable[[Any], Any]] = None):
         self.ws_url = ws_url
         self.events: List[Any] = []
         self._connected = asyncio.Event()
+        self._handler = handler  # user-supplied callback (sync or async)
+
+    async def _notify(self, data):
+        """Invoke the user callback (if any) with *data*.
+
+        If the callback returns an awaitable we await it to preserve ordering;
+        otherwise we swallow any exceptions and keep listening."""
+        if self._handler is None:
+            return
+        try:
+            res = self._handler(data)
+            if inspect.isawaitable(res):
+                await res
+        except Exception as e:
+            debug(f"[Telemetry] handler error: {e}")
 
     async def listen(self):  # pragma: no cover – executed in asyncio task
         if websockets is None:
@@ -277,7 +302,37 @@ class TelemetryListener:
                     except Exception:
                         data = raw
                     self.events.append(data)
-                    debug(f"[Telemetry] {data}")
+                    await self._notify(data)
+
+                    # Pretty-print: include request id and basic event name
+                    rid_full = data.get("request_id") or data.get("rid") or "—"
+                    rid_short = str(rid_full)[:6]
+
+                    tag_prefix = rid_short
+                    if "model" in data and "action" in data:
+                        tag_prefix = f"{data['model']}.{data['action']}-{rid_short}"
+
+                    evt = data.get("event", "?")
+
+                    # Build a concise suffix depending on event type
+                    suffix = ""
+                    if evt == "cache_hit":
+                        suffix = f" {data.get('n_items', '?')} hit"
+                    elif evt == "request_start" and "n_items" in data:
+                        suffix = f" {data['n_items']} recvd"
+                    elif evt == "call_submitted":
+                        suffix = f" {data.get('backend_items', '?')} sent"
+                    elif evt == "error":
+                        suffix = f" {data.get('status_code', '?')}"
+                    elif evt == "call_finished" and "elapsed" in data:
+                        try:
+                            suffix = f" {float(data['elapsed']):.2f}s"
+                        except Exception:
+                            suffix = f" {data['elapsed']}"
+                    # No extra suffix for response_sent (model.action already
+                    # present in the tag_prefix)
+
+                    debug(f"[Telemetry-{tag_prefix}] {evt}{suffix}")
         except Exception as e:
             debug(f"[Telemetry] Listener error: {e}")
 
@@ -286,7 +341,7 @@ class BioLMApiClient:
         self,
         model_name: str,
         api_key: Optional[str] = None,
-        base_url: str = "https://biolm.ai/api/v3",
+        base_url: Optional[str] = None,
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
@@ -294,9 +349,13 @@ class BioLMApiClient:
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
         *,
-        telemetry: bool = True,
+        telemetry: bool = False,
+        telemetry_handler: Optional[Callable[[Any], Any]] = None,
     ):
         self.model_name = model_name
+        # Resolve base_url with precedence: explicit param > env vars > default
+        if base_url is None:
+            base_url = os.getenv("BIOLM_BASE_URL") or os.getenv("BIOLMAI_BASE_URL") or DEFAULT_BASE_URL
         self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
         self.timeout = timeout
         self.raise_httpx = raise_httpx
@@ -309,6 +368,7 @@ class BioLMApiClient:
         self._rate_limit_initialized = False
         self.retry_error_batches = retry_error_batches
         self.telemetry_enabled = telemetry and websockets is not None
+        self._telemetry_handler = telemetry_handler
 
         # -- Telemetry state -------------------------------------------------
         self._telemetry_channel: Optional[str] = None
@@ -335,6 +395,8 @@ class BioLMApiClient:
             max_calls, period = parse_rate_limit(rate_limit)
             self._rate_limiter = AsyncRateLimiter(max_calls, period)
             self._rate_limit_initialized = True
+
+        # Listener will be started lazily on first _api_call when an event loop is present
 
     async def _ensure_rate_limit(self):
             if self._rate_limit_lock is None:
@@ -441,7 +503,7 @@ class BioLMApiClient:
             ws_scheme = "wss" if parsed.scheme == "https" else "ws"
             host = parsed.netloc
             ws_url = f"{ws_scheme}://{host}/ws/telemetry/{self._telemetry_channel}/"
-            self._telemetry_listener = TelemetryListener(ws_url)
+            self._telemetry_listener = TelemetryListener(ws_url, handler=self._telemetry_handler)
             self._listener_task = asyncio.create_task(self._telemetry_listener.listen())
             # wait until websocket connected (avoid race)
             try:
@@ -451,7 +513,15 @@ class BioLMApiClient:
 
         # --------------------------- Make HTTP call ---------------------------
         async with self._limit():
-            resp = await self._http_client.post(endpoint, payload)
+            # ------------------------------------------------------------------
+            # Tag this request with a unique ID so server will echo it back via
+            # telemetry, letting us correlate events belonging to a single HTTP
+            # call while still reusing the persistent websocket channel.
+            # ------------------------------------------------------------------
+            request_id = uuid.uuid4().hex
+            extra_headers = {"X-Request-Id": request_id}
+
+            resp = await self._http_client.post(endpoint, payload, extra_headers=extra_headers)
 
         content_type = resp.headers.get("Content-Type", "")
 
@@ -784,6 +854,56 @@ class BioLMApiClient:
 
     async def __aexit__(self, exc_type, exc, tb):
         await self.shutdown()
+
+    # ------------------------------------------------------------------
+    # Fallback: best-effort cleanup if the user forgets to call shutdown()
+    # ------------------------------------------------------------------
+    def __del__(self):
+        """Cancel background telemetry task and close the httpx client.
+
+        This runs in the garbage-collector context, so we cannot *await*.
+        We try to schedule the coroutine on a running loop or fall back to a
+        short best-effort close when no loop is available.  Any exception is
+        swallowed – this is purely hygiene to avoid noisy warnings during
+        pytest shutdown.
+        """
+        try:
+            if self._listener_task and not self._listener_task.done():
+                self._listener_task.cancel()
+        except Exception:
+            pass
+
+        try:
+            if self._http_client and not getattr(self._http_client, "is_closed", False):
+                loop = None
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass  # no running loop
+
+                if loop and not loop.is_closed():
+                    loop.create_task(self._http_client.aclose())
+                else:
+                    # synchronous close – opens its own loop internally
+                    try:
+                        asyncio.run(self._http_client.aclose())
+                    except RuntimeError:
+                        # event-loop already closed; give up silently
+                        pass
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Public helper: set or replace telemetry callback at runtime
+    # ------------------------------------------------------------------
+    def set_telemetry_handler(self, handler: Optional[Callable[[Any], Any]]):
+        """Register a callback that will be invoked for every telemetry event.
+
+        Can be called after the client is created; takes effect immediately for
+        any active listener."""
+        self._telemetry_handler = handler
+        if self._telemetry_listener is not None:
+            self._telemetry_listener._handler = handler
 
 # Synchronous wrapper for compatibility
 @_synchronizer.sync
