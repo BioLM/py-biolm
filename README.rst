@@ -3,8 +3,8 @@ BioLM AI
 ========
 
 
-.. image:: https://img.shields.io/pypi/v/biolmai.svg
-        :target: https://pypi.python.org/pypi/biolmai
+.. image:: https://img.shields.io/pypi/v/biolm.svg
+        :target: https://pypi.python.org/pypi/biolm
 
 .. image:: https://api.travis-ci.com/BioLM/py-biolm.svg?branch=production
         :target: https://travis-ci.org/github/BioLM/py-biolm
@@ -22,13 +22,13 @@ Install the package:
 
 .. code-block:: bash
 
-    pip install biolmai
+    pip install biolm
 
 Basic usage:
 
 .. code-block:: python
 
-    from biolmai import biolm
+    from biolm import biolm
 
     # Encode a single sequence
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
@@ -43,7 +43,7 @@ Asynchronous usage:
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolm.client import BioLMApiClient
     import asyncio
 
     async def main():

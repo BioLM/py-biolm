@@ -8,7 +8,7 @@ if sys.version_info < (3, 8):
 else:
     from unittest.mock import AsyncMock, patch
 
-from biolmai.client import AsyncRateLimiter, BioLMApiClient
+from biolm.client import AsyncRateLimiter, BioLMApiClient
 
 
 class TestAsyncRateLimiter(unittest.IsolatedAsyncioTestCase):
@@ -55,7 +55,7 @@ class TestAsyncRateLimiter(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(t1 - t0, 59.0)  # allow some slack
 
     async def test_rate_limiter_invalid_period(self):
-        from biolmai.client import parse_rate_limit
+        from biolm.client import parse_rate_limit
         with self.assertRaises(ValueError):
             parse_rate_limit("5/hour")
 

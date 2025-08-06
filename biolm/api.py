@@ -14,12 +14,12 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-import biolmai
-import biolmai.auth
-from biolmai.asynch import async_api_call_wrapper
-from biolmai.biolmai import log
-from biolmai.const import MULTIPROCESS_THREADS
-from biolmai.payloads import INST_DAT_TXT, PARAMS_ITEMS, predict_resp_many_in_one_to_many_singles
+import biolm
+import biolm.auth
+from biolm.asynch import async_api_call_wrapper
+from biolm.biolmai import log
+from biolm.const import MULTIPROCESS_THREADS
+from biolm.payloads import INST_DAT_TXT, PARAMS_ITEMS, predict_resp_many_in_one_to_many_singles
 
 
 @lru_cache(maxsize=64)
