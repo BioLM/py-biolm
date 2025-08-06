@@ -79,7 +79,7 @@ class TestSemaphoreConcurrency(unittest.IsolatedAsyncioTestCase):
 class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # Patch HttpClient to avoid real HTTP calls
-        patcher = patch('biolmai.client.HttpClient')
+        patcher = patch('biolm.client.HttpClient')
         self.addCleanup(patcher.stop)
         self.mock_http = patcher.start()
         self.mock_http.return_value.post = AsyncMock()

@@ -1,4 +1,4 @@
-"""Console script for biolmai."""
+"""Console script for biolm."""
 import os
 import sys
 
@@ -14,8 +14,8 @@ from biolm.const import ACCESS_TOK_PATH, BASE_API_URL, MULTIPROCESS_THREADS
 
 @click.command()
 def main(args=None):
-    """Console script for biolmai."""
-    click.echo("Replace this message by putting your code into " "biolmai.cli.main")
+    """Console script for biolm."""
+    click.echo("Replace this message by putting your code into " "biolm.cli.main")
     click.echo("See click documentation at https://click.palletsprojects.com/")
     return 0
 
