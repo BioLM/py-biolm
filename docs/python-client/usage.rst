@@ -6,7 +6,7 @@ Usage
 
 .. code-block:: python
 
-    from biolmai import biolm
+    from biolm import biolm
 
     # ESM2-8M: encode a single sequence
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
@@ -34,7 +34,7 @@ Usage
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApi
+    from biolm.client import BioLMApi
 
     # Use BioLMApi for more control, e.g. batching, error handling, schema access
     model = BioLMApi("esm2-8m", raise_httpx=False)
@@ -73,7 +73,7 @@ Usage
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolm.client import BioLMApiClient
     import asyncio
 
     async def main():

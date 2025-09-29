@@ -6,14 +6,14 @@ Async and Sync Usage
 
 .. code-block:: python
 
-    from biolmai import biolm
+    from biolm import biolm
     result = biolm(entity="esmfold", action="predict", items="MDNELE")
 
 **Asynchronous usage:**
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolm.client import BioLMApiClient
     import asyncio
 
     async def main():
@@ -44,7 +44,7 @@ Synchronous Usage (BioLM)
 
 .. code-block:: python
 
-    from biolmai import biolm
+    from biolm import biolm
 
     # Single item: returns a dict
     result = biolm(entity="esmfold", action="predict", items="MDNELE")
@@ -68,7 +68,7 @@ Asynchronous Usage (BioLMApi/BioLMApiClient)
 .. code-block:: python
 
     import asyncio
-    from biolmai.client import BioLMApiClient
+    from biolm.client import BioLMApiClient
 
     async def main():
         model = BioLMApiClient("esmfold")
@@ -121,7 +121,7 @@ Sync/Async Interoperability
 .. code-block:: python
 
     import asyncio
-    from biolmai.client import BioLMApiClient
+    from biolm.client import BioLMApiClient
 
     def run_sync():
         model = BioLMApiClient("esmfold")

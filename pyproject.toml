@@ -55,7 +55,7 @@ build-backend = "setuptools.build_meta"
 asyncio_default_fixture_loop_scope = "function"
 
 [project]
-name = "biolmai"
+name = "biolm"
 version = "0.2.5"
 description = "BioLM Python client"
 authors = [
@@ -64,7 +64,7 @@ authors = [
 requires-python = ">=3.7"
 readme = "README.rst"
 license = { text = "Apache Software License 2.0" }
-keywords = ["biolmai"]
+keywords = ["biolm", "biolmai"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
@@ -84,10 +84,12 @@ dependencies = [
     "Click>=6.0",
     "requests",
     "aiodns",
-    "synchronicity>=0.5.0",
+    "synchronicity>=0.5.0; python_version >= '3.9'",
+    "synchronicity<0.5.0; python_version < '3.9'",
+    "typing_extensions; python_version < '3.9'",
     "aiohttp<=3.8.6; python_version < '3.12'",
     "aiohttp>=3.9.0; python_version >= '3.12'",
     "async-lru",
     "aiofiles",
 ]
-scripts = { biolmai = "biolmai.cli:cli" }
+scripts = { biolm = "biolm.cli:cli" }

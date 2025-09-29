@@ -6,8 +6,8 @@ from typing import Dict, List
 import aiohttp.resolver
 from aiohttp import ClientSession
 
-from biolmai.auth import get_user_auth_header
-from biolmai.const import BASE_API_URL, BASE_API_URL_V1, MULTIPROCESS_THREADS
+from biolm.auth import get_user_auth_header
+from biolm.const import BASE_API_URL, BASE_API_URL_V1, MULTIPROCESS_THREADS
 
 aiohttp.resolver.DefaultResolver = aiohttp.resolver.AsyncResolver
 
