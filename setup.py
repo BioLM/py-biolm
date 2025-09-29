@@ -16,6 +16,7 @@ requirements = [
     "httpx>=0.23.0",
     "httpcore",
     "synchronicity>=0.5.0",
+    "typing_extensions; python_version < '3.9'",
     "aiodns",
     "aiohttp<=3.8.6; python_version < '3.12'",
     "aiohttp>=3.9.0; python_version >= '3.12'",
