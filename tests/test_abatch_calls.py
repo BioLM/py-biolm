@@ -3,8 +3,8 @@ import random
 
 import pytest
 
-from biolm.biolmai import BioLM
-from biolm.client import BioLMApiClient, batch_iterable
+from biolmai.biolmai import BioLM
+from biolmai.client import BioLMApiClient, batch_iterable
 
 
 def random_sequence(length=5):

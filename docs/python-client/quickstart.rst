@@ -8,13 +8,13 @@ Install the package:
 
 .. code-block:: bash
 
-    pip install biolm
+    pip install biolmai
 
 Basic usage:
 
 .. code-block:: python
 
-    from biolm import biolm
+    from biolmai import biolm
 
     # Encode a single sequence
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")

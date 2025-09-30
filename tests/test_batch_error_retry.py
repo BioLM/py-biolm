@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from biolm.client import BioLMApiClient
+from biolmai.client import BioLMApiClient
 
 
 @pytest.mark.asyncio
