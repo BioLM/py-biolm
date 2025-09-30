@@ -31,7 +31,7 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApi
+    from biolm.client import BioLMApi
 
     # ESM2-8M: encode a batch
     model = BioLMApi("esm2-8m")
@@ -56,7 +56,7 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
     result = model._batch_call_autoschema_or_manual("encode", batches)
 
     # Async usage
-    from biolmai.client import BioLMApiClient
+    from biolm.client import BioLMApiClient
     import asyncio
 
     async def main():

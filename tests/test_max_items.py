@@ -7,7 +7,7 @@ else:
 
 import pytest
 
-import biolmai.client as client_mod
+import biolm.client as client_mod
 
 
 @pytest.mark.asyncio
