@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# biolm documentation build configuration file, created by
+# biolmai documentation build configuration file, created by
 # sphinx-quickstart on Fri Jun  9 13:47:02 2017.
 #
 # This file is execfile()d with the current directory set to its
@@ -211,7 +211,7 @@ html_theme_options.update({
 # -- Options for HTMLHelp output ---------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "biolmdoc"
+htmlhelp_basename = "biolmaidoc"
 
 
 # -- Options for LaTeX output ------------------------------------------
@@ -235,7 +235,7 @@ latex_elements = {
 # (source start file, target name, title, author, documentclass
 # [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "biolm.tex", "BioLM AI Documentation", "Nikhil Haas", "manual"),
+    (master_doc, "biolmai.tex", "BioLM AI Documentation", "Nikhil Haas", "manual"),
 ]
 
 
@@ -243,7 +243,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "biolm", "BioLM AI Documentation", [author], 1)]
+man_pages = [(master_doc, "biolmai", "BioLM AI Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output ----------------------------------------
@@ -254,10 +254,10 @@ man_pages = [(master_doc, "biolm", "BioLM AI Documentation", [author], 1)]
 texinfo_documents = [
     (
         master_doc,
-        "biolm",
+        "biolmai",
         "BioLM AI Documentation",
         author,
-        "biolm",
+        "biolmai",
         "One line description of project.",
         "Miscellaneous",
     ),

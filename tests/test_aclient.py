@@ -1,12 +1,12 @@
 import json
 import logging
 
-from biolm.client import BioLMApi
+from biolmai.client import BioLMApi
 
 LOGGER = logging.getLogger(__name__)
 
 import pytest
-from biolm.client import BioLMApiClient
+from biolmai.client import BioLMApiClient
 
 @pytest.fixture(scope='function')
 def model():

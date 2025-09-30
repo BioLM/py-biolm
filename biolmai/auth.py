@@ -7,7 +7,7 @@ import stat
 import click
 import requests
 
-from biolm.const import ACCESS_TOK_PATH, BASE_DOMAIN, GEN_TOKEN_URL, USER_BIOLM_DIR
+from biolmai.const import ACCESS_TOK_PATH, BASE_DOMAIN, GEN_TOKEN_URL, USER_BIOLM_DIR
 
 
 def parse_credentials_file(file_path):
@@ -85,7 +85,7 @@ def refresh_access_token(refresh):
         pretty_json = pprint.pformat(json_response, indent=2)
         click.echo(pretty_json)
         click.echo(
-                            "Token refresh failed! Please login by " "running `biolm login`.\n"
+            "Token refresh failed! Please login by " "running `biolmai login`.\n"
         )
         return False
     else:
@@ -95,9 +95,9 @@ def refresh_access_token(refresh):
 
 
 def get_auth_status():
-    environ_token = os.environ.get("BIOLM_TOKEN") or os.environ.get("BIOLMAI_TOKEN", None)
+    environ_token = os.environ.get("BIOLMAI_TOKEN", None)
     if environ_token:
-        msg = "Environment variable BIOLM_TOKEN or BIOLMAI_TOKEN detected. Validating token..."
+        msg = "Environment variable BIOLMAI_TOKEN detected. Validating token..."
         click.echo(msg)
         validate_user_auth(api_token=environ_token)
     elif os.path.exists(ACCESS_TOK_PATH):
@@ -107,7 +107,7 @@ def get_auth_status():
         if access_refresh_dict is None:
             click.echo(f"Error reading credentials file {ACCESS_TOK_PATH}.")
             click.echo("The file may be corrupted or contain invalid data.")
-            click.echo("Please login again by running `biolm login`.")
+            click.echo("Please login again by running `biolmai login`.")
             return
         access = access_refresh_dict.get("access")
         refresh = access_refresh_dict.get("refresh")
@@ -124,8 +124,8 @@ def get_auth_status():
     else:
         msg = (
             f"No https://biolm.ai credentials found. Please "
-            f"set the environment variable BIOLM_TOKEN (or BIOLMAI_TOKEN for backward compatibility) to a token from "
-            f"{GEN_TOKEN_URL}, or login by running `biolm login`."
+            f"set the environment variable BIOLMAI_TOKEN to a token from "
+            f"{GEN_TOKEN_URL}, or login by running `biolmai login`."
         )
         click.echo(msg)
 
@@ -139,7 +139,7 @@ def generate_access_token(uname, password):
     will have a shorter TTL, more like hours. Meaning, this method will
     require periodically re-logging in, due to the token expiration time. For a
     more permanent auth method for the API, use an API token by setting the
-    BIOLM_TOKEN (or BIOLMAI_TOKEN for backward compatibility) environment variable.
+    BIOLMAI_TOKEN environment variable.
     """
     url = f"{BASE_DOMAIN}/api/auth/token/"
     try:
@@ -196,9 +196,9 @@ def get_api_token():
 
 def get_user_auth_header():
     """Returns a dict with the appropriate Authorization header, either using
-    an API token from BIOLM_TOKEN (or BIOLMAI_TOKEN for backward compatibility) environment variable, or by reading the
+    an API token from BIOLMAI_TOKEN environment variable, or by reading the
     credentials file at ~/.biolmai/credntials next."""
-    api_token = os.environ.get("BIOLM_TOKEN") or os.environ.get("BIOLMAI_TOKEN", None)
+    api_token = os.environ.get("BIOLMAI_TOKEN", None)
     if api_token:
         headers = {"Authorization": f"Token {api_token}"}
     elif os.path.exists(ACCESS_TOK_PATH):
@@ -207,7 +207,7 @@ def get_user_auth_header():
             err = (
                 f"Error reading credentials file {ACCESS_TOK_PATH}. "
                 "The file may be corrupted or contain invalid data. "
-                "Please run `biolm login` to re-authenticate."
+                "Please run `biolmai login` to re-authenticate."
             )
             raise AssertionError(err)
         access = access_refresh_dict.get("access")
@@ -219,7 +219,7 @@ def get_user_auth_header():
     else:
         err = (
             "No https://biolm.ai credentials found. Please run "
-            "`biolm status` to debug."
+            "`biolmai status` to debug."
         )
         raise AssertionError(err)
     return headers
