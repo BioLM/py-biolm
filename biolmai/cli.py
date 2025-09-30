@@ -4,12 +4,12 @@ import sys
 
 import click
 
-from biolm.auth import (
+from biolmai.auth import (
     generate_access_token,
     get_auth_status,
     save_access_refresh_token,
 )
-from biolm.const import ACCESS_TOK_PATH, BASE_API_URL, MULTIPROCESS_THREADS
+from biolmai.const import ACCESS_TOK_PATH, BASE_API_URL, MULTIPROCESS_THREADS
 
 
 @click.command()

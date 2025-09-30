@@ -1,93 +1,93 @@
-biolm package
+biolmai package
 ===============
 
 Submodules
 ----------
 
-biolm.api module
+biolmai.api module
 ------------------
 
-.. automodule:: biolm.api
+.. automodule:: biolmai.api
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.asynch module
+biolmai.asynch module
 ---------------------
 
-.. automodule:: biolm.asynch
+.. automodule:: biolmai.asynch
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.auth module
+biolmai.auth module
 -------------------
 
-.. automodule:: biolm.auth
+.. automodule:: biolmai.auth
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.biolm module
+biolmai.biolmai module
 ----------------------
 
-.. automodule:: biolm.biolm
+.. automodule:: biolmai.biolmai
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.cli module
+biolmai.cli module
 ------------------
 
-.. automodule:: biolm.cli
+.. automodule:: biolmai.cli
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.client module
+biolmai.client module
 ---------------------
 
-.. automodule:: biolm.client
+.. automodule:: biolmai.client
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.cls module
+biolmai.cls module
 ------------------
 
-.. automodule:: biolm.cls
+.. automodule:: biolmai.cls
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.const module
+biolmai.const module
 --------------------
 
-.. automodule:: biolm.const
+.. automodule:: biolmai.const
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.ltc module
+biolmai.ltc module
 ------------------
 
-.. automodule:: biolm.ltc
+.. automodule:: biolmai.ltc
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.payloads module
+biolmai.payloads module
 -----------------------
 
-.. automodule:: biolm.payloads
+.. automodule:: biolmai.payloads
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolm.validate module
+biolmai.validate module
 -----------------------
 
-.. automodule:: biolm.validate
+.. automodule:: biolmai.validate
    :members:
    :undoc-members:
    :show-inheritance:
@@ -95,7 +95,7 @@ biolm.validate module
 Module contents
 ---------------
 
-.. automodule:: biolm
+.. automodule:: biolmai
    :members:
    :undoc-members:
    :show-inheritance:

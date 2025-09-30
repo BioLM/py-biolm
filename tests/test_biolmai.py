@@ -4,7 +4,7 @@ import random
 import httpx
 import pytest
 
-from biolm.biolmai import BioLM
+from biolmai.biolmai import BioLM
 
 N = 6
 
