@@ -166,7 +166,7 @@ class APIEndpoint:
         else:
             self.multiprocess_threads = MULTIPROCESS_THREADS  # Could be False
         # Get correct auth-like headers
-        self.auth_headers = biolm.auth.get_user_auth_header()
+        self.auth_headers = biolmai.auth.get_user_auth_header()
         self.action_class_strings = tuple(
             [c.__name__.replace("Action", "").lower() for c in self.action_classes]
         )

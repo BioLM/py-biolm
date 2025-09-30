@@ -1,1 +1,1 @@
-"""Unit test package for biolm."""
+"""Unit test package for biolmai."""
