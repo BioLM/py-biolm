@@ -51,6 +51,9 @@ setup(
         "console_scripts": [
             "biolmai=biolmai.cli:cli",
         ],
+        'mlflow.request_header_provider': [
+            'biolmai=biolmai.seqflow_auth:BiolmaiRequestHeaderProvider',
+        ],
     },
     install_requires=requirements,
     license="Apache Software License 2.0",
