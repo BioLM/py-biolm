@@ -122,6 +122,7 @@ class BiolmaiRequestHeaderProvider(RequestHeaderProvider):
             warnings.warn(f"Could not load biolmai credentials: {e}")
             return None
     
+    
     def _refresh_token(self, refresh_token: str, creds: dict) -> Optional[str]:
         """
         Refresh access token using refresh token.
