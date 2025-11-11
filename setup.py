@@ -53,6 +53,7 @@ setup(
         ],
         'mlflow.request_header_provider': [
             'biolmai=biolmai.seqflow_auth:BiolmaiRequestHeaderProvider',
+            'unused=biolmai.seqflow_auth:BiolmaiRequestHeaderProvider',
         ],
     },
     install_requires=requirements,
