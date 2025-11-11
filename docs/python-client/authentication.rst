@@ -26,7 +26,7 @@ For examples, see below.
 
 .. code:: shell
 
-    export BOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
+    export BIOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
 
 For Bash
 ^^^^^^^^
