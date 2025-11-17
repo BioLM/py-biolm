@@ -37,6 +37,7 @@ extensions = [
     "myst_parser",
     "sphinx_new_tab_link",
     "sphinx_reredirects",
+    # "sphinx_click",  # For auto-generating CLI documentation (install with: pip install sphinx-click)
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -101,6 +102,7 @@ html_theme = "furo"
 html_theme_options = {
     "top_of_page_button": None,
     "sidebar_hide_name": True,
+    "navigation_with_keys": True,
     "light_logo": "biolm_logo_light.svg",
     "dark_logo": "biolm_logo_dark.svg",
     

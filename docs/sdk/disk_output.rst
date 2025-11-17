@@ -62,5 +62,5 @@ Suppose you have 10 items, and item 5 is invalid. With a batch size of 8:
 
 **See also:**
 
-- :doc:`error_handling`
-- :doc:`batching`
+- :doc:`usage/error-handling`
+- :doc:`usage/batching`

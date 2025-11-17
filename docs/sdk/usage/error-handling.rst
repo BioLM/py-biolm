@@ -142,5 +142,5 @@ See Also
 ------------------------
 
 - :doc:`batching`
-- :doc:`disk_output`
-- :doc:`faq`
+- :doc:`../disk_output`
+- :doc:`../faq`
