@@ -8,7 +8,7 @@ pip install -r requirements_vercel.txt
 # Generate API docs
 mkdir -p docs/_static docs/api-reference
 rm -f docs/biolmai.rst docs/api-reference/biolmai.rst docs/api-reference/modules.rst
-sphinx-apidoc -o docs/api-reference biolmai
+python -m sphinx.ext.apidoc -o docs/api-reference biolmai
 
 # Build HTML docs
 cd docs
