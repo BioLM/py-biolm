@@ -56,7 +56,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [project]
 name = "biolmai"
-version = "0.2.5"
+version = "0.2.6"
 description = "BioLM Python client"
 authors = [
     { name="BioLM", email="support@biolm.ai" }
@@ -93,3 +93,6 @@ dependencies = [
     "aiofiles",
 ]
 scripts = { biolmai = "biolmai.cli:cli" }
+
+[project.entry-points."mlflow.request_header_provider"]
+unused = "biolmai.seqflow_auth:BiolmaiRequestHeaderProvider"
