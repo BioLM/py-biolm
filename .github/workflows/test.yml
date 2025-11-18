@@ -1,0 +1,75 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, production ]
+  pull_request:
+    branches: [ main, production ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+      fail-fast: false
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements_dev.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox
+
+    - name: Run tox
+      env:
+        BIOLM_USER: ${{ secrets.BIOLM_USER }}
+        BIOLM_PASSWORD: ${{ secrets.BIOLM_PASSWORD }}
+        BIOLMAI_TOKEN: ${{ secrets.BIOLMAI_TOKEN }}
+        BIOLMAI_THREADS: ${{ secrets.BIOLMAI_THREADS }}
+        RS: ${{ secrets.RS || '12345679' }}
+      run: |
+        TOX_ENV=py$(echo "${{ matrix.python-version }}" | tr -d '.')
+        tox -e $TOX_ENV
+
+    - name: Clean pip cache
+      if: always()
+      run: |
+        rm -f $HOME/.cache/pip/log/debug.log
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y font-manager fonts-roboto fonts-noto || true
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade 'pip<25' setuptools typing-extensions tox
+
+    - name: Build documentation
+      run: |
+        tox -e build_docs
+
