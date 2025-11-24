@@ -85,3 +85,123 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+
+  update-release-status:
+    runs-on: ubuntu-latest
+    needs: [build, publish-testpypi, publish-pypi]
+    if: always() && github.event_name == 'release'
+    permissions:
+      contents: write  # Required to update release
+    steps:
+      - name: Determine workflow status and repository
+        id: status
+        run: |
+          if [ "${{ needs.publish-pypi.result }}" == "success" ]; then
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "repository=pypi" >> $GITHUB_OUTPUT
+            echo "pypi_url=https://pypi.org/project/biolmai/" >> $GITHUB_OUTPUT
+          elif [ "${{ needs.publish-testpypi.result }}" == "success" ]; then
+            echo "emoji=✅" >> $GITHUB_OUTPUT
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "repository=testpypi" >> $GITHUB_OUTPUT
+            echo "pypi_url=https://test.pypi.org/project/biolmai/" >> $GITHUB_OUTPUT
+          else
+            echo "emoji=❌" >> $GITHUB_OUTPUT
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "repository=" >> $GITHUB_OUTPUT
+            echo "pypi_url=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          # Remove 'v' prefix if present
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Update release with status and install info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.version.outputs.tag }}';
+            const version = '${{ steps.version.outputs.version }}';
+            const emoji = '${{ steps.status.outputs.emoji }}';
+            const repository = '${{ steps.status.outputs.repository }}';
+            const pypiUrl = '${{ steps.status.outputs.pypi_url }}';
+            
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: tag
+            });
+            
+            const currentBody = release.data.body || '';
+            
+            // Remove existing status block if present (lines starting with Published to or To install)
+            const lines = currentBody.split('\n');
+            const filteredLines = [];
+            let skipNext = false;
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].startsWith('Published to ') || lines[i].startsWith('To install')) {
+                skipNext = true;
+                continue;
+              }
+              if (skipNext && lines[i].trim() === '') {
+                skipNext = false;
+                continue;
+              }
+              if (!skipNext) {
+                filteredLines.push(lines[i]);
+              }
+            }
+            let bodyWithoutStatus = filteredLines.join('\n').trim();
+            
+            // Build status message
+            let statusMessage = '';
+            if (repository) {
+              const repoName = repository === 'pypi' ? 'PyPI' : 'TestPyPI';
+              statusMessage = `Published to [${repoName}](${pypiUrl}): ${emoji}\n\n`;
+              statusMessage += `To install run: \`pip install biolmai==${version}\``;
+            } else {
+              statusMessage = `Published to PyPI: ${emoji}`;
+            }
+            
+            // Combine: status message first, then existing body
+            const newBody = bodyWithoutStatus 
+              ? `${statusMessage}\n\n---\n\n${bodyWithoutStatus}`
+              : statusMessage;
+            
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              body: newBody
+            });
+
+      - name: Add reaction to release (optional)
+        if: steps.status.outputs.status == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ steps.version.outputs.tag }}';
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: tag
+            });
+            
+            // Add ✅ reaction to the release
+            try {
+              await github.rest.reactions.createForRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.data.id,
+                content: '+1'  // thumbs up, or use 'rocket', 'heart', etc.
+              });
+            } catch (error) {
+              // Reaction might already exist or API might have limitations
+              console.log('Could not add reaction:', error.message);
+            }
