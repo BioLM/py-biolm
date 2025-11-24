@@ -9,93 +9,93 @@ biolmai.api module
 
 .. automodule:: biolmai.api
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.asynch module
 ---------------------
 
 .. automodule:: biolmai.asynch
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.auth module
 -------------------
 
 .. automodule:: biolmai.auth
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.biolmai module
 ----------------------
 
 .. automodule:: biolmai.biolmai
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.cli module
 ------------------
 
 .. automodule:: biolmai.cli
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.client module
 ---------------------
 
 .. automodule:: biolmai.client
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.cls module
 ------------------
 
 .. automodule:: biolmai.cls
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.const module
 --------------------
 
 .. automodule:: biolmai.const
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.ltc module
 ------------------
 
 .. automodule:: biolmai.ltc
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.payloads module
 -----------------------
 
 .. automodule:: biolmai.payloads
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 biolmai.validate module
 -----------------------
 
 .. automodule:: biolmai.validate
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:
 
 Module contents
 ---------------
 
 .. automodule:: biolmai
    :members:
-   :undoc-members:
    :show-inheritance:
+   :undoc-members:

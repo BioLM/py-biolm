@@ -96,10 +96,9 @@ coverage: ## check code coverage quickly with the default Python
 	$(BROWSER) htmlcov/index.html
 
 docs: ## generate Sphinx HTML documentation, including API docs
-	mkdir -p docs/_static
-	rm -f docs/biolmai.rst
-	rm -f docs/modules.rst
-	sphinx-apidoc -o docs/ biolmai
+	mkdir -p docs/_static docs/api-reference
+	rm -f docs/biolmai.rst docs/api-reference/biolmai.rst docs/api-reference/modules.rst
+	sphinx-apidoc -o docs/api-reference biolmai
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	$(BROWSER) docs/_build/html/index.html
