@@ -128,45 +128,68 @@ class BiolmaiRequestHeaderProvider(RequestHeaderProvider):
         Refresh access token using refresh token.
         
         This method attempts to refresh the token using the OAuth provider.
-        You may need to customize this based on your OAuth provider's API.
+        Supports both public clients (PKCE, no secret) and confidential clients (with secret).
         """
-        # Try to get token URL and client credentials from environment or credentials file
+        # Try to get token URL and client credentials from credentials file first,
+        # then from biolmai.const constants (which respect BASE_DOMAIN), then environment
+        try:
+            from biolmai.const import (
+                BIOLMAI_OAUTH_CLIENT_SECRET,
+                BIOLMAI_PUBLIC_CLIENT_ID,
+                OAUTH_TOKEN_URL,
+            )
+        except ImportError:
+            # Fallback if const module not available
+            BIOLMAI_OAUTH_CLIENT_SECRET = os.environ.get("BIOLMAI_OAUTH_CLIENT_SECRET") or os.environ.get("CLIENT_SECRET", "")
+            BIOLMAI_PUBLIC_CLIENT_ID = os.environ.get("BIOLMAI_OAUTH_CLIENT_ID", "")
+            OAUTH_TOKEN_URL = os.environ.get("OAUTH_TOKEN_URL") or "https://biolm.ai/o/token/"
+        
         token_url = (
             creds.get("token_url") or
-            os.environ.get("OAUTH_TOKEN_URL") or
-            "https://biolm.ai/o/token/"
+            OAUTH_TOKEN_URL
         )
         
         client_id = (
             creds.get("client_id") or
-            os.environ.get("OAUTH_CLIENT_ID")
+            BIOLMAI_PUBLIC_CLIENT_ID or
+            os.environ.get("BIOLMAI_OAUTH_CLIENT_ID")
         )
         
+        # Check both CLIENT_SECRET and BIOLMAI_OAUTH_CLIENT_SECRET for compatibility
         client_secret = (
             creds.get("client_secret") or
-            os.environ.get("OAUTH_CLIENT_SECRET")
+            BIOLMAI_OAUTH_CLIENT_SECRET or
+            os.environ.get("BIOLMAI_OAUTH_CLIENT_SECRET") or
+            os.environ.get("CLIENT_SECRET")
         )
         
-        if not token_url or not client_id or not client_secret:
-            # Can't refresh without these
+        if not token_url or not client_id:
+            # Can't refresh without token URL and client ID
             return None
         
         try:
             import httpx
             
+            # Build refresh request data
+            data = {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+            }
+            
+            # Only include client_secret if provided (for confidential clients)
+            # Public clients (PKCE) don't need/use client_secret
+            if client_secret:
+                data["client_secret"] = client_secret
+            
             response = httpx.post(
                 token_url,
-                data={
-                    "grant_type": "refresh_token",
-                    "refresh_token": refresh_token,
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                },
-                timeout=10.0
+                data=data,
+                timeout=30.0
             )
             response.raise_for_status()
             token_data = response.json()
-            return token_data.get("access_token")
+            return token_data.get("access_token") or token_data.get("access")
         except Exception as e:
             import warnings
             warnings.warn(f"Token refresh failed: {e}")

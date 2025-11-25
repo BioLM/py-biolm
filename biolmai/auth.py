@@ -1,19 +1,37 @@
 import ast
+import base64
+import hashlib
+import http.server
 import json
 import os
 import pprint
+import queue
+import secrets
 import stat
+import threading
+import time
+import urllib.parse
+import webbrowser
 
 import click
 import requests
 
-from biolmai.const import ACCESS_TOK_PATH, BASE_DOMAIN, GEN_TOKEN_URL, USER_BIOLM_DIR
+from biolmai.const import (
+    ACCESS_TOK_PATH,
+    BASE_DOMAIN,
+    GEN_TOKEN_URL,
+    OAUTH_AUTHORIZE_URL,
+    OAUTH_INTROSPECT_URL,
+    OAUTH_REDIRECT_URI,
+    OAUTH_TOKEN_URL,
+    USER_BIOLM_DIR,
+)
 
 
 def parse_credentials_file(file_path):
     """Parse credentials file, handling JSON, Python dict syntax, and mixed types.
     
-    Returns a dict with 'access' and 'refresh' keys as strings, or None if parsing fails.
+    Returns a dict with all credential fields preserved, or None if parsing fails.
     Uses ast.literal_eval() which is safe and only evaluates Python literals.
     """
     try:
@@ -34,18 +52,15 @@ def parse_credentials_file(file_path):
         # Ensure we have a dictionary
         if not isinstance(data, dict):
             return None
-            
-        # Extract access and refresh, converting to strings
-        access = data.get("access")
-        refresh = data.get("refresh")
         
-        # Convert to strings if they exist
-        if access is not None:
-            access = str(access)
-        if refresh is not None:
-            refresh = str(refresh)
+        # Preserve all fields, but ensure access and refresh are strings for backward compatibility
+        result = data.copy()
+        if "access" in result and result["access"] is not None:
+            result["access"] = str(result["access"])
+        if "refresh" in result and result["refresh"] is not None:
+            result["refresh"] = str(result["refresh"])
             
-        return {"access": access, "refresh": refresh}
+        return result
         
     except Exception:
         return None
@@ -111,16 +126,39 @@ def get_auth_status():
             return
         access = access_refresh_dict.get("access")
         refresh = access_refresh_dict.get("refresh")
-        resp = validate_user_auth(access=access, refresh=refresh)
-        if resp.status_code != 200 or (
-            resp.status_code == 200 and "code" in resp.json()
-        ):
-            click.echo("Access token validation failed. Attempting to refresh token...")
-            # Attempt to use the 'refresh' token to get a new 'access' token
-            if not refresh_access_token(refresh):
-                click.echo("Unexpected refresh token error.")
+        
+        # Check if these are OAuth tokens
+        is_oauth = bool(access_refresh_dict.get("token_url") or access_refresh_dict.get("client_id"))
+        
+        if is_oauth:
+            # Use OAuth introspection for OAuth tokens
+            from biolmai.const import BIOLMAI_OAUTH_CLIENT_SECRET
+            client_id = access_refresh_dict.get("client_id")
+            # Try credentials file first, then environment variable
+            client_secret = access_refresh_dict.get("client_secret") or BIOLMAI_OAUTH_CLIENT_SECRET
+            
+            if os.environ.get("DEBUG"):
+                click.echo(f"DEBUG: is_oauth=True, token_url={access_refresh_dict.get('token_url')}, client_id={client_id}", err=True)
+                click.echo(f"DEBUG: Using client_secret: {'***' if client_secret else 'None (public client)'}", err=True)
+            
+            is_valid = _validate_oauth_token(access, client_id, client_secret)
+            if is_valid:
+                click.echo("OAuth token is valid.")
             else:
-                click.echo("Access token refresh was successful.")
+                click.echo("OAuth token validation failed. Token may be expired.")
+                click.echo("Please login again by running `biolmai login`.")
+        else:
+            # Legacy token validation
+            resp = validate_user_auth(access=access, refresh=refresh)
+            if resp.status_code != 200 or (
+                resp.status_code == 200 and "code" in resp.json()
+            ):
+                click.echo("Access token validation failed. Attempting to refresh token...")
+                # Attempt to use the 'refresh' token to get a new 'access' token
+                if not refresh_access_token(refresh):
+                    click.echo("Unexpected refresh token error.")
+                else:
+                    click.echo("Access token refresh was successful.")
     else:
         msg = (
             f"No https://biolm.ai credentials found. Please "
@@ -167,10 +205,15 @@ def save_access_refresh_token(access_refresh_dict):
     with open(ACCESS_TOK_PATH, "w") as f:
         json.dump(access_refresh_dict, f)
     os.chmod(ACCESS_TOK_PATH, stat.S_IRUSR | stat.S_IWUSR)
-    # Validate token and print user info
+    # Validate token and print user info (only for legacy tokens, not OAuth)
     access = access_refresh_dict.get("access")
     refresh = access_refresh_dict.get("refresh")
-    validate_user_auth(access=access, refresh=refresh)
+    
+    # Skip validation for OAuth tokens (they use introspection, not legacy endpoint)
+    is_oauth = bool(access_refresh_dict.get("token_url") or access_refresh_dict.get("client_id"))
+    if not is_oauth and access and refresh:
+        # Only validate legacy tokens using the old endpoint
+        validate_user_auth(access=access, refresh=refresh)
 
 
 def get_api_token():
@@ -223,3 +266,559 @@ def get_user_auth_header():
         )
         raise AssertionError(err)
     return headers
+
+
+def _b64url(b: bytes) -> str:
+    """Base64 URL-safe encoding without padding."""
+    return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
+
+
+def _gen_pkce_pair() -> tuple[str, str]:
+    """Generate PKCE code verifier and challenge pair."""
+    verifier = _b64url(secrets.token_bytes(64))
+    challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
+    return verifier, challenge
+
+
+def _start_local_callback_server(expected_state: str, port: int = 8765, timeout: int = 180) -> queue.Queue:
+    """Start a local HTTP server to receive OAuth callback.
+    
+    Args:
+        expected_state: Expected OAuth state parameter for CSRF protection
+        port: Port to bind to (default 8765, must match OAUTH_REDIRECT_URI)
+        timeout: Timeout in seconds to wait for callback
+    
+    Returns:
+        Queue that will receive the authorization code
+    """
+    received = queue.Queue()
+
+    class CallbackHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path != "/callback":
+                self.send_response(404)
+                self.end_headers()
+                return
+            
+            params = dict(urllib.parse.parse_qsl(parsed.query))
+            code = params.get("code")
+            state = params.get("state")
+            
+            if state != expected_state or not code:
+                self.send_response(400)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                error_html = b"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authorization Error - BioLM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            color: #1f2937;
+        }
+        .container {
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            padding: 3rem;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        .icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 1.5rem;
+            background: #fee2e2;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+        h1 {
+            font-size: 1.875rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.75rem;
+        }
+        p {
+            font-size: 1rem;
+            color: #6b7280;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .error-details {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: #991b1b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">&#9888;</div>
+        <h1>Authorization Error</h1>
+        <p>There was an error processing your authorization request. The state parameter is invalid or the authorization code is missing.</p>
+        <div class="error-details">
+            Please try logging in again from your terminal.
+        </div>
+    </div>
+</body>
+</html>"""
+                self.wfile.write(error_html)
+                return
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            success_html = b"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authorization Successful - BioLM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+            background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            color: #1f2937;
+        }
+        .container {
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+            padding: 3rem;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3);
+            color: white;
+            font-weight: 600;
+        }
+        h1 {
+            font-size: 1.875rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 0.75rem;
+            letter-spacing: -0.025em;
+        }
+        p {
+            font-size: 1rem;
+            color: #6b7280;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .success-message {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            font-size: 0.875rem;
+            color: #166534;
+        }
+        .footer {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #e5e7eb;
+            font-size: 0.875rem;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">&#10003;</div>
+        <h1>Authorization Successful</h1>
+        <p>You have successfully authorized the BioLM CLI. You can now close this window and return to your terminal.</p>
+        <div class="success-message">
+            Your credentials have been saved securely.
+        </div>
+        <div class="footer">
+            <p>BioLM AI</p>
+        </div>
+    </div>
+</body>
+</html>"""
+            self.wfile.write(success_html)
+            received.put(code)
+
+        def log_message(self, *args, **kwargs):
+            # Silence server logs
+            pass
+
+    try:
+        httpd = http.server.HTTPServer(("localhost", port), CallbackHandler)
+    except OSError as e:
+        if "Address already in use" in str(e):
+            raise RuntimeError(
+                f"Port {port} is already in use. Please close any application using this port "
+                f"or set a different redirect URI."
+            ) from e
+        raise
+    
+    # Start server in daemon thread
+    server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    server_thread.start()
+    
+    # Cleanup function to shutdown server after timeout
+    def cleanup_after_timeout():
+        time.sleep(timeout)
+        httpd.shutdown()
+    threading.Thread(target=cleanup_after_timeout, daemon=True).start()
+    
+    return received
+
+
+def _browser_login_with_pkce(
+    client_id: str, scope: str, auth_url: str, token_url: str, redirect_uri: str
+) -> dict:
+    """Perform OAuth browser login with PKCE.
+    
+    Args:
+        client_id: OAuth client ID
+        scope: OAuth scope string
+        auth_url: Authorization endpoint URL
+        token_url: Token endpoint URL
+        redirect_uri: Redirect URI (must match registered URI)
+    
+    Returns:
+        Token response dict with access_token, refresh_token, etc.
+    """
+    state = _b64url(secrets.token_bytes(24))
+    verifier, challenge = _gen_pkce_pair()
+    
+    # Extract port from redirect_uri
+    parsed_uri = urllib.parse.urlparse(redirect_uri)
+    port = parsed_uri.port or 8765
+    
+    # Start callback server
+    code_queue = _start_local_callback_server(state, port=port)
+    
+    # Build authorization URL
+    params = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+    }
+    auth_url_with_params = f"{auth_url}?{urllib.parse.urlencode(params)}"
+    
+    # Open browser
+    try:
+        webbrowser.open(auth_url_with_params)
+        click.echo(f"Opened browser for authorization. If it didn't open, visit:\n{auth_url_with_params}")
+    except Exception as e:
+        click.echo(f"Could not open browser automatically: {e}")
+        click.echo(f"Please visit this URL in your browser:\n{auth_url_with_params}")
+    
+    # Wait for authorization code
+    click.echo("Waiting for authorization...")
+    code = None
+    start_time = time.time()
+    timeout_seconds = 180  # Match default timeout
+    
+    while code is None:
+        elapsed = time.time() - start_time
+        if elapsed >= timeout_seconds:
+            raise RuntimeError("OAuth login timed out or was cancelled.")
+        
+        try:
+            # Check queue with short timeout to allow checking overall timeout
+            code = code_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+    
+    if not code:
+        raise RuntimeError("OAuth login timed out or was cancelled.")
+    
+    # Exchange code for tokens
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "code_verifier": verifier,
+    }
+    
+    # Debug: Show what we're sending (without sensitive data)
+    if os.environ.get("DEBUG"):
+        click.echo(f"Exchanging code at: {token_url}", err=True)
+        click.echo(f"Redirect URI: {redirect_uri}", err=True)
+        click.echo(f"Client ID: {client_id}", err=True)
+        click.echo(f"Code length: {len(code)}", err=True)
+        click.echo(f"Verifier length: {len(verifier)}", err=True)
+    
+    resp = requests.post(token_url, data=data, timeout=30)
+    
+    # Better error handling for debugging
+    if resp.status_code != 200:
+        try:
+            error_detail = resp.json()
+            click.echo(f"Token exchange failed (status {resp.status_code}): {error_detail}", err=True)
+        except Exception:
+            click.echo(f"Token exchange failed (status {resp.status_code}): {resp.text}", err=True)
+        click.echo(f"Request was sent to: {token_url}", err=True)
+        resp.raise_for_status()
+    
+    return resp.json()
+
+
+def _validate_oauth_token(access_token: str, client_id: str = None, client_secret: str = None) -> bool:
+    """Validate OAuth access token using introspection endpoint.
+    
+    Args:
+        access_token: OAuth access token to validate
+        client_id: OAuth client ID (required for django-oauth-toolkit)
+        client_secret: OAuth client secret (optional, for public clients can be empty)
+    
+    Returns:
+        True if token is valid, False otherwise
+    """
+    from biolmai.const import BIOLMAI_OAUTH_CLIENT_SECRET, OAUTH_INTROSPECT_URL
+    
+    introspect_url = OAUTH_INTROSPECT_URL
+    
+    if not client_id:
+        # Can't introspect without client_id for django-oauth-toolkit
+        if os.environ.get("DEBUG"):
+            click.echo("DEBUG: No client_id provided for introspection", err=True)
+        return False
+    
+    if not access_token:
+        if os.environ.get("DEBUG"):
+            click.echo("DEBUG: No access_token provided for introspection", err=True)
+        return False
+    
+    # Use client_secret from parameter or environment
+    if client_secret is None:
+        client_secret = BIOLMAI_OAUTH_CLIENT_SECRET
+    
+    try:
+        # django-oauth-toolkit introspection requires Basic Auth with client_id:client_secret
+        if os.environ.get("DEBUG"):
+            click.echo(f"DEBUG: Introspecting token at {introspect_url}", err=True)
+            click.echo("DEBUG: Using Basic Auth with client_id:client_secret", err=True)
+        
+        client_secret = client_secret or ""
+        credentials = base64.b64encode(
+            f"{client_id}:{client_secret}".encode()
+        ).decode()
+        
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": f"Basic {credentials}",
+            "Accept": "application/json",
+        }
+        data = {
+            "token": access_token,
+        }
+        
+        resp = requests.post(
+            introspect_url,
+            data=data,
+            headers=headers,
+            timeout=30
+        )
+        
+        if os.environ.get("DEBUG"):
+            click.echo(f"DEBUG: Response status: {resp.status_code}", err=True)
+            click.echo(f"DEBUG: Response body: {resp.text}", err=True)
+        
+        if resp.status_code == 200:
+            result = resp.json()
+            if os.environ.get("DEBUG"):
+                click.echo(f"DEBUG: Introspection succeeded: {result}", err=True)
+            return result.get("active", False)
+        
+        return False
+    except Exception as e:
+        if os.environ.get("DEBUG"):
+            click.echo(f"DEBUG: Introspection exception: {e}", err=True)
+        return False
+
+
+def are_credentials_valid() -> bool:
+    """Check if existing credentials are valid.
+    
+    Returns:
+        True if credentials exist and are valid, False otherwise
+    """
+    if not os.path.exists(ACCESS_TOK_PATH):
+        return False
+    
+    try:
+        access_refresh_dict = parse_credentials_file(ACCESS_TOK_PATH)
+        if access_refresh_dict is None:
+            return False
+        
+        access = access_refresh_dict.get("access")
+        refresh = access_refresh_dict.get("refresh")
+        
+        if not access:
+            return False
+        
+        # Check if these are OAuth tokens (have token_url or client_id)
+        is_oauth = bool(access_refresh_dict.get("token_url") or access_refresh_dict.get("client_id"))
+        
+        if is_oauth:
+            # Use OAuth introspection endpoint
+            from biolmai.const import BIOLMAI_OAUTH_CLIENT_SECRET
+            client_id = access_refresh_dict.get("client_id")
+            # Try credentials file first, then environment variable
+            client_secret = access_refresh_dict.get("client_secret") or BIOLMAI_OAUTH_CLIENT_SECRET
+            return _validate_oauth_token(access, client_id, client_secret)
+        else:
+            # Legacy token validation using Cookie-based endpoint
+            if not refresh:
+                return False
+            # Suppress output from validate_user_auth by capturing it
+            import io
+            import sys
+            old_stdout = sys.stdout
+            sys.stdout = io.StringIO()
+            try:
+                resp = validate_user_auth(access=access, refresh=refresh)
+                sys.stdout = old_stdout
+                return resp.status_code == 200 and "code" not in resp.json()
+            except Exception:
+                sys.stdout = old_stdout
+                return False
+    except Exception:
+        return False
+
+
+def oauth_login(
+    *,
+    client_id: str | None = None,
+    scope: str = "read write",
+    auth_url: str | None = None,
+    token_url: str | None = None,
+    redirect_uri: str | None = None,
+) -> dict:
+    """Perform OAuth login using PKCE and persist tokens to ~/.biolmai/credentials.
+    
+    Args:
+        client_id: OAuth client ID (defaults to BIOLMAI_PUBLIC_CLIENT_ID from const)
+        scope: OAuth scope string
+        auth_url: Authorization endpoint (defaults to OAUTH_AUTHORIZE_URL)
+        token_url: Token endpoint (defaults to OAUTH_TOKEN_URL)
+        redirect_uri: Redirect URI (defaults to OAUTH_REDIRECT_URI)
+    
+    Returns:
+        Token response dict
+    """
+    from biolmai.const import (
+        BIOLMAI_OAUTH_CLIENT_SECRET,
+        BIOLMAI_PUBLIC_CLIENT_ID,
+        OAUTH_AUTHORIZE_URL,
+        OAUTH_REDIRECT_URI,
+        OAUTH_TOKEN_URL,
+    )
+    
+    client_id = client_id or BIOLMAI_PUBLIC_CLIENT_ID
+    if not client_id:
+        raise ValueError(
+            "OAuth client ID required. Set BIOLMAI_OAUTH_CLIENT_ID environment variable "
+            "or pass --client-id to login command."
+        )
+    
+    # Get client_secret from environment (if provided)
+    client_secret = BIOLMAI_OAUTH_CLIENT_SECRET
+    
+    auth_url = auth_url or OAUTH_AUTHORIZE_URL
+    token_url = token_url or OAUTH_TOKEN_URL
+    redirect_uri = redirect_uri or OAUTH_REDIRECT_URI
+    
+    # Perform browser/PKCE flow
+    token_data = _browser_login_with_pkce(
+        client_id, scope, auth_url, token_url, redirect_uri
+    )
+    
+    # Extract tokens
+    access_token = token_data.get("access_token") or token_data.get("access")
+    refresh_token = token_data.get("refresh_token") or token_data.get("refresh")
+    expires_in = token_data.get("expires_in", 3600)
+    
+    if not access_token:
+        raise ValueError("No access token in OAuth response")
+    
+    # Prepare credentials dict
+    creds = {
+        "access": access_token,
+        "refresh": refresh_token,
+        "expires_in": expires_in,
+        "expires_at": int(time.time()) + int(expires_in),
+        "token_url": token_url,
+        "client_id": client_id,
+    }
+    
+    # Save client_secret if provided (for confidential clients)
+    if client_secret:
+        creds["client_secret"] = client_secret
+    
+    # Persist credentials
+    save_access_refresh_token(creds)
+    
+    return token_data
