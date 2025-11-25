@@ -363,7 +363,7 @@ class BioLMApiClient:
         return None
         # Not implemented yet
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=5.0) as client:
+            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=30.0) as client:
                 resp = await client.get(f"/{self.model_name}/")
                 if resp.status_code == 200:
                     meta = resp.json()
