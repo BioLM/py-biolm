@@ -13,9 +13,8 @@ from biolmai.auth import (
 )
 from biolmai.const import (
     ACCESS_TOK_PATH,
-    BASE_API_URL,
+    BIOLMAI_BASE_API_URL,
     BIOLMAI_PUBLIC_CLIENT_ID,
-    MULTIPROCESS_THREADS,
 )
 
 
@@ -37,12 +36,12 @@ def echo_env_vars():
     env_var_tok = os.environ.get("BIOLMAI_TOKEN", "")[:6]
     if env_var_tok and len(env_var_tok) == 6:
         env_var_tok += "*****************"
+    
     s = "\n".join(
         [
             f"BIOLMAI_TOKEN={env_var_tok}",
             f"BIOLMAI_ACCESS_CRED={ACCESS_TOK_PATH}",
-            "BIOLMAI_THREADS={}".format(MULTIPROCESS_THREADS or ""),
-            f"BIOLMAI_BASE_API_URL={BASE_API_URL}",
+            f"BIOLMAI_BASE_API_URL={BIOLMAI_BASE_API_URL}",
         ]
     )
     click.echo(s)
