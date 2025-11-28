@@ -169,7 +169,7 @@ class TestOAuthLogin:
 
     def test_oauth_login_missing_client_id(self):
         """Test that oauth_login raises error when client_id is missing."""
-        with patch("biolmai.auth.BIOLMAI_PUBLIC_CLIENT_ID", ""):
+        with patch("biolmai.const.BIOLMAI_PUBLIC_CLIENT_ID", ""):
             with pytest.raises(ValueError, match="OAuth client ID required"):
                 oauth_login(client_id=None)
 
