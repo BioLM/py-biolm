@@ -113,7 +113,7 @@ async def test_client_roundtrip(slug, action):
         pytest.skip("Skipping alphafold2 tests")
     
     items, params = build_items_params(slug, action)
-    client = BioLMApiClient(slug, raise_httpx=False, unwrap_single=False, telemetry=True)
+    client = BioLMApiClient(slug, raise_httpx=False, unwrap_single=False)
 
     if action == "encode":
         result = await client.encode(items=items, params=params) if params else await client.encode(items=items)
