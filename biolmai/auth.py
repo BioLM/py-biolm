@@ -28,6 +28,15 @@ from biolmai.const import (
 )
 
 
+def _is_debug() -> bool:
+    """Check if DEBUG environment variable is enabled.
+    
+    Returns True if DEBUG is set to '1', 'true', 'True', etc.
+    Returns False if DEBUG is unset, '0', 'false', 'False', etc.
+    """
+    return os.environ.get("DEBUG", "").upper().strip() in ("TRUE", "1")
+
+
 def parse_credentials_file(file_path):
     """Parse credentials file, handling JSON, Python dict syntax, and mixed types.
     
