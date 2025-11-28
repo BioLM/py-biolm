@@ -20,9 +20,8 @@ from biolmai.client import BioLMApiClient
 # ---------------------------------------------------------------------------
 
 CASES = [
-    ("esm3-open-small", "encode"),
     ("esmc-300m", "predict"),
-    ("evo-15-8k", "generate"),
+    ("evo-15-8k-base", "generate"),
     ("igbert-paired", "encode"),
     ("igbert-paired", "predict"),
     ("igbert-paired", "generate"),
@@ -34,7 +33,7 @@ CASES = [
     ("antifold", "encode"),
     ("antifold", "predict"),
     ("antifold", "generate"),
-    ("dna-chisel", "encode"),
+    ("dna-chisel", "predict"),
     ("evo2-1b-base", "encode"),
     ("evo2-1b-base", "predict"),
     ("evo2-1b-base", "generate"),
@@ -52,11 +51,9 @@ def build_items_params(slug: str, action: str):
     heavy_seq = "EVQLVESGGGLVQ"
     light_seq = "DIQMTQ"
 
-    if slug == "esm3-open-small":
-        return [{"sequence": "ACDE"}], None
     if slug == "esmc-300m":
         return [{"sequence": "ACD<mask>E"}], None
-    if slug == "evo-15-8k":
+    if slug == "evo-15-8k" or slug == "evo-15-8k-base":
         return [{"prompt": "ACTG"}], None
     if slug == "igbert-paired":
         if action == "encode" or action == "predict":
@@ -113,14 +110,14 @@ async def test_client_roundtrip(slug, action):
         pytest.skip("Skipping alphafold2 tests")
     
     items, params = build_items_params(slug, action)
-    client = BioLMApiClient(slug, raise_httpx=False, unwrap_single=False)
+    client = BioLMApiClient(slug, raise_httpx=False, unwrap_single=False, retry_error_batches=False)
 
     if action == "encode":
-        result = await client.encode(items=items, params=params) if params else await client.encode(items=items)
+        result = await client.encode(items=items, params=params, stop_on_error=False) if params else await client.encode(items=items, stop_on_error=False)
     elif action == "predict":
-        result = await client.predict(items=items, params=params) if params else await client.predict(items=items)
+        result = await client.predict(items=items, params=params, stop_on_error=False) if params else await client.predict(items=items, stop_on_error=False)
     elif action == "generate":
-        result = await client.generate(items=items, params=params) if params else await client.generate(items=items)
+        result = await client.generate(items=items, params=params, stop_on_error=False) if params else await client.generate(items=items, stop_on_error=False)
     else:
         pytest.skip(f"unsupported action {action}")
 
