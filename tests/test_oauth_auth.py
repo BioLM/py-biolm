@@ -135,6 +135,7 @@ class TestOAuthLogin:
         
         # Mock token exchange response
         mock_token_resp = Mock()
+        mock_token_resp.status_code = 200  # Set status_code to avoid error message
         mock_token_resp.json.return_value = {
             "access_token": "new_access_token",
             "refresh_token": "new_refresh_token",
