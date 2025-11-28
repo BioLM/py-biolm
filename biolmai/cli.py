@@ -105,7 +105,11 @@ def login(client_id, scope):
 
 @cli.command()
 def logout():
-    os.remove(ACCESS_TOK_PATH)
+    try:
+        os.remove(ACCESS_TOK_PATH)
+    except FileNotFoundError:
+        # File doesn't exist, user is already logged out - silently ignore
+        pass
 
 
 if __name__ == "__main__":
