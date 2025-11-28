@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
+from typing import Tuple
 
 import click
 import requests
@@ -309,7 +310,7 @@ def _b64url(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
 
 
-def _gen_pkce_pair() -> tuple[str, str]:
+def _gen_pkce_pair() -> Tuple[str, str]:
     """Generate PKCE code verifier and challenge pair."""
     verifier = _b64url(secrets.token_bytes(64))
     challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
