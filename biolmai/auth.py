@@ -12,7 +12,7 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from typing import Tuple
+from typing import Optional, Tuple
 
 import click
 import requests
@@ -970,11 +970,11 @@ def are_credentials_valid() -> bool:
 
 def oauth_login(
     *,
-    client_id: str | None = None,
+    client_id: Optional[str] = None,
     scope: str = "read write",
-    auth_url: str | None = None,
-    token_url: str | None = None,
-    redirect_uri: str | None = None,
+    auth_url: Optional[str] = None,
+    token_url: Optional[str] = None,
+    redirect_uri: Optional[str] = None,
 ) -> dict:
     """Perform OAuth login using PKCE and persist tokens to ~/.biolmai/credentials.
     
