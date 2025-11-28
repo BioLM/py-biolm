@@ -10,7 +10,7 @@ if os.environ.get("BASE_DOMAIN"):
     # Ensure it has a scheme
     if not BASE_DOMAIN.startswith(("http://", "https://")):
         BASE_DOMAIN = f"http://{BASE_DOMAIN}"
-elif os.environ.get("BIOLMAI_LOCAL", False):
+elif str(os.environ.get("BIOLMAI_LOCAL", False)).lower() == "true":
     # For local development and tests only
     BASE_DOMAIN = "http://localhost:8000"
 else:

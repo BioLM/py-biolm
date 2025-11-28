@@ -304,6 +304,55 @@ def _start_local_callback_server(expected_state: str, port: int = 8765, timeout:
             params = dict(urllib.parse.parse_qsl(parsed.query))
             code = params.get("code")
             state = params.get("state")
+            error = params.get("error")
+            error_description = params.get("error_description")
+            
+            # Handle OAuth errors
+            if error:
+                self.send_response(400)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                error_msg = error_description or error
+                error_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authorization Error - BioLM</title>
+    <style>
+        body {{
+            font-family: system-ui, sans-serif;
+            background: #f8fafc;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }}
+        .container {{
+            background: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            padding: 3rem;
+            max-width: 500px;
+            text-align: center;
+        }}
+        h1 {{ color: #dc2626; margin-bottom: 1rem; }}
+        p {{ color: #6b7280; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Authorization Error</h1>
+        <p>{error_msg}</p>
+        <p style="margin-top: 1rem; font-size: 0.875rem;">Please try logging in again from your terminal.</p>
+    </div>
+</body>
+</html>"""
+                self.wfile.write(error_html.encode())
+                # Signal the main flow that an error occurred
+                received.put(None)
+                return
             
             if state != expected_state or not code:
                 self.send_response(400)
@@ -389,6 +438,8 @@ def _start_local_callback_server(expected_state: str, port: int = 8765, timeout:
 </body>
 </html>"""
                 self.wfile.write(error_html)
+                # Signal the main flow that an error occurred
+                received.put(None)
                 return
             
             self.send_response(200)
@@ -529,7 +580,7 @@ def _start_local_callback_server(expected_state: str, port: int = 8765, timeout:
 
 
 def _browser_login_with_pkce(
-    client_id: str, scope: str, auth_url: str, token_url: str, redirect_uri: str
+    client_id: str, scope: str, auth_url: str, token_url: str, redirect_uri: str, client_secret: str = None
 ) -> dict:
     """Perform OAuth browser login with PKCE.
     
@@ -539,6 +590,7 @@ def _browser_login_with_pkce(
         auth_url: Authorization endpoint URL
         token_url: Token endpoint URL
         redirect_uri: Redirect URI (must match registered URI)
+        client_secret: OAuth client secret (optional, for confidential clients)
     
     Returns:
         Token response dict with access_token, refresh_token, etc.
@@ -575,6 +627,7 @@ def _browser_login_with_pkce(
     
     # Wait for authorization code
     click.echo("Waiting for authorization...")
+    click.echo(f"Make sure to complete the authorization in your browser and allow the redirect to {redirect_uri}")
     code = None
     start_time = time.time()
     timeout_seconds = 180  # Match default timeout
@@ -582,16 +635,27 @@ def _browser_login_with_pkce(
     while code is None:
         elapsed = time.time() - start_time
         if elapsed >= timeout_seconds:
-            raise RuntimeError("OAuth login timed out or was cancelled.")
+            raise RuntimeError(
+                f"OAuth login timed out after {timeout_seconds} seconds. "
+                f"Make sure you completed the authorization in your browser and that the redirect to {redirect_uri} succeeded."
+            )
         
         try:
             # Check queue with short timeout to allow checking overall timeout
             code = code_queue.get(timeout=1)
         except queue.Empty:
+            # Show progress every 10 seconds
+            if int(elapsed) % 10 == 0 and int(elapsed) > 0:
+                remaining = timeout_seconds - int(elapsed)
+                click.echo(f"Still waiting... ({remaining}s remaining)", err=True)
             continue
     
     if not code:
         raise RuntimeError("OAuth login timed out or was cancelled.")
+    
+    # Check if code is None (indicates error from callback)
+    if code is None:
+        raise RuntimeError("OAuth authorization was denied or cancelled by the user.")
     
     # Exchange code for tokens
     data = {
@@ -602,6 +666,11 @@ def _browser_login_with_pkce(
         "code_verifier": verifier,
     }
     
+    # Include client_secret if provided (for confidential clients)
+    # django-oauth-toolkit may require this even with PKCE for confidential clients
+    if client_secret:
+        data["client_secret"] = client_secret
+    
     # Debug: Show what we're sending (without sensitive data)
     if os.environ.get("DEBUG"):
         click.echo(f"Exchanging code at: {token_url}", err=True)
@@ -609,6 +678,7 @@ def _browser_login_with_pkce(
         click.echo(f"Client ID: {client_id}", err=True)
         click.echo(f"Code length: {len(code)}", err=True)
         click.echo(f"Verifier length: {len(verifier)}", err=True)
+        click.echo(f"Client secret provided: {bool(client_secret)}", err=True)
     
     resp = requests.post(token_url, data=data, timeout=30)
     
@@ -793,7 +863,7 @@ def oauth_login(
     
     # Perform browser/PKCE flow
     token_data = _browser_login_with_pkce(
-        client_id, scope, auth_url, token_url, redirect_uri
+        client_id, scope, auth_url, token_url, redirect_uri, client_secret=client_secret
     )
     
     # Extract tokens
