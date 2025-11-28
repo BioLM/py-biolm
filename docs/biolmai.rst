@@ -84,6 +84,14 @@ biolmai.payloads module
    :undoc-members:
    :show-inheritance:
 
+biolmai.seqflow\_auth module
+----------------------------
+
+.. automodule:: biolmai.seqflow_auth
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 biolmai.validate module
 -----------------------
 

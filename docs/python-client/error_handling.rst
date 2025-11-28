@@ -2,22 +2,28 @@
 Error Handling
 ========================
 
-The BioLM Python client provides flexible error handling for both single and batch API calls. You can control error behavior using the `raise_httpx` and `stop_on_error` options.
+The BioLM Python client provides flexible error handling for both single and batch API calls. You can control error behavior using the `raise_httpx`, `stop_on_error`, and `retry_error_batches` options.
 
 ------------------------
 Key Options
 ------------------------
 
-- **raise_httpx (default: False)**  
+- **raise_httpx (default: False for `biolm`/`BioLM`, True for `BioLMApi`/`BioLMApiClient`)**  
   - If `True`, HTTP errors (e.g., 400/422/500) raise an `httpx.HTTPStatusError` exception immediately.
   - If `False`, errors are returned as dicts in the results (with `"error"` and `"status_code"` keys).
+  - Available on: `biolm`, `BioLM`, `BioLMApi`, `BioLMApiClient`
 
 - **stop_on_error (default: False)**  
   - If `True`, processing stops after the first error batch. Only results up to and including the error are returned (or written to disk).
   - If `False`, all items are processed; errors are included in the results for failed items.
+  - Available on: `biolm`, `BioLM`, `BioLMApi`, `BioLMApiClient`
+  - For `BioLMApi`/`BioLMApiClient`: passed as parameter to `encode()`, `predict()`, `generate()` methods
+  - For `biolm`/`BioLM`: passed as keyword argument to the constructor
 
-- **retry_error_batches (BioLMApi/BioLMApiClient only, default: False)**
+- **retry_error_batches (default: False)**
   - If `True`, failed batches are retried as single items, so you may recover partial results from a batch that would otherwise be all errors.
+  - Available on: `BioLMApi`, `BioLMApiClient` only (not available on `biolm`/`BioLM`)
+  - Set at client initialization: `BioLMApi("model", retry_error_batches=True)` or `BioLMApiClient("model", retry_error_batches=True)`
 
 ------------------------
 How the Options Interact
@@ -78,7 +84,7 @@ Examples
     result = biolm(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ", "ANOTHER"], raise_httpx=False, stop_on_error=True)
     # Only results up to and including the first error are returned
 
-**4. Retrying failed batches as single items (BioLMApi only):**
+**4. Retrying failed batches as single items (BioLMApi/BioLMApiClient only):**
 
 .. code-block:: python
 
@@ -86,6 +92,11 @@ Examples
     model = BioLMApi("esm2-8m", raise_httpx=False, retry_error_batches=True)
     result = model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
     # If a batch fails, each item is retried individually
+
+    # Async version:
+    from biolmai.client import BioLMApiClient
+    model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)
+    result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
 
 ------------------------
 What do error results look like?
@@ -134,8 +145,24 @@ Best Practices
 - Use `raise_httpx=True` for strict error handling (fail fast, catch exceptions).
 - Use `raise_httpx=False, stop_on_error=False` to process all items and collect all errors.
 - Use `raise_httpx=False, stop_on_error=True` to halt on the first error batch.
-- Use `retry_error_batches=True` (with `raise_httpx=False`) to maximize successful results in large batches.
+- Use `retry_error_batches=True` (with `raise_httpx=False`) on `BioLMApi`/`BioLMApiClient` to maximize successful results in large batches.
 - Always check for `"error"` in results if not raising exceptions.
+
+------------------------
+Parameter Availability Summary
+------------------------
+
++----------------------+------------------+------------------+----------------------+
+| Client               | raise_httpx      | stop_on_error    | retry_error_batches  |
++======================+==================+==================+======================+
+| `biolm()`            | ✅ (kwarg)       | ✅ (kwarg)       | ❌                   |
++----------------------+------------------+------------------+----------------------+
+| `BioLM`              | ✅ (kwarg)       | ✅ (kwarg)       | ❌                   |
++----------------------+------------------+------------------+----------------------+
+| `BioLMApi`           | ✅ (constructor)| ✅ (method param)| ✅ (constructor)     |
++----------------------+------------------+------------------+----------------------+
+| `BioLMApiClient`     | ✅ (constructor)| ✅ (method param)| ✅ (constructor)     |
++----------------------+------------------+------------------+----------------------+
 
 ------------------------
 See Also

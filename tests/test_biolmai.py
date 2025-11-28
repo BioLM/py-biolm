@@ -27,10 +27,10 @@ def insert_random_single_occurence(text, so):
         "MSILVTRPSPAGE",
         "ACDEFGHIKLMNP"
     ], None, list, "pdb"),
-    # Positive: predict with mask
-    ("esm1v-all", "predict", "sequence", "MSILSPAG<mask>ELVSRLR", None, dict, f"esm1v-n{random.randint(1,5)}"),
-    # Positive: predict single as list
-    ("esm1v-all", "predict", "sequence", ["MSILSPAG<mask>ELVSRLR"], None, dict, f"esm1v-n{random.randint(1,5)}"),
+    # Positive: predict with mask (key is dynamic: esm1v-n1 through esm1v-n5)
+    ("esm1v-all", "predict", "sequence", "MSILSPAG<mask>ELVSRLR", None, dict, "esm1v-n*"),
+    # Positive: predict single as list (key is dynamic: esm1v-n1 through esm1v-n5)
+    ("esm1v-all", "predict", "sequence", ["MSILSPAG<mask>ELVSRLR"], None, dict, "esm1v-n*"),
     # Positive: generate with params
     ("progen2-oas", "generate", "context", "M", {"temperature": 0.7, "top_p": 0.6, "num_samples": 2, "max_length": 17}, list, "sequence"),
     # Negative: invalid action
@@ -55,19 +55,29 @@ def test_biolm_run_single_items(entity, action, type_, items, params, expected_t
     result = BioLM(entity=entity, action=action, type=type_, items=items, params=params, raise_httpx=False)
     assert isinstance(result, expected_type)
     if expected_key is not None:
+        # Special handling for esm1v-all which returns dynamic keys (esm1v-n1 through esm1v-n5)
+        def check_key_in_result(res, key, idx=None):
+            if key == "esm1v-n*":
+                # Check that any key matches esm1v-n{1-5} pattern
+                matching_keys = [k for k in res.keys() if k.startswith("esm1v-n") and len(k) == 8 and k[7] in "12345"]
+                idx_msg = f" at index {idx}" if idx is not None else ""
+                assert len(matching_keys) > 0, f"No esm1v-n{{1-5}} key found in result{idx_msg}. Keys: {list(res.keys())}"
+            else:
+                assert key in res, f"Expected key '{key}' not found in result{idx_msg if idx is not None else ''}"
+        
         if isinstance(result, list):
             if isinstance(expected_key, list):
                 assert len(result) == len(expected_key), "Length of result and expected_key must match"
                 for idx, (res, key) in enumerate(zip(result, expected_key)):
                     assert isinstance(res, dict), f"Result at index {idx} is not a dict"
-                    assert key in res, f"Expected key '{key}' not found in result at index {idx}"
+                    check_key_in_result(res, key, idx)
             else:
                 for idx, res in enumerate(result):
                     assert isinstance(res, dict), f"Result at index {idx} is not a dict"
-                    assert expected_key in res, f"Expected key '{expected_key}' not found in result at index {idx}"
+                    check_key_in_result(res, expected_key, idx)
         else:
             assert not isinstance(expected_key, list), "expected_key must not be a list when result is a dict"
-            assert expected_key in result, f"Expected key '{expected_key}' not found in result"
+            check_key_in_result(result, expected_key)
 
 
 def test_biolm_predict_batch_valid():

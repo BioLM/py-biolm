@@ -10,11 +10,11 @@ from biolmai.client import BioLMApiClient
 
 @pytest.fixture(scope='function')
 def model():
-    return BioLMApiClient("esmfold", raise_httpx=False, unwrap_single=False)
+    return BioLMApiClient("esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
 
 @pytest.mark.asyncio
 async def test_valid_sequence(model):
-    result = await model.predict(items=[{"sequence": "MDNELE"}])
+    result = await model.predict(items=[{"sequence": "MDNELE"}], stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 1
     res = result[0]
@@ -27,7 +27,7 @@ async def test_valid_sequence(model):
 @pytest.mark.asyncio
 async def test_valid_sequences(model):
     result = await model.predict(items=[{"sequence": "MDNELE"},
-                                         {"sequence": "MUUUUDANLEPY"}])
+                                         {"sequence": "MUUUUDANLEPY"}], stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 2
     for res in result:
@@ -41,7 +41,7 @@ async def test_valid_sequences(model):
 @pytest.mark.asyncio
 async def test_invalid_sequence_single(model):
     items = [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}]
-    result = await model.predict(items=items)
+    result = await model.predict(items=items, stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 1
     res = result[0]
@@ -54,7 +54,7 @@ async def test_invalid_sequence_single(model):
 async def test_mixed_sequence_batch(model):
     items = [{"sequence": "MENDELSEMYEFF:FEEFMLYRRTELSYYYUPPPPPU"},
              {"sequence": "MDNELE"}]
-    result = await model.predict(items=items)
+    result = await model.predict(items=items, stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 2
     assert "mean_plddt" in result[0]
@@ -137,7 +137,7 @@ async def test_raise_httpx():
 @pytest.mark.asyncio
 async def test_no_double_error_key(model):
     items = [{"sequence": "BAD::BAD"}]
-    result = await model.predict(items=items)
+    result = await model.predict(items=items, stop_on_error=False)
     res = result[0] if isinstance(result, list) else result
     keys = list(res.keys())
     assert keys.count("error") == 1
@@ -147,7 +147,7 @@ async def test_no_double_error_key(model):
 @pytest.mark.asyncio
 async def test_single_predict_to_disk(tmp_path, model):
     file_path = tmp_path / "out.jsonl"
-    await model.predict(items=[{"sequence": "MDNELE"}], output='disk', file_path=str(file_path))
+    await model.predict(items=[{"sequence": "MDNELE"}], output='disk', file_path=str(file_path), stop_on_error=False)
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     assert len(lines) == 1
@@ -158,7 +158,7 @@ async def test_single_predict_to_disk(tmp_path, model):
 @pytest.mark.asyncio
 async def test_single_predict_to_disk_with_error(tmp_path, model):
     file_path = tmp_path / "out.jsonl"
-    await model.predict(items=[{"sequence": "MD::NELE"}], output='disk', file_path=str(file_path))
+    await model.predict(items=[{"sequence": "MD::NELE"}], output='disk', file_path=str(file_path), stop_on_error=False)
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     assert len(lines) == 1
@@ -170,7 +170,7 @@ async def test_single_predict_to_disk_with_error(tmp_path, model):
 async def test_batch_predict_to_disk(tmp_path, model):
     items = [{"sequence": "MDNELE"}, {"sequence": "MENDEL"}, {"sequence": "ISOTYPE"}]
     file_path = tmp_path / "batch.jsonl"
-    await model.predict(items=items, output='disk', file_path=str(file_path))
+    await model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=False)
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     LOGGER.warning(lines)

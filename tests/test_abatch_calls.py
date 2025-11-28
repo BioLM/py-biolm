@@ -12,13 +12,13 @@ def random_sequence(length=5):
 
 @pytest.fixture(scope='function')
 def model():
-    return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False)
+    return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
 
 @pytest.mark.asyncio
 async def test_large_batch_encode_consistency(model):
     items = [{"sequence": random_sequence()} for _ in range(3)]
     # 1. New async method (schema-batched, concurrent)
-    results_async = await model.encode(items=items)
+    results_async = await model.encode(items=items, stop_on_error=False)
     # 2. Old method: _batch_call/batch_call (single-item batching, sequential)
     results_internal = await model._batch_call_autoschema_or_manual("encode", items)
     # 3. Universal client (sync, run in thread)

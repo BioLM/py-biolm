@@ -23,6 +23,7 @@ requirements = [
     "aiohttp>=3.9.0; python_version >= '3.12'",
     "async-lru",
     "aiofiles",
+    "cryptography",
 ]
 
 test_requirements = [
@@ -52,7 +53,6 @@ setup(
             "biolmai=biolmai.cli:cli",
         ],
         'mlflow.request_header_provider': [
-            'biolmai=biolmai.seqflow_auth:BiolmaiRequestHeaderProvider',
             'unused=biolmai.seqflow_auth:BiolmaiRequestHeaderProvider',
         ],
     },
@@ -66,6 +66,6 @@ setup(
     test_suite="tests",
     tests_require=test_requirements,
     url="https://github.com/BioLM/py-biolm",
-    version='0.2.6',
+    version='0.2.7',
     zip_safe=False,
 )
