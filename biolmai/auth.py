@@ -19,7 +19,7 @@ import requests
 
 from biolmai.const import (
     ACCESS_TOK_PATH,
-    BASE_DOMAIN,
+    BIOLMAI_BASE_DOMAIN,
     GEN_TOKEN_URL,
     OAUTH_AUTHORIZE_URL,
     OAUTH_INTROSPECT_URL,
@@ -79,7 +79,7 @@ def parse_credentials_file(file_path):
 def validate_user_auth(api_token=None, access=None, refresh=None):
     """Validates an API token, to be used as 'Authorization: Token 1235abc'
     authentication method."""
-    url = f"{BASE_DOMAIN}/api/v1/auth/login-check/"
+    url = f"{BIOLMAI_BASE_DOMAIN}/api/v1/auth/login-check/"
     if api_token is not None:
         headers = {"Authorization": f"Token {api_token}"}
     else:
@@ -102,7 +102,7 @@ def validate_user_auth(api_token=None, access=None, refresh=None):
 def refresh_access_token(refresh):
     """Attempt to refresh temporary user access token, by using their refresh
     token, which has a longer TTL."""
-    url = f"{BASE_DOMAIN}/api/auth/token/refresh/"
+    url = f"{BIOLMAI_BASE_DOMAIN}/api/auth/token/refresh/"
     headers = {"Cookie": f"refresh={refresh}", "Content-Type": "application/json"}
     r = requests.post(url=url, headers=headers)
     json_response = r.json()
@@ -198,7 +198,7 @@ def get_auth_status():
                     click.echo("Access token refresh was successful.")
     else:
         msg = (
-            f"No https://biolm.ai credentials found. Please "
+            f"No {BIOLMAI_BASE_DOMAIN} credentials found. Please "
             f"set the environment variable BIOLMAI_TOKEN to a token from "
             f"{GEN_TOKEN_URL}, or login by running `biolmai login`."
         )
@@ -216,7 +216,7 @@ def generate_access_token(uname, password):
     more permanent auth method for the API, use an API token by setting the
     BIOLMAI_TOKEN environment variable.
     """
-    url = f"{BASE_DOMAIN}/api/auth/token/"
+    url = f"{BIOLMAI_BASE_DOMAIN}/api/auth/token/"
     try:
         r = requests.post(url=url, data={"username": uname, "password": password})
         json_response = r.json()
@@ -258,7 +258,7 @@ def get_api_token():
 
     Copied from https://api.biolm.ai/#d7f87dfd-321f-45ae-99b6-eb203519ddeb.
     """
-    url = "https://biolm.ai/api/auth/token/"
+    url = f"{BIOLMAI_BASE_DOMAIN}/api/auth/token/"
 
     payload = json.dumps(
         {
@@ -298,7 +298,7 @@ def get_user_auth_header():
         }
     else:
         err = (
-            "No https://biolm.ai credentials found. Please run "
+            f"No {BIOLMAI_BASE_DOMAIN} credentials found. Please run "
             "`biolmai status` to debug."
         )
         raise AssertionError(err)
@@ -749,12 +749,12 @@ def _validate_oauth_token_via_api(access_token: str) -> bool:
     Returns:
         True if token is valid, False otherwise
     """
-    from biolmai.const import BASE_API_URL, BASE_DOMAIN
+    from biolmai.const import BASE_API_URL, BIOLMAI_BASE_DOMAIN
     
     try:
         # Use /api/users/me/ endpoint to validate the token
         # This endpoint requires authentication and returns user info if token is valid
-        url = f"{BASE_DOMAIN}/api/users/me/"
+        url = f"{BIOLMAI_BASE_DOMAIN}/api/users/me/"
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",

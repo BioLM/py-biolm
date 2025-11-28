@@ -131,7 +131,7 @@ class BiolmaiRequestHeaderProvider(RequestHeaderProvider):
         Supports both public clients (PKCE, no secret) and confidential clients (with secret).
         """
         # Try to get token URL and client credentials from credentials file first,
-        # then from biolmai.const constants (which respect BASE_DOMAIN), then environment
+        # then from biolmai.const constants (which respect BIOLMAI_BASE_DOMAIN), then environment
         try:
             from biolmai.const import (
                 BIOLMAI_OAUTH_CLIENT_SECRET,
@@ -142,7 +142,11 @@ class BiolmaiRequestHeaderProvider(RequestHeaderProvider):
             # Fallback if const module not available
             BIOLMAI_OAUTH_CLIENT_SECRET = os.environ.get("BIOLMAI_OAUTH_CLIENT_SECRET") or os.environ.get("CLIENT_SECRET", "")
             BIOLMAI_PUBLIC_CLIENT_ID = os.environ.get("BIOLMAI_OAUTH_CLIENT_ID", "")
-            OAUTH_TOKEN_URL = os.environ.get("OAUTH_TOKEN_URL") or "https://biolm.ai/o/token/"
+            # Construct OAuth token URL from BIOLMAI_BASE_DOMAIN if available, otherwise default
+            base_domain = os.environ.get("BIOLMAI_BASE_DOMAIN", "https://biolm.ai")
+            if not base_domain.startswith(("http://", "https://")):
+                base_domain = f"http://{base_domain}"
+            OAUTH_TOKEN_URL = os.environ.get("OAUTH_TOKEN_URL") or f"{base_domain}/o/token/"
         
         token_url = (
             creds.get("token_url") or

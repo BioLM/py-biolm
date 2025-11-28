@@ -53,6 +53,8 @@ if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
         force=True,  # Python 3.8+
     )
 
+from biolmai.const import BIOLMAI_BASE_API_URL
+
 USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
@@ -242,7 +244,7 @@ class BioLMApiClient:
         self,
         model_name: str,
         api_key: Optional[str] = None,
-        base_url: str = "https://biolm.ai/api/v3",
+        base_url: Optional[str] = None,
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
@@ -251,8 +253,11 @@ class BioLMApiClient:
         retry_error_batches: bool = False,
 
     ):
+        # Use base_url parameter if provided, otherwise use default from const
+        final_base_url = base_url if base_url is not None else BIOLMAI_BASE_API_URL
+        
         self.model_name = model_name
-        self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
+        self.base_url = final_base_url.rstrip("/") + "/"  # Ensure trailing slash
         self.timeout = timeout
         self.raise_httpx = raise_httpx
         self.unwrap_single = unwrap_single
