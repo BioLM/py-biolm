@@ -140,22 +140,49 @@ def get_auth_status():
         is_oauth = bool(access_refresh_dict.get("token_url") or access_refresh_dict.get("client_id"))
         
         if is_oauth:
-            # Use OAuth introspection for OAuth tokens
+            # Use OAuth introspection for confidential clients, expiration check for public clients
+            # Note: django-oauth-toolkit introspection requires client authentication,
+            # so it doesn't work for public clients (no client_secret)
             from biolmai.const import BIOLMAI_OAUTH_CLIENT_SECRET
             client_id = access_refresh_dict.get("client_id")
             # Try credentials file first, then environment variable
             client_secret = access_refresh_dict.get("client_secret") or BIOLMAI_OAUTH_CLIENT_SECRET
             
-            if os.environ.get("DEBUG"):
+            if _is_debug():
                 click.echo(f"DEBUG: is_oauth=True, token_url={access_refresh_dict.get('token_url')}, client_id={client_id}", err=True)
                 click.echo(f"DEBUG: Using client_secret: {'***' if client_secret else 'None (public client)'}", err=True)
             
-            is_valid = _validate_oauth_token(access, client_id, client_secret)
-            if is_valid:
-                click.echo("OAuth token is valid.")
+            # For public clients, introspection doesn't work (requires client authentication)
+            # So we validate by making an API call to a user info endpoint
+            if not client_secret:
+                expires_at = access_refresh_dict.get("expires_at")
+                if expires_at:
+                    import time
+                    current_time = time.time()
+                    if current_time >= expires_at:
+                        click.echo("OAuth token has expired.")
+                        click.echo("Please login again by running `biolmai login`.")
+                        return
+                    # Token not expired, validate via API call
+                    if _is_debug():
+                        click.echo(f"DEBUG: Public client - token not expired (expires at {expires_at}, current {current_time})", err=True)
+                        click.echo("DEBUG: Validating token via user info endpoint (introspection not available for public clients)", err=True)
+                
+                # Validate token by calling user info endpoint
+                is_valid = _validate_oauth_token_via_api(access)
+                if is_valid:
+                    click.echo("OAuth token is valid.")
+                else:
+                    click.echo("OAuth token validation failed. Token may be expired or invalid.")
+                    click.echo("Please login again by running `biolmai login`.")
             else:
-                click.echo("OAuth token validation failed. Token may be expired.")
-                click.echo("Please login again by running `biolmai login`.")
+                # Confidential client - use introspection (requires client_secret)
+                is_valid = _validate_oauth_token(access, client_id, client_secret)
+                if is_valid:
+                    click.echo("OAuth token is valid.")
+                else:
+                    click.echo("OAuth token validation failed. Token may be expired.")
+                    click.echo("Please login again by running `biolmai login`.")
         else:
             # Legacy token validation
             resp = validate_user_auth(access=access, refresh=refresh)
@@ -316,7 +343,8 @@ def _start_local_callback_server(expected_state: str, port: int = 8765, timeout:
             error = params.get("error")
             error_description = params.get("error_description")
             
-            # Handle OAuth errors
+            # Handle OAuth errors - check for error parameter FIRST, even if code is present
+            # Some OAuth servers may return both error and code, but error takes precedence
             if error:
                 self.send_response(400)
                 self.send_header("Content-Type", "text/html")
@@ -652,6 +680,10 @@ def _browser_login_with_pkce(
         try:
             # Check queue with short timeout to allow checking overall timeout
             code = code_queue.get(timeout=1)
+            # If we received None from the queue, it means an error occurred in the callback
+            # (user denied, state mismatch, etc.) - break immediately to handle the error
+            if code is None:
+                break
         except queue.Empty:
             # Show progress every 10 seconds
             if int(elapsed) % 10 == 0 and int(elapsed) > 0:
@@ -659,12 +691,12 @@ def _browser_login_with_pkce(
                 click.echo(f"Still waiting... ({remaining}s remaining)", err=True)
             continue
     
+    # Check if code is None (indicates error from callback - user denied/cancelled or state mismatch)
+    if code is None:
+        raise RuntimeError("OAuth authorization was denied, cancelled, or failed validation.")
+    
     if not code:
         raise RuntimeError("OAuth login timed out or was cancelled.")
-    
-    # Check if code is None (indicates error from callback)
-    if code is None:
-        raise RuntimeError("OAuth authorization was denied or cancelled by the user.")
     
     # Exchange code for tokens
     data = {
@@ -704,6 +736,77 @@ def _browser_login_with_pkce(
     return resp.json()
 
 
+def _validate_oauth_token_via_api(access_token: str) -> bool:
+    """Validate OAuth token by making a lightweight API call to a user info endpoint.
+    
+    For public clients where introspection doesn't work, we can validate
+    the token by making a simple API call to a user info endpoint that accepts OAuth Bearer tokens.
+    
+    Args:
+        access_token: OAuth access token to validate
+    
+    Returns:
+        True if token is valid, False otherwise
+    """
+    from biolmai.const import BASE_API_URL, BASE_DOMAIN
+    
+    try:
+        # Use /api/users/me/ endpoint to validate the token
+        # This endpoint requires authentication and returns user info if token is valid
+        url = f"{BASE_DOMAIN}/api/users/me/"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+        
+        if os.environ.get("DEBUG"):
+            click.echo(f"DEBUG: Validating OAuth token via API call to {url}", err=True)
+        
+        resp = requests.get(url, headers=headers, timeout=10)
+        
+        if os.environ.get("DEBUG"):
+            click.echo(f"DEBUG: OAuth token validation response status: {resp.status_code}", err=True)
+        
+        if resp.status_code == 200:
+            try:
+                user_data = resp.json()
+                if _is_debug():
+                    import pprint
+                    click.echo("DEBUG: Token valid, user info:", err=True)
+                    click.echo(pprint.pformat(user_data, indent=2), err=True)
+                else:
+                    # Show selected user info fields in a clean format
+                    fields_to_show = {
+                        'username': user_data.get('username'),
+                        'email': user_data.get('email'),
+                        'first_name': user_data.get('first_name'),
+                        'api_use_count': user_data.get('api_use_count'),
+                        'in_trial': user_data.get('in_trial'),
+                        'in_metering': user_data.get('in_metering'),
+                        'in_fixed_rate': user_data.get('in_fixed_rate'),
+                        'payment_past_due_or_canceled': user_data.get('payment_past_due_or_canceled'),
+                        'month_dollars_billed': user_data.get('get_curr_month_dollars_billed'),
+                        'usage_plan': user_data.get('usage_plan'),
+                        'workspace_budget': user_data.get('workspace_budget'),
+                    }
+                    
+                    click.echo("OAuth token is valid. User info:")
+                    for key, value in fields_to_show.items():
+                        if value is not None:
+                            click.echo(f"  {key}: {value}")
+            except Exception as e:
+                if _is_debug():
+                    click.echo(f"DEBUG: Failed to parse user info: {e}", err=True)
+        
+        # 200 means token is valid and user info was returned
+        # 401/403 means token is invalid
+        return resp.status_code == 200
+    except Exception as e:
+        if os.environ.get("DEBUG"):
+            click.echo(f"DEBUG: OAuth token API validation exception: {e}", err=True)
+        return False
+
+
 def _validate_oauth_token(access_token: str, client_id: str = None, client_secret: str = None) -> bool:
     """Validate OAuth access token using introspection endpoint.
     
@@ -735,42 +838,78 @@ def _validate_oauth_token(access_token: str, client_id: str = None, client_secre
         client_secret = BIOLMAI_OAUTH_CLIENT_SECRET
     
     try:
-        # django-oauth-toolkit introspection requires Basic Auth with client_id:client_secret
         if os.environ.get("DEBUG"):
             click.echo(f"DEBUG: Introspecting token at {introspect_url}", err=True)
-            click.echo("DEBUG: Using Basic Auth with client_id:client_secret", err=True)
         
-        client_secret = client_secret or ""
-        credentials = base64.b64encode(
-            f"{client_id}:{client_secret}".encode()
-        ).decode()
+        # For public clients (no secret), try different authentication methods
+        # For confidential clients (with secret), use Basic Auth with client_id:client_secret
+        methods_to_try = []
         
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Authorization": f"Basic {credentials}",
-            "Accept": "application/json",
-        }
-        data = {
-            "token": access_token,
-        }
+        if client_secret:
+            # Confidential client: use Basic Auth with client_id:client_secret
+            methods_to_try.append(("basic_auth_with_secret", client_secret))
+        else:
+            # Public client: try multiple methods
+            # Method 1: Bearer token authentication (access token as Bearer)
+            methods_to_try.append(("bearer_token", None))
+            # Method 2: client_id in body, no auth header
+            methods_to_try.append(("client_id_in_body", None))
+            # Method 3: Basic Auth with client_id:"" (empty secret)
+            methods_to_try.append(("basic_auth_empty_secret", ""))
         
-        resp = requests.post(
-            introspect_url,
-            data=data,
-            headers=headers,
-            timeout=30
-        )
+        for method_name, secret_value in methods_to_try:
+            if _is_debug():
+                click.echo(f"DEBUG: Trying introspection method: {method_name}", err=True)
+            
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            }
+            data = {
+                "token": access_token,
+            }
+            
+            if method_name == "basic_auth_with_secret":
+                # Basic Auth with client_id:client_secret
+                credentials = base64.b64encode(
+                    f"{client_id}:{secret_value}".encode()
+                ).decode()
+                headers["Authorization"] = f"Basic {credentials}"
+            elif method_name == "bearer_token":
+                # Bearer token authentication (access token as Bearer)
+                # Some OAuth servers allow introspection using the token itself
+                headers["Authorization"] = f"Bearer {access_token}"
+            elif method_name == "basic_auth_empty_secret":
+                # Basic Auth with client_id:"" (empty secret)
+                credentials = base64.b64encode(
+                    f"{client_id}:".encode()
+                ).decode()
+                headers["Authorization"] = f"Basic {credentials}"
+            elif method_name == "client_id_in_body":
+                # No auth header, client_id in body
+                data["client_id"] = client_id
+            
+            resp = requests.post(
+                introspect_url,
+                data=data,
+                headers=headers,
+                timeout=30
+            )
+            
+            if _is_debug():
+                click.echo(f"DEBUG: Method {method_name} - Response status: {resp.status_code}", err=True)
+                if resp.status_code != 200:
+                    click.echo(f"DEBUG: Method {method_name} - Response body: {resp.text}", err=True)
+            
+            if resp.status_code == 200:
+                result = resp.json()
+                if _is_debug():
+                    click.echo(f"DEBUG: Introspection succeeded with method {method_name}: {result}", err=True)
+                return result.get("active", False)
         
+        # All methods failed
         if os.environ.get("DEBUG"):
-            click.echo(f"DEBUG: Response status: {resp.status_code}", err=True)
-            click.echo(f"DEBUG: Response body: {resp.text}", err=True)
-        
-        if resp.status_code == 200:
-            result = resp.json()
-            if os.environ.get("DEBUG"):
-                click.echo(f"DEBUG: Introspection succeeded: {result}", err=True)
-            return result.get("active", False)
-        
+            click.echo("DEBUG: All introspection methods failed", err=True)
         return False
     except Exception as e:
         if os.environ.get("DEBUG"):
