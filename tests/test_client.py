@@ -9,10 +9,10 @@ LOGGER = logging.getLogger(__name__)
 
 @pytest.fixture(scope='module')
 def model():
-    return BioLMApi("esmfold", raise_httpx=False, unwrap_single=False)
+    return BioLMApi("esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
 
 def test_valid_sequence(model):
-    result = model.predict(items=[{"sequence": "MDNELE"}])
+    result = model.predict(items=[{"sequence": "MDNELE"}], stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 1
     res = result[0]
@@ -24,7 +24,7 @@ def test_valid_sequence(model):
 
 def test_valid_sequences(model):
     result = model.predict(items=[{"sequence": "MDNELE"},
-                                  {"sequence": "MUUUUDANLEPY"}])
+                                         {"sequence": "MUUUUDANLEPY"}], stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 2
     for res in result:

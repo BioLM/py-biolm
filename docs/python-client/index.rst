@@ -14,11 +14,11 @@ Get Started
    usage
    error_handling
    batching
-   rate_limiting
    disk_output
    async_sync
    api_biolm
    api_client
+   rate_limiting
    faq
 
 * :ref:`modindex`
