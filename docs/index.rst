@@ -23,11 +23,11 @@ Welcome to Our Python Client Docs
    python-client/usage
    python-client/batching
    python-client/error_handling
-   python-client/rate_limiting
    python-client/disk_output
    python-client/async_sync
    python-client/api_biolm
    python-client/api_client
+   python-client/rate_limiting
    python-client/faq
    modules.rst
 
