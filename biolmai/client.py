@@ -455,11 +455,33 @@ class BioLMApiClient:
         output: str = 'memory',
         file_path: Optional[str] = None,
         raw: bool = False,
+        overwrite: bool = False,
     ):
         if not items:
             return items
 
         is_lol, first_n, rest_iter = is_list_of_lists(items)
+
+        # Check if file exists and overwrite is False
+        if output == 'disk' and not overwrite:
+            path = file_path or f"{self.model_name}_{func}_output.jsonl"
+            if os.path.exists(path):
+                # Read existing file and return its contents
+                results = []
+                async with aiofiles.open(path, 'r', encoding='utf-8') as file_handle:
+                    async for line in file_handle:
+                        line = line.strip()
+                        if line:
+                            try:
+                                results.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                # Skip invalid JSON lines
+                                continue
+                # Return in the same format as memory output would
+                if is_lol:
+                    return results
+                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+
         results = []
 
         async def retry_batch_individually(batch):
@@ -638,9 +660,10 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
+        overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
+            "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
         )
 
     @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
@@ -652,9 +675,10 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
+        overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
+            "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
         )
 
     @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
@@ -666,9 +690,10 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
+        overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
+            "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
         )
 
     async def lookup(
