@@ -216,3 +216,66 @@ def test_invalid_input_items_type(model, monkeypatch):
     # Should raise TypeError because items is not a list/tuple
     with pytest.raises(TypeError, match="Parameter 'items' must be of type list, tuple"):
         model.predict(items={"sequence": "MDNELE"})
+
+
+def test_disk_output_skip_existing_file(tmp_path, model):
+    """Test that when file exists and overwrite=False, it skips API call and returns existing file contents."""
+    file_path = tmp_path / "existing.jsonl"
+    items = [{"sequence": "MDNELE"}]
+    
+    # First, write some data to the file
+    initial_data = {"mean_plddt": 95.5, "pdb": "ATOM 1 N MET", "test": "initial"}
+    with open(file_path, 'w') as f:
+        f.write(json.dumps(initial_data) + '\n')
+    
+    # Verify file exists
+    assert file_path.exists()
+    
+    # Call with overwrite=False (default) - should skip API call and return existing data
+    result = model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
+    
+    # Should return the existing file contents
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["test"] == "initial"
+    assert result[0]["mean_plddt"] == 95.5
+    
+    # Verify file was not overwritten (still has initial data)
+    lines = file_path.read_text().splitlines()
+    assert len(lines) == 1
+    file_data = json.loads(lines[0])
+    assert file_data["test"] == "initial"
+
+
+def test_disk_output_overwrite_existing_file(tmp_path, model):
+    """Test that when overwrite=True, it makes API call and overwrites existing file."""
+    file_path = tmp_path / "existing.jsonl"
+    items = [{"sequence": "MDNELE"}]
+    
+    # First, write some initial data to the file
+    initial_data = {"mean_plddt": 0.0, "pdb": "OLD DATA", "test": "should_be_overwritten"}
+    with open(file_path, 'w') as f:
+        f.write(json.dumps(initial_data) + '\n')
+    
+    # Verify file exists and has initial data
+    assert file_path.exists()
+    initial_lines = file_path.read_text().splitlines()
+    assert len(initial_lines) == 1
+    assert json.loads(initial_lines[0])["test"] == "should_be_overwritten"
+    
+    # Call with overwrite=True - should make API call and overwrite file
+    result = model.predict(items=items, output='disk', file_path=str(file_path), overwrite=True)
+    
+    # When output='disk' and overwrite=True, result should be None (file is written, nothing returned)
+    assert result is None
+    
+    # Verify file was overwritten with new API response
+    lines = file_path.read_text().splitlines()
+    assert len(lines) == 1
+    file_data = json.loads(lines[0])
+    # Should have new data from API (not the initial test data)
+    assert "test" not in file_data  # The test key should not be in API response
+    assert "mean_plddt" in file_data
+    assert "pdb" in file_data
+    # Verify it's actually different from initial data
+    assert file_data["mean_plddt"] != 0.0 or file_data["pdb"] != "OLD DATA"
