@@ -279,3 +279,101 @@ def test_disk_output_overwrite_existing_file(tmp_path, model):
     assert "pdb" in file_data
     # Verify it's actually different from initial data
     assert file_data["mean_plddt"] != 0.0 or file_data["pdb"] != "OLD DATA"
+
+
+def test_disk_output_skip_empty_file(tmp_path, model):
+    """Test that when file exists but is empty, it returns empty list and skips API call."""
+    file_path = tmp_path / "empty.jsonl"
+    items = [{"sequence": "MDNELE"}]
+    
+    # Create empty file
+    file_path.touch()
+    assert file_path.exists()
+    assert file_path.stat().st_size == 0
+    
+    # Call with overwrite=False - should skip API call and return empty list
+    result = model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
+    
+    # Should return empty list (no valid JSON lines)
+    assert isinstance(result, list)
+    assert len(result) == 0
+    
+    # Verify file was not modified (still empty)
+    assert file_path.stat().st_size == 0
+
+
+def test_disk_output_skip_file_with_invalid_json(tmp_path, model):
+    """Test that when file exists with invalid JSON, it skips invalid lines and returns valid ones."""
+    file_path = tmp_path / "mixed.jsonl"
+    items = [{"sequence": "MDNELE"}]
+    
+    # Write file with mix of valid and invalid JSON
+    with open(file_path, 'w') as f:
+        f.write('{"valid": "data1"}\n')
+        f.write('invalid json line\n')
+        f.write('{"valid": "data2"}\n')
+        f.write('{"incomplete": \n')  # Invalid JSON
+        f.write('{"valid": "data3"}\n')
+    
+    # Call with overwrite=False - should skip API call and return valid JSON lines
+    result = model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
+    
+    # Should return only valid JSON lines
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert result[0]["valid"] == "data1"
+    assert result[1]["valid"] == "data2"
+    assert result[2]["valid"] == "data3"
+    
+    # Verify file was not modified
+    lines = file_path.read_text().splitlines()
+    assert len(lines) == 5  # Original 5 lines still there
+
+
+def test_disk_output_skip_biolm_wrapper(tmp_path):
+    """Test that BioLM high-level wrapper also respects overwrite parameter."""
+    from biolmai.biolmai import BioLM
+    file_path = tmp_path / "biolm_wrapper.jsonl"
+    
+    # First, write some data to the file
+    initial_data = {"mean_plddt": 95.5, "pdb": "ATOM 1 N MET", "test": "initial"}
+    with open(file_path, 'w') as f:
+        f.write(json.dumps(initial_data) + '\n')
+    
+    # Call with overwrite=False - should skip API call and return existing data
+    result = BioLM(
+        entity="esmfold",
+        action="predict",
+        type="sequence",
+        items="MDNELE",
+        output='disk',
+        file_path=str(file_path),
+        overwrite=False
+    )
+    
+    # Should return the existing file contents
+    assert isinstance(result, dict)  # BioLM unwraps single results by default
+    assert result["test"] == "initial"
+    assert result["mean_plddt"] == 95.5
+
+
+def test_disk_output_skip_list_of_lists(tmp_path, model):
+    """Test that overwrite=False works correctly with list of lists (pre-batched items)."""
+    file_path = tmp_path / "lol.jsonl"
+    
+    # First, write some data to the file (simulating results from list of lists)
+    with open(file_path, 'w') as f:
+        f.write(json.dumps({"batch1": "result1"}) + '\n')
+        f.write(json.dumps({"batch1": "result2"}) + '\n')
+        f.write(json.dumps({"batch2": "result3"}) + '\n')
+    
+    # Call with overwrite=False and list of lists
+    items = [[{"sequence": "MDNELE"}], [{"sequence": "MENDEL"}], [{"sequence": "ISOTYPE"}]]
+    result = model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
+    
+    # Should return the existing file contents
+    assert isinstance(result, list)
+    assert len(result) == 3
+    assert result[0]["batch1"] == "result1"
+    assert result[1]["batch1"] == "result2"
+    assert result[2]["batch2"] == "result3"
