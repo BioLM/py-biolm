@@ -81,6 +81,7 @@ class BioLM:
             stop_on_error=self._class_kwargs.pop('stop_on_error', None),
             output=self._class_kwargs.pop('output', None),
             file_path=self._class_kwargs.pop('file_path', None),
+            overwrite=self._class_kwargs.pop('overwrite', None),
         ).items() if v is not None}
 
         model = BioLMApi(
