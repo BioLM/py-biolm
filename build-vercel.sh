@@ -17,8 +17,8 @@ python -m sphinx.ext.apidoc -o docs/api-reference biolmai 2>/dev/null || \
 python -m sphinx.apidoc -o docs/api-reference biolmai 2>/dev/null || \
 sphinx-apidoc -o docs/api-reference biolmai
 
-# Build HTML docs
+# Build HTML docs in iframe mode
 cd docs
 make clean
-make html
+IFRAME_MODE=1 make html
 
