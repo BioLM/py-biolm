@@ -12,6 +12,12 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
+import os
+
+# Build option: iframe mode (hides header for embedding)
+# Set via environment variable: IFRAME_MODE=1 make html
+iframe_mode = os.environ.get('IFRAME_MODE', '0') == '1'
+
 # If extensions (or modules to document with autodoc) are in another
 # directory, add these directories to sys.path here. If the directory is
 # relative to the documentation root, use os.path.abspath to make it
@@ -101,33 +107,44 @@ html_theme = "furo"
 #
 html_theme_options = {
     "top_of_page_button": None,
-    "sidebar_hide_name": True,
+    "sidebar_hide_name": True if not iframe_mode else True,
     "navigation_with_keys": True,
-    "light_logo": "biolm_logo_light.svg",
-    "dark_logo": "biolm_logo_dark.svg",
+    "light_logo": None if iframe_mode else "biolm_logo_light.svg",
+    "dark_logo": None if iframe_mode else "biolm_logo_dark.svg",
     
-    # Custom CSS variables for branding
+    # Custom CSS variables for branding - matching BioLM site
     "light_css_variables": {
-        # Primary brand colors - replace with your website's brand colors
-        "color-brand-primary": "#2563eb",  # Replace with your main brand color
-        "color-brand-content": "#2563eb",  # Links and interactive elements
+        # Primary brand colors
+        "color-brand-primary": "#2563eb",
+        "color-brand-content": "#2563eb",
         
-        # Sidebar customization
+        # Sidebar customization - white background like BioLM site
         "color-sidebar-brand-text": "#1f2937",
-        "color-sidebar-background": "#f8fafc",
+        "color-sidebar-background": "#ffffff",
         "color-sidebar-background-border": "#e2e8f0",
+        "color-sidebar-item-background--hover": "#f8fafc",
+        "color-sidebar-item-background--active": "#eff6ff",
+        "color-sidebar-item-text--active": "#2563eb",
+        
+        # Content area
+        "color-background-primary": "#ffffff",
+        "color-background-secondary": "#f8fafc",
         
         # Additional brand colors
         "color-admonition-title-background--note": "#dbeafe",
         "color-admonition-title--note": "#1e40af",
         
-        # Header and navigation
+        # Header and navigation - clean white header
         "color-header-background": "#ffffff",
         "color-header-text": "#1f2937",
         
         # Code blocks
         "color-code-background": "#f1f5f9",
         "color-code-foreground": "#334155",
+        
+        # Links
+        "color-link": "#2563eb",
+        "color-link--hover": "#1d4ed8",
         
         # Font families to match your website exactly
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
@@ -136,13 +153,20 @@ html_theme_options = {
     
     "dark_css_variables": {
         # Dark mode brand colors
-        "color-brand-primary": "#60a5fa",  # Lighter version for dark mode
+        "color-brand-primary": "#60a5fa",
         "color-brand-content": "#60a5fa",
         
         # Dark sidebar
         "color-sidebar-background": "#1e293b",
         "color-sidebar-background-border": "#334155",
         "color-sidebar-brand-text": "#f1f5f9",
+        "color-sidebar-item-background--hover": "#334155",
+        "color-sidebar-item-background--active": "#1e3a5f",
+        "color-sidebar-item-text--active": "#60a5fa",
+        
+        # Dark content area
+        "color-background-primary": "#0f172a",
+        "color-background-secondary": "#1e293b",
         
         # Dark mode code blocks
         "color-code-background": "#1e293b",
@@ -150,6 +174,14 @@ html_theme_options = {
         
         # Additional dark mode styling
         "color-highlight-on-target": "#374151",
+        
+        # Dark header
+        "color-header-background": "#1e293b",
+        "color-header-text": "#f1f5f9",
+        
+        # Dark links
+        "color-link": "#60a5fa",
+        "color-link--hover": "#93c5fd",
         
         # Font families to match your website exactly (same as light mode)
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
@@ -166,6 +198,10 @@ html_static_path = ["_static"]
 html_css_files = [
     'custom.css',
 ]
+
+# Add iframe mode CSS if enabled
+if iframe_mode:
+    html_css_files.append('iframe-mode.css')
 
 # Add Google Fonts (Inter and Roboto Mono to match website)
 html_css_files.extend([
