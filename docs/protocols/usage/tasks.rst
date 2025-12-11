@@ -1,5 +1,5 @@
-Tasks
-=====
+``tasks``
+=========
 
 Defining tasks in protocols.
 

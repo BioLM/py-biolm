@@ -20,46 +20,39 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    getting-started/installation
    getting-started/authentication
    getting-started/quickstart
-   getting-started/features
 
 .. toctree::
    :maxdepth: 1
    :caption: CLI:
    :hidden:
 
-   cli/overview
-   cli/usage/authenticating
-   cli/usage/workspaces
-   cli/usage/models
-   cli/usage/protocols
-   cli/usage/datasets
-   cli/reference
+   cli/login
+   cli/logout
+   cli/status
 
 .. toctree::
    :maxdepth: 1
    :caption: SDK:
    :hidden:
 
-   sdk/overview
-   sdk/usage/authenticating
-   sdk/usage/workspaces
-   sdk/usage/models
-   sdk/usage/protocols
-   sdk/usage/datasets
-   sdk/usage/batching
-   sdk/usage/error-handling
-   sdk/usage/async-sync
-   sdk/api-reference/index
+   sdk/auth
+   sdk/api
+   sdk/asynch
+   sdk/biolmai
+   sdk/client
+   sdk/cls
+   sdk/const
+   sdk/ltc
+   sdk/payloads
+   sdk/validate
 
 .. toctree::
    :maxdepth: 1
    :caption: Protocol Schema:
    :hidden:
 
-   protocols/overview
    protocols/usage/inputs
-   protocols/usage/settings
-   protocols/usage/tasks
    protocols/usage/outputs
-   protocols/yaml-reference/index
+   protocols/usage/tasks
+   protocols/usage/settings
 

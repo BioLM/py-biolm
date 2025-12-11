@@ -1,5 +1,5 @@
-Outputs
-=======
+``outputs``
+===========
 
 Defining outputs in protocols.
 

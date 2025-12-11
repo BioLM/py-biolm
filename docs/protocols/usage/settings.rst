@@ -1,5 +1,5 @@
-Settings
-========
+``settings``
+============
 
 Configuring settings in protocols.
 

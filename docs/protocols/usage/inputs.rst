@@ -1,5 +1,5 @@
-Inputs
-======
+``inputs``
+==========
 
 Defining inputs in protocols.
 
