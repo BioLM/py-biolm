@@ -32,3 +32,4 @@ Pass the API key directly when creating a client:
 
 For more information, see :doc:`../../getting-started/authentication`.
 
+

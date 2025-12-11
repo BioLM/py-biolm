@@ -12,7 +12,10 @@ pip install -r requirements_vercel.txt
 # Generate API docs
 mkdir -p docs/_static docs/api-reference
 rm -f docs/biolmai.rst docs/api-reference/biolmai.rst docs/api-reference/modules.rst
-python -m sphinx.ext.apidoc -o docs/api-reference biolmai
+# Try python module form first, fallback to direct command if available
+python -m sphinx.ext.apidoc -o docs/api-reference biolmai 2>/dev/null || \
+python -m sphinx.apidoc -o docs/api-reference biolmai 2>/dev/null || \
+sphinx-apidoc -o docs/api-reference biolmai
 
 # Build HTML docs
 cd docs
