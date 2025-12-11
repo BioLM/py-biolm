@@ -1,6 +1,3 @@
-===================================
-Welcome to BioLM AI Documentation
-===================================
 
 .. include:: getting-started/quickstart.rst
    :start-line: 1
@@ -66,17 +63,3 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    protocols/usage/outputs
    protocols/yaml-reference/index
 
-.. toctree::
-   :maxdepth: 1
-   :caption: Resources:
-   :hidden:
-
-   resources/rest-api
-   resources/guides/notebooks
-
-.. toctree::
-   :maxdepth: 1
-   :caption: Documentation:
-   :hidden:
-
-   authoring-guide
