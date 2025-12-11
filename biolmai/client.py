@@ -53,6 +53,8 @@ if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
         force=True,  # Python 3.8+
     )
 
+from biolmai.const import BIOLMAI_BASE_API_URL
+
 USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
@@ -242,7 +244,7 @@ class BioLMApiClient:
         self,
         model_name: str,
         api_key: Optional[str] = None,
-        base_url: str = "https://biolm.ai/api/v3",
+        base_url: Optional[str] = None,
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
@@ -251,8 +253,11 @@ class BioLMApiClient:
         retry_error_batches: bool = False,
 
     ):
+        # Use base_url parameter if provided, otherwise use default from const
+        final_base_url = base_url if base_url is not None else BIOLMAI_BASE_API_URL
+        
         self.model_name = model_name
-        self.base_url = base_url.rstrip("/") + "/"  # Ensure trailing slash
+        self.base_url = final_base_url.rstrip("/") + "/"  # Ensure trailing slash
         self.timeout = timeout
         self.raise_httpx = raise_httpx
         self.unwrap_single = unwrap_single
@@ -363,7 +368,7 @@ class BioLMApiClient:
         return None
         # Not implemented yet
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=5.0) as client:
+            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=30.0) as client:
                 resp = await client.get(f"/{self.model_name}/")
                 if resp.status_code == 200:
                     meta = resp.json()
@@ -450,11 +455,33 @@ class BioLMApiClient:
         output: str = 'memory',
         file_path: Optional[str] = None,
         raw: bool = False,
+        overwrite: bool = False,
     ):
         if not items:
             return items
 
         is_lol, first_n, rest_iter = is_list_of_lists(items)
+
+        # Check if file exists and overwrite is False
+        if output == 'disk' and not overwrite:
+            path = file_path or f"{self.model_name}_{func}_output.jsonl"
+            if os.path.exists(path):
+                # Read existing file and return its contents
+                results = []
+                async with aiofiles.open(path, 'r', encoding='utf-8') as file_handle:
+                    async for line in file_handle:
+                        line = line.strip()
+                        if line:
+                            try:
+                                results.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                # Skip invalid JSON lines
+                                continue
+                # Return in the same format as memory output would
+                if is_lol:
+                    return results
+                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+
         results = []
 
         async def retry_batch_individually(batch):
@@ -633,9 +660,10 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
+        overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
+            "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
         )
 
     @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
@@ -647,9 +675,10 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
+        overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
+            "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
         )
 
     @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
@@ -661,9 +690,10 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
+        overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path
+            "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
         )
 
     async def lookup(

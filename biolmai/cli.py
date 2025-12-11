@@ -5,11 +5,17 @@ import sys
 import click
 
 from biolmai.auth import (
+    are_credentials_valid,
     generate_access_token,
     get_auth_status,
+    oauth_login,
     save_access_refresh_token,
 )
-from biolmai.const import ACCESS_TOK_PATH, BASE_API_URL, MULTIPROCESS_THREADS
+from biolmai.const import (
+    ACCESS_TOK_PATH,
+    BIOLMAI_BASE_API_URL,
+    BIOLMAI_PUBLIC_CLIENT_ID,
+)
 
 
 @click.command()
@@ -30,12 +36,12 @@ def echo_env_vars():
     env_var_tok = os.environ.get("BIOLMAI_TOKEN", "")[:6]
     if env_var_tok and len(env_var_tok) == 6:
         env_var_tok += "*****************"
+    
     s = "\n".join(
         [
             f"BIOLMAI_TOKEN={env_var_tok}",
             f"BIOLMAI_ACCESS_CRED={ACCESS_TOK_PATH}",
-            "BIOLMAI_THREADS={}".format(MULTIPROCESS_THREADS or ""),
-            f"BIOLMAI_BASE_API_URL={BASE_API_URL}",
+            f"BIOLMAI_BASE_API_URL={BIOLMAI_BASE_API_URL}",
         ]
     )
     click.echo(s)
@@ -48,27 +54,61 @@ def status():
 
 
 @cli.command()
-def login():
-    uname = click.prompt(
-        "Username", default=None, hide_input=False, confirmation_prompt=False, type=str
-    )
-    password = click.prompt(
-        "Password", default=None, hide_input=True, confirmation_prompt=False, type=str
-    )
-    access_refresh_tok_dict = generate_access_token(uname, password)
+@click.option(
+    "--client-id",
+    envvar="BIOLMAI_OAUTH_CLIENT_ID",
+    default=None,
+    help="OAuth client ID (defaults to BIOLMAI_PUBLIC_CLIENT_ID or BIOLMAI_OAUTH_CLIENT_ID env var)",
+)
+@click.option(
+    "--scope",
+    default="read write",
+    show_default=True,
+    help="OAuth scope string",
+)
+def login(client_id, scope):
+    """Login to BioLM using OAuth 2.0 with PKCE.
+    
+    Checks for existing credentials and validates them. If credentials are missing
+    or invalid, opens a browser for OAuth authorization. Credentials are saved to
+    ~/.biolmai/credentials.
+    """
+    # Check if credentials already exist and are valid
+    if are_credentials_valid():
+        click.echo("Valid credentials found. You are already logged in.")
+        click.echo(f"Credentials location: {ACCESS_TOK_PATH}")
+        click.echo("Run `biolmai status` to view your authentication status.")
+        return
+    
+    # Use default client ID if not provided
+    if not client_id:
+        client_id = BIOLMAI_PUBLIC_CLIENT_ID
+    
+    if not client_id:
+        click.echo(
+            "Error: OAuth client ID required.\n"
+            "Set BIOLMAI_OAUTH_CLIENT_ID environment variable or pass --client-id",
+            err=True
+        )
+        raise click.Abort()
+    
     try:
-        assert access_refresh_tok_dict.get("access") is not None
-        assert access_refresh_tok_dict.get("refresh") is not None
-        click.echo("Saving new access and refresh token.")
-        save_access_refresh_token(access_refresh_tok_dict)
-    except Exception:
-        click.echo("Unhandled login exception!")
+        click.echo("Starting OAuth login...")
+        click.echo("A browser window will open for authorization.")
+        oauth_login(client_id=client_id, scope=scope)
+        click.echo(f"\nLogin succeeded! Credentials saved to {ACCESS_TOK_PATH}")
+    except Exception as e:
+        click.echo(f"Login failed: {e}", err=True)
         raise
 
 
 @cli.command()
 def logout():
-    os.remove(ACCESS_TOK_PATH)
+    try:
+        os.remove(ACCESS_TOK_PATH)
+    except FileNotFoundError:
+        # File doesn't exist, user is already logged out - silently ignore
+        pass
 
 
 if __name__ == "__main__":
