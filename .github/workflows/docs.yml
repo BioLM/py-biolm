@@ -44,6 +44,7 @@ jobs:
 
       - name: Build documentation (iframe mode)
         run: |
+          # Build docs in iframe mode (no header/footer, for embedding)
           make docs-iframe
 
       - name: Setup Pages
