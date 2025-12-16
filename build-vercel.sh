@@ -9,6 +9,12 @@ export LANG=C.UTF-8
 pip install --upgrade pip setuptools wheel
 pip install -r requirements_vercel.txt
 
+# Verify critical packages are installed
+python -c "import sphinx_jsonschema" 2>/dev/null || {
+    echo "WARNING: sphinx-jsonschema not found, attempting to install..."
+    pip install sphinx-jsonschema>=1.17.0
+}
+
 # Install the package itself so sphinx-apidoc can import modules
 pip install -e .
 
