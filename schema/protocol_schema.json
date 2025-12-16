@@ -1,0 +1,604 @@
+{
+  "$schema": "http://json-schema.org/draft/2020-12/schema",
+  "$id": "https://biolm.ai/schemas/protocol/v1",
+  "title": "BioLM Protocol YAML Schema",
+  "description": "Schema for BioLM Protocol YAMLs. A Protocol defines inputs, tasks, and optional output logging rules over a final merged results table.",
+  "type": "object",
+  "required": ["name", "schema_version", "inputs", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Protocol name identifier"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the protocol"
+    },
+    "about": {
+      "$ref": "#/$defs/About"
+    },
+    "schema_version": {
+      "oneOf": [
+        {"type": "integer"},
+        {"$ref": "#/$defs/ExprString"}
+      ],
+      "default": 1,
+      "description": "Schema version for validation. If omitted, defaults to 1 for backward compatibility."
+    },
+    "protocol_version": {
+      "oneOf": [
+        {"type": "string"},
+        {"$ref": "#/$defs/ExprString"}
+      ],
+      "description": "Protocol version (single incrementor). Optional, may be used for tracking protocol evolution."
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {"$ref": "#/$defs/ExprString"},
+          {"$ref": "#/$defs/ExprNumber"},
+          {"$ref": "#/$defs/ExprBoolean"},
+          {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {"$ref": "#/$defs/ExprString"},
+                {"$ref": "#/$defs/ExprNumber"},
+                {"$ref": "#/$defs/ExprBoolean"}
+              ]
+            }
+          }
+        ]
+      },
+      "description": "Input parameters with default values. Values can be any YAML type and may contain template expressions."
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/OutputRule"
+      },
+      "description": "Output rules for MLflow logging. Each rule selects rows from the final merged results table, applies filtering/ordering, and specifies what to log."
+    },
+    "execution": {
+      "$ref": "#/$defs/Execution"
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Task"
+      },
+      "description": "List of workflow tasks to execute"
+    }
+  },
+  "$defs": {
+    "ExprString": {
+      "type": "string",
+      "pattern": "^\\$\\{\\{[\\s\\S]+\\}\\}$",
+      "description": "String value or template expression"
+    },
+    "ExprInteger": {
+      "oneOf": [
+        {"type": "integer"},
+        {"$ref": "#/$defs/ExprString"}
+      ],
+      "description": "Integer value or template expression"
+    },
+    "ExprNumber": {
+      "oneOf": [
+        {"type": "number"},
+        {"$ref": "#/$defs/ExprString"}
+      ],
+      "description": "Number value or template expression"
+    },
+    "ExprBoolean": {
+      "oneOf": [
+        {"type": "boolean"},
+        {"$ref": "#/$defs/ExprString"}
+      ],
+      "description": "Boolean value or template expression"
+    },
+    "About": {
+      "type": "object",
+      "description": "Informational fields for cataloging and citation",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string"},
+              "affiliation": {"type": "string"},
+              "email": {"type": "string"},
+              "orcid": {"type": "string"}
+            }
+          }
+        },
+        "keywords": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "doi": {
+          "type": "string"
+        },
+        "cite": {
+          "type": "string",
+          "description": "BibTeX citation"
+        },
+        "links": {
+          "type": "object",
+          "description": "Arbitrary named links (e.g. github, publication, docs)",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Execution": {
+      "type": "object",
+      "description": "Execution configuration controlling how the protocol runs (progress tracking, ranking, concurrency, output writing)",
+      "additionalProperties": false,
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "ranking": {
+          "$ref": "#/$defs/Ranking"
+        },
+        "concurrency": {
+          "$ref": "#/$defs/Concurrency"
+        },
+        "writing": {
+          "$ref": "#/$defs/Writing"
+        }
+      }
+    },
+    "Progress": {
+      "type": "object",
+      "description": "Progress tracking configuration",
+      "additionalProperties": false,
+      "properties": {
+        "total_expected": {
+          "$ref": "#/$defs/ExprInteger"
+        }
+      }
+    },
+    "Ranking": {
+      "type": "object",
+      "description": "Top-N ranking configuration for real-time updates",
+      "required": ["field", "order", "top_n"],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "Field name from response_mapping to rank by"
+        },
+        "order": {
+          "type": "string",
+          "enum": ["ascending", "descending"]
+        },
+        "top_n": {
+          "allOf": [
+            {"$ref": "#/$defs/ExprInteger"},
+            {"minimum": 1}
+          ]
+        }
+      }
+    },
+    "Concurrency": {
+      "type": "object",
+      "description": "Concurrency control for workflow execution",
+      "required": ["workflow", "tasks"],
+      "additionalProperties": false,
+      "properties": {
+        "workflow": {
+          "allOf": [
+            {"$ref": "#/$defs/ExprInteger"},
+            {"minimum": 1}
+          ],
+          "description": "Number of concurrent protocol instances"
+        },
+        "tasks": {
+          "allOf": [
+            {"$ref": "#/$defs/ExprInteger"},
+            {"minimum": 1}
+          ],
+          "description": "Per-instance max concurrent sub-tasks"
+        }
+      }
+    },
+    "Writing": {
+      "type": "object",
+      "description": "Output writing configuration",
+      "additionalProperties": false,
+      "properties": {
+        "deduplicate": {
+          "$ref": "#/$defs/ExprBoolean"
+        },
+        "max_dedupe_size": {
+          "allOf": [
+            {"$ref": "#/$defs/ExprInteger"},
+            {"minimum": 1}
+          ],
+          "description": "Maximum deduplication cache size in MB"
+        }
+      }
+    },
+    "TaskBase": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique task identifier"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Task dependencies"
+        },
+        "foreach": {
+          "oneOf": [
+            {"type": "string"},
+            {"$ref": "#/$defs/ExprString"}
+          ],
+          "description": "Iterate over array, creating subtasks"
+        },
+        "skip_if": {
+          "oneOf": [
+            {"type": "string"},
+            {"$ref": "#/$defs/ExprString"}
+          ],
+          "description": "Conditional execution expression"
+        },
+        "skip_if_empty": {
+          "$ref": "#/$defs/ExprBoolean",
+          "description": "Skip if dependencies are empty"
+        },
+        "response_mapping": {
+          "$ref": "#/$defs/ResponseMapping"
+        }
+      }
+    },
+    "ApiTask": {
+      "allOf": [
+        {"$ref": "#/$defs/TaskBase"},
+        {
+          "type": "object",
+          "required": ["request_body"],
+          "properties": {
+            "type": {
+              "enum": ["task"],
+              "default": "task"
+            },
+            "slug": {
+              "oneOf": [
+                {"type": "string"},
+                {"$ref": "#/$defs/ExprString"}
+              ],
+              "description": "Provider or model identifier (supports fan-out via expressions)"
+            },
+            "action": {
+              "type": "string",
+              "enum": ["predict", "encode", "generate", "similarity"],
+              "description": "Action name"
+            },
+            "class": {
+              "type": "string",
+              "description": "Model class name (e.g., AntiFoldModel)"
+            },
+            "app": {
+              "type": "string",
+              "description": "Application identifier (e.g., antifold)"
+            },
+            "method": {
+              "type": "string",
+              "description": "Method name (e.g., generate, predict, predict_log_prob)"
+            },
+            "request_body": {
+              "$ref": "#/$defs/RequestBody"
+            },
+            "fail_on_error": {
+              "$ref": "#/$defs/ExprBoolean",
+              "default": true,
+              "description": "Whether to fail on errors"
+            }
+          }
+        }
+      ],
+      "oneOf": [
+        {
+          "required": ["slug", "action"]
+        },
+        {
+          "required": ["class", "app", "method"]
+        }
+      ]
+    },
+    "GatherTask": {
+      "allOf": [
+        {"$ref": "#/$defs/TaskBase"},
+        {
+          "type": "object",
+          "required": ["type", "from", "fields"],
+          "properties": {
+            "type": {
+              "const": "gather"
+            },
+            "from": {
+              "type": "string",
+              "description": "Source task ID to gather from"
+            },
+            "fields": {
+              "type": "array",
+              "items": {"type": "string"},
+              "minItems": 1,
+              "description": "Field names to gather"
+            },
+            "into": {
+              "allOf": [
+                {"$ref": "#/$defs/ExprInteger"},
+                {"minimum": 1}
+              ],
+              "description": "Batch size"
+            }
+          }
+        }
+      ]
+    },
+    "Task": {
+      "oneOf": [
+        {"$ref": "#/$defs/ApiTask"},
+        {"$ref": "#/$defs/GatherTask"}
+      ]
+    },
+    "RequestBody": {
+      "type": "object",
+      "required": ["items"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "oneOf": [
+            {"type": "array"},
+            {"$ref": "#/$defs/ExprString"}
+          ],
+          "description": "Input items (array or template expression)"
+        },
+        "params": {
+          "type": "object",
+          "description": "Optional parameters"
+        }
+      }
+    },
+    "ResponseMapping": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "string"},
+          {"$ref": "#/$defs/ExprString"}
+        ]
+      },
+      "description": "Response field mappings. Values can be strings (JSONPath expressions) or template expressions."
+    },
+    "OutputRule": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "description": "Output rule for MLflow logging",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Task ID to select outputs from"
+        },
+        "where": {
+          "oneOf": [
+            {"type": "string"},
+            {"$ref": "#/$defs/ExprString"}
+          ],
+          "description": "Row-level filter expression"
+        },
+        "order_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrderBy"
+          },
+          "description": "Ordering specification"
+        },
+        "limit": {
+          "$ref": "#/$defs/ExprInteger",
+          "default": 200,
+          "description": "Maximum number of rows selected for child runs"
+        },
+        "run": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "oneOf": [
+                {"type": "string"},
+                {"$ref": "#/$defs/ExprString"}
+              ],
+              "description": "MLflow run name"
+            }
+          }
+        },
+        "log": {
+          "$ref": "#/$defs/LogSpec"
+        }
+      }
+    },
+    "OrderBy": {
+      "type": "object",
+      "required": ["field", "order"],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "Field name to order by"
+        },
+        "order": {
+          "type": "string",
+          "enum": ["asc", "desc"]
+        }
+      }
+    },
+    "LogSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Specification for what to log to MLflow",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/KeyToScalarOrExpr",
+          "description": "Parameters to log"
+        },
+        "metrics": {
+          "$ref": "#/$defs/KeyToScalarOrExpr",
+          "description": "Metrics to log"
+        },
+        "tags": {
+          "$ref": "#/$defs/KeyToScalarOrExpr",
+          "description": "Tags to log"
+        },
+        "aggregates": {
+          "type": "array",
+          "description": "Parent-run aggregates over selected rows",
+          "items": {
+            "$ref": "#/$defs/AggregateSpec"
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "description": "Artifacts to log",
+          "items": {
+            "$ref": "#/$defs/ArtifactSpec"
+          }
+        }
+      }
+    },
+    "KeyToScalarOrExpr": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "string"},
+          {"type": "number"},
+          {"type": "boolean"},
+          {"$ref": "#/$defs/ExprString"}
+        ]
+      },
+      "description": "Key-value mapping where values can be scalars or expressions"
+    },
+    "AggregateSpec": {
+      "type": "object",
+      "required": ["field", "ops"],
+      "additionalProperties": false,
+      "description": "Aggregate specification over a field",
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "Field name or __rows__"
+        },
+        "ops": {
+          "type": "array",
+          "items": {
+            "enum": ["count", "mean", "sum", "min", "max", "p50", "p90", "p95", "p99", "std"]
+          },
+          "description": "Statistical operations to perform"
+        }
+      }
+    },
+    "ArtifactSpec": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "description": "Artifact specification for MLflow logging",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Artifact name"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["seqparse", "pdb", "fasta", "table", "msa", "plot", "json", "text"],
+          "description": "Artifact type"
+        },
+        "path": {
+          "type": "string",
+          "description": "File path for artifact"
+        },
+        "content": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "object"},
+            {"$ref": "#/$defs/ExprString"}
+          ],
+          "description": "Text or JSON payload (pdb, json, text)"
+        },
+        "entries": {
+          "type": "array",
+          "description": "Sequence-style entries (seqparse, fasta)",
+          "items": {
+            "$ref": "#/$defs/SequenceEntry"
+          }
+        },
+        "rows": {
+          "oneOf": [
+            {"type": "array"},
+            {"$ref": "#/$defs/ExprString"}
+          ],
+          "description": "Row collection for tables/MSA"
+        },
+        "format": {
+          "type": "string",
+          "description": "Format specification"
+        },
+        "spec": {
+          "type": "object",
+          "description": "Plot specification"
+        }
+      }
+    },
+    "SequenceEntry": {
+      "type": "object",
+      "required": ["sequence"],
+      "additionalProperties": false,
+      "description": "Sequence entry with optional metadata",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Sequence identifier"
+        },
+        "sequence": {
+          "type": "string",
+          "description": "Sequence string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {"type": "string"},
+              {"type": "number"},
+              {"type": "boolean"}
+            ]
+          },
+          "description": "Sequence metadata"
+        }
+      }
+    }
+  }
+}
+

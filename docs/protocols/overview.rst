@@ -13,13 +13,13 @@ Documentation Structure
 - **Usage guides:** ``docs/protocols/usage/*.rst`` - Write usage guides for each topic (inputs, tasks, outputs, settings)
 - **This overview page:** ``docs/protocols/overview.rst`` - General Protocol information and overview
 
-**Auto-generated documentation (planned):**
+**Auto-generated documentation:**
 
-- **YAML schema reference:** ``docs/protocols/yaml-reference/index.rst`` - Will be auto-generated from JSON Schema (currently manually written)
+- **Protocol schema pages:** ``docs/protocols/*.rst`` - Auto-generated from JSON Schema (about, inputs, execution, tasks, output)
 
 **How to update Protocol documentation:**
 
-1. **YAML schema reference (planned for auto-generation):** Once JSON Schema is implemented, this will be auto-generated from the schema file. Currently, edit ``docs/protocols/yaml-reference/index.rst`` manually.
+1. **Protocol schema pages (auto-generated):** Schema documentation is auto-generated from ``schema/protocol_schema.json``. To update, modify the schema file and rebuild docs.
 
 2. **Usage guides (manually written):** Edit the files in ``docs/protocols/usage/`` to add examples, explanations, and tutorials.
 

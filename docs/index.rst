@@ -51,8 +51,9 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    :caption: Protocol Schema:
    :hidden:
 
-   protocols/usage/inputs
-   protocols/usage/outputs
-   protocols/usage/tasks
-   protocols/usage/settings
+   protocols/about
+   protocols/inputs
+   protocols/execution
+   protocols/tasks
+   protocols/output
 

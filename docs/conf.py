@@ -43,6 +43,7 @@ extensions = [
     "myst_parser",
     "sphinx_new_tab_link",
     "sphinx_reredirects",
+    "sphinx-jsonschema",  # For auto-generating protocol schema documentation
     # "sphinx_click",  # For auto-generating CLI documentation (install with: pip install sphinx-click)
 ]
 
