@@ -9,6 +9,9 @@ export LANG=C.UTF-8
 pip install --upgrade pip setuptools wheel
 pip install -r requirements_vercel.txt
 
+# Install the package itself so sphinx-apidoc can import modules
+pip install -e .
+
 # Generate API docs
 mkdir -p docs/_static docs/api-reference
 rm -f docs/biolmai.rst docs/api-reference/biolmai.rst docs/api-reference/modules.rst
