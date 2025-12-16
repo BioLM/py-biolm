@@ -54,6 +54,21 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 
+[tool.semantic_release]
+version_variable = [
+    "biolmai/__init__.py:__version__",
+    "setup.py:version",
+    "pyproject.toml:project.version"
+]
+build_command = "python -m build"
+dist_path = "dist"
+upload_to_vcs_release = true
+upload_to_pypi = false  # GitHub Actions handles publishing
+hvcs = "github"
+changelog_file = "HISTORY.rst"
+commit_author = "github-actions <action@github.com>"
+major_on_zero = false  # Keep 0.x versions until ready for 1.0
+
 [project]
 name = "biolmai"
 version = "0.2.8"

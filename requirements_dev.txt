@@ -17,3 +17,4 @@ tomli>=2.0.0; python_version < "3.11"
 aiohttp<=3.8.6; python_version < "3.12"
 aiohttp>=3.9.0; python_version >= "3.12"
 twine
+python-semantic-release>=8.0.0
