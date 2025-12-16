@@ -7,12 +7,16 @@ export LANG=C.UTF-8
 
 # Install dependencies with Python 3.12 compatible versions
 pip install --upgrade pip setuptools wheel
+
+# Install docutils first with version constraint to avoid conflicts
+pip install "docutils>=0.20.0,<0.22"
+
+# Install remaining dependencies
 pip install -r requirements_vercel.txt
 
-# Verify sphinx-jsonschema is installed (package may be installed but import check can fail due to path issues)
-# The package is installed via requirements_vercel.txt, so we just verify it's in the package list
+# Verify sphinx-jsonschema is installed
 if ! pip show sphinx-jsonschema >/dev/null 2>&1; then
-    echo "WARNING: sphinx-jsonschema not found in pip, attempting to install..."
+    echo "WARNING: sphinx-jsonschema not found, installing..."
     pip install sphinx-jsonschema>=1.17.0
 fi
 

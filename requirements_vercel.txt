@@ -13,7 +13,7 @@ urllib3>=2.0.0
 sphinx-rtd-theme>=2.0.0
 sphinx-new-tab-link
 sphinx-reredirects
-docutils>=0.20.0
+docutils>=0.20.0,<0.22
 furo>=2024.1.0
 pytest-randomly
 setuptools>=68.0.0
