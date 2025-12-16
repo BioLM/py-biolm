@@ -2,7 +2,10 @@
 
 """The setup script."""
 
+import os
 from setuptools import find_packages, setup
+from setuptools.command.develop import develop
+from setuptools.command.install import install
 
 with open("README.rst") as readme_file:
     readme = readme_file.read()
@@ -31,6 +34,49 @@ test_requirements = [
     "pytest>=3",
 ]
 
+
+def _suppress_urllib3_warnings(self):
+    """Modify generated entry point script to suppress urllib3 warnings."""
+    import sys
+    # Find the scripts directory - try multiple locations
+    possible_dirs = []
+    if hasattr(self, 'install_scripts') and self.install_scripts:
+        possible_dirs.append(self.install_scripts)
+    if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+        # We're in a virtualenv
+        possible_dirs.append(os.path.join(sys.prefix, 'bin'))
+    possible_dirs.append(os.path.join(sys.prefix, 'bin'))
+    # Also check common venv locations
+    if 'venv' in sys.prefix or 'virtualenv' in sys.prefix:
+        possible_dirs.append(os.path.join(sys.prefix, 'bin'))
+    
+    for scripts_dir in possible_dirs:
+        script_path = os.path.join(scripts_dir, 'biolm')
+        if os.path.exists(script_path):
+            with open(script_path, 'r') as f:
+                content = f.read()
+            # Add stderr redirection to suppress urllib3 warnings
+            if 'StringIO' not in content:
+                new_content = content.replace(
+                    'from biolmai.cli_entry import cli',
+                    'import sys\nfrom io import StringIO\n_original_stderr = sys.stderr\nsys.stderr = StringIO()\nfrom biolmai.cli_entry import cli\nsys.stderr = _original_stderr'
+                )
+                with open(script_path, 'w') as f:
+                    f.write(new_content)
+                break
+
+class PostInstallCommand(develop):
+    """Post-installation for development mode."""
+    def run(self):
+        develop.run(self)
+        _suppress_urllib3_warnings(self)
+
+class PostInstallCommandInstall(install):
+    """Post-installation for install mode."""
+    def run(self):
+        install.run(self)
+        _suppress_urllib3_warnings(self)
+
 setup(
     author="BioLM",
     author_email="support@biolm.ai",
@@ -51,7 +97,7 @@ setup(
     description="BioLM Python client",
     entry_points={
         "console_scripts": [
-            "biolm=biolmai.cli:cli",
+            "biolm=biolmai.cli_entry:cli",
         ],
         'mlflow.request_header_provider': [
             'unused=biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider',
@@ -69,4 +115,8 @@ setup(
     url="https://github.com/BioLM/py-biolm",
     version='0.2.8',
     zip_safe=False,
+    cmdclass={
+        'develop': PostInstallCommand,
+        'install': PostInstallCommandInstall,
+    },
 )

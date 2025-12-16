@@ -109,7 +109,7 @@ dependencies = [
     "cryptography",
     "rich>=13.0.0",
 ]
-scripts = { biolm = "biolmai.cli:cli" }
+scripts = { biolm = "biolmai.cli_entry:cli" }
 
 [project.entry-points."mlflow.request_header_provider"]
 unused = "biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider"
