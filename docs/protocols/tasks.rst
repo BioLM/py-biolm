@@ -21,8 +21,7 @@ There are two types of tasks:
 Schema Definition
 -----------------
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/properties/tasks
+.. jsonschema:: ../../schema/protocol_schema.json#/properties/tasks
 
 Task Execution Model
 --------------------
@@ -53,8 +52,7 @@ Gather tasks collect data from a previous task and batch it for downstream proce
 - **Data transformation**: Selecting and combining specific fields
 - **Workflow control**: Creating checkpoints in the workflow
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/GatherTask
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/GatherTask
 
 **Required fields**:
 - ``id``: Unique task identifier
@@ -112,8 +110,7 @@ Model tasks support two identification patterns. Choose based on your needs:
   - ``method``: Method name (e.g., ``"generate"``, ``"predict"``, ``"predict_log_prob"``)
   - **Use when**: Working with older protocols or specific method requirements
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/ApiTask
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/ApiTask
 
 **Required fields**:
 - ``id``: Unique task identifier
@@ -133,8 +130,7 @@ Request Body
 
 The ``request_body`` defines what to send to the API. It has two main parts:
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/RequestBody
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/RequestBody
 
 **items** (array or expression)
   The input items to process. Can be:
@@ -165,8 +161,7 @@ Response Mapping
 
 The ``response_mapping`` extracts fields from the API response and makes them available to downstream tasks.
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/ResponseMapping
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/ResponseMapping
 
 **How it works**:
 - Each key becomes a field name available to downstream tasks

@@ -25,8 +25,7 @@ If you don't need MLflow logging, you can omit the ``outputs`` field entirely.
 Schema Definition
 -----------------
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/properties/outputs
+.. jsonschema:: ../../schema/protocol_schema.json#/properties/outputs
 
 How Output Rules Work
 ---------------------
@@ -56,8 +55,7 @@ Each output rule specifies:
 Output Rule Schema
 ------------------
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/OutputRule
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/OutputRule
 
 **id** (string, required)
   The task ID whose results to process. The task must exist in the ``tasks`` array and must have a ``response_mapping``.
@@ -90,8 +88,7 @@ Log Specification
 
 The ``log`` field defines what to log to MLflow. All fields are optional - include only what you need.
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/LogSpec
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/LogSpec
 
 **params** (object, optional)
   Parameters to log. Each key becomes a parameter name, each value is a template expression.
@@ -134,8 +131,7 @@ Aggregate Specification
 
 Aggregates compute statistics over the selected rows. Useful for summarizing results.
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/AggregateSpec
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/AggregateSpec
 
 **field** (string, required)
   Field name to aggregate over. Must exist in the results.
@@ -168,8 +164,7 @@ Artifact Specification
 
 Artifacts define files and data to log to MLflow. Supports various artifact types.
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/ArtifactSpec
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/ArtifactSpec
 
 **type** (string, required)
   Artifact type. Common types:
@@ -215,8 +210,7 @@ Sequence Entry
 
 Sequence entries are used in sequence-style artifacts (like FASTA files).
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/$defs/SequenceEntry
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/SequenceEntry
 
 **id** (string, required)
   Sequence identifier.

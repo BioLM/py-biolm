@@ -13,16 +13,14 @@ Tasks can be one of two types:
 Schema Definition
 -----------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/properties/tasks
+.. jsonschema:: ../../../schema/protocol_schema.json#/properties/tasks
 
 Gather Tasks
 ------------
 
 Gather tasks collect and batch data from previous tasks.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/GatherTask
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/GatherTask
 
 **Example:**
 
@@ -50,24 +48,21 @@ Model tasks execute API calls to BioLM models. They support two identification p
   - ``app``: Application identifier (e.g., ``"antifold"``)
   - ``method``: Method name (e.g., ``"generate"``, ``"predict"``, ``"predict_log_prob"``)
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/ApiTask
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/ApiTask
 
 Request Body
 ~~~~~~~~~~~~
 
 The ``request_body`` field defines the API request payload:
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/RequestBody
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/RequestBody
 
 Response Mapping
 ~~~~~~~~~~~~~~~~~
 
 The ``response_mapping`` field maps API response fields to protocol fields:
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/ResponseMapping
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/ResponseMapping
 
 Examples
 --------

@@ -8,29 +8,25 @@ execution.progress
 
 Progress tracking configuration.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Progress
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Progress
 
 execution.ranking
 -----------------
 
 Top-N ranking configuration for real-time updates.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Ranking
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Ranking
 
 execution.concurrency
 ---------------------
 
 Concurrency control for workflow execution.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Concurrency
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Concurrency
 
 execution.writing
 -----------------
 
 Output writing configuration.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Writing
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Writing

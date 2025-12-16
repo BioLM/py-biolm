@@ -21,8 +21,7 @@ Inputs are defined as a mapping (dictionary) where:
 Schema Definition
 -----------------
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   #/properties/inputs
+.. jsonschema:: ../../schema/protocol_schema.json#/properties/inputs
 
 How Inputs Work
 ---------------

@@ -15,8 +15,7 @@ Output rules allow you to:
 Schema Definition
 -----------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/properties/outputs
+.. jsonschema:: ../../../schema/protocol_schema.json#/properties/outputs
 
 Output Rule Structure
 ---------------------
@@ -33,40 +32,35 @@ Each output rule specifies:
 Output Rule Schema
 ------------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/OutputRule
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/OutputRule
 
 Log Specification
 ----------------
 
 The ``log`` field defines what to log to MLflow:
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/LogSpec
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/LogSpec
 
 Aggregate Specification
 ------------------------
 
 Aggregates compute statistics over selected rows:
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/AggregateSpec
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/AggregateSpec
 
 Artifact Specification
 -----------------------
 
 Artifacts define files and data to log:
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/ArtifactSpec
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/ArtifactSpec
 
 Sequence Entry
 --------------
 
 Sequence entries are used in sequence-style artifacts:
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/SequenceEntry
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/SequenceEntry
 
 Examples
 --------

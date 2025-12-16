@@ -6,29 +6,24 @@ Output rules define what to log to MLflow from protocol execution results. Each 
 Output Rule
 -----------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/OutputRule
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/OutputRule
 
 Log Specification
 -----------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/LogSpec
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/LogSpec
 
 Aggregate Specification
 -----------------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/AggregateSpec
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/AggregateSpec
 
 Artifact Specification
 ----------------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/ArtifactSpec
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/ArtifactSpec
 
 Sequence Entry
 --------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/SequenceEntry
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/SequenceEntry

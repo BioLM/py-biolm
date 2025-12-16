@@ -15,16 +15,14 @@ Execution configuration includes:
 Schema Definition
 -----------------
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/properties/execution
+.. jsonschema:: ../../../schema/protocol_schema.json#/properties/execution
 
 Progress Configuration
 ----------------------
 
 Progress tracking configuration for monitoring protocol execution.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Progress
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Progress
 
 **Example:**
 
@@ -39,8 +37,7 @@ Ranking Configuration
 
 Top-N ranking configuration for real-time updates during execution.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Ranking
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Ranking
 
 **Example:**
 
@@ -57,8 +54,7 @@ Concurrency Configuration
 
 Concurrency control for workflow execution.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Concurrency
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Concurrency
 
 **Example:**
 
@@ -74,8 +70,7 @@ Writing Configuration
 
 Output writing configuration for result handling.
 
-.. jsonschema:: ../../../schema/protocol_schema.json
-   #/$defs/Writing
+.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Writing
 
 **Example:**
 
