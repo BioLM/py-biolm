@@ -25,4 +25,5 @@ sphinxext-opengraph
 sphinx-copybutton
 myst-parser>=2.0.0
 sphinx-click
+sphinx-jsonschema>=1.17.0
 
