@@ -321,7 +321,7 @@ code:not(pre code) {
 }
 
 .sidebar-tree {
-    padding: 0.25rem 0 !important;
+    padding: 0.25rem 0 2rem 0 !important;
     overflow-y: auto !important;
 }
 
