@@ -15,3 +15,16 @@ pip install -e .
 # Build HTML docs in iframe mode using Makefile target (same as GitHub Actions)
 make docs-iframe
 
+# Verify build output exists
+if [ ! -d "docs/_build/html" ]; then
+    echo "ERROR: Build output directory docs/_build/html does not exist"
+    exit 1
+fi
+
+if [ ! -f "docs/_build/html/index.html" ]; then
+    echo "ERROR: Build output index.html does not exist"
+    exit 1
+fi
+
+echo "Build completed successfully. Output in docs/_build/html"
+
