@@ -35,16 +35,10 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    :caption: SDK:
    :hidden:
 
-   sdk/auth
-   sdk/api
-   sdk/asynch
-   sdk/biolmai
-   sdk/client
-   sdk/cls
-   sdk/const
-   sdk/ltc
-   sdk/payloads
-   sdk/validate
+   sdk/models
+   sdk/protocols
+   sdk/workspaces
+   sdk/volumes
 
 .. toctree::
    :maxdepth: 1

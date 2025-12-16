@@ -1,3 +1,4 @@
+"""HTTP client implementation for BioLM API."""
 import asyncio
 import functools
 import json
@@ -24,6 +25,8 @@ try:
 except ImportError:
     from importlib_metadata import version
 
+from biolmai.core.const import BIOLMAI_BASE_API_URL, ACCESS_TOK_PATH
+from biolmai.core.utils import is_list_of_lists, batch_iterable
 
 def custom_httpx_encode_json(json: Any) -> Tuple[Dict[str, str], ByteStream]:
     # disable ascii for json_dumps
@@ -53,10 +56,6 @@ if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
         force=True,  # Python 3.8+
     )
 
-from biolmai.const import BIOLMAI_BASE_API_URL
-
-USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
-ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
 
@@ -95,11 +94,6 @@ def type_check(param_types: Dict[str, Any]):
                         raise TypeError(
                             f"Parameter '{param}' must be of type {type_names}, got {type(value).__name__}"
                         )
-                    # Check for empty list/tuple
-                    # if isinstance(value, (list, tuple)) and len(value) == 0:
-                    #     raise ValueError(
-                    #         f"Parameter '{param}' must not be an empty {type(value).__name__}"
-                    #     )
             return func(*args, **kwargs)
         return wrapper
     return decorator
@@ -212,32 +206,6 @@ class HttpClient:
             await self._async_client.aclose()
             self._async_client = None
 
-
-def is_list_of_lists(items, check_n=10):
-    # Accepts any iterable, checks first N items for list/tuple-ness
-    # Returns (is_list_of_lists, first_n_items, rest_iter)
-    if isinstance(items, (list, tuple)):
-        if not items:
-            return False, [], iter(())
-        first_n = items[:check_n]
-        is_lol = all(isinstance(x, (list, tuple)) for x in first_n)
-        return is_lol, first_n, iter(items[check_n:])
-    # For iterators/generators
-    items, items_copy = tee(items)
-    first_n = list(islice(items_copy, check_n))
-    is_lol = all(isinstance(x, (list, tuple)) for x in first_n) and bool(first_n)
-    return is_lol, first_n, items
-
-def batch_iterable(iterable, batch_size):
-    # Yields lists of up to batch_size from any iterable, deleting as we go
-    batch = []
-    for item in iterable:
-        batch.append(item)
-        if len(batch) == batch_size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
 
 class BioLMApiClient:
     def __init__(
@@ -727,3 +695,4 @@ class BioLMApiClient:
 @_synchronizer.sync
 class BioLMApi(BioLMApiClient):
     pass
+

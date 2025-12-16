@@ -337,6 +337,26 @@ code:not(pre code) {
     font-weight: 400 !important;
 }
 
+/* Ensure all sidebar items have consistent font size */
+.sidebar-tree a,
+.sidebar-tree li,
+.sidebar-tree li > a,
+.sidebar-tree ul li a,
+.sidebar-tree .toctree-l1 > a,
+.sidebar-tree .toctree-l2 > a,
+.sidebar-tree .toctree-l3 > a,
+.sidebar-tree .toctree-l4 > a {
+    font-size: 0.875rem !important;
+}
+
+/* Ensure code-formatted items in sidebar have same size */
+.sidebar-tree a code,
+.sidebar-tree a .code,
+.sidebar-tree code {
+    font-size: 0.875rem !important;
+    font-family: var(--biolm-font-mono) !important;
+}
+
 .sidebar-tree a:hover {
     background-color: #f3f4f6 !important;
     color: var(--biolm-primary) !important;

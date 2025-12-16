@@ -111,4 +111,4 @@ dependencies = [
 scripts = { biolmai = "biolmai.cli:cli" }
 
 [project.entry-points."mlflow.request_header_provider"]
-unused = "biolmai.seqflow_auth:BiolmaiRequestHeaderProvider"
+unused = "biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider"

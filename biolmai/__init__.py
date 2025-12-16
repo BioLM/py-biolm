@@ -3,11 +3,29 @@ __author__ = """Nikhil Haas"""
 __email__ = "nikhil@biolm.ai"
 __version__ = '0.2.8'
 
-from biolmai.client import BioLMApi, BioLMApiClient
-from biolmai.biolmai import BioLM
+from biolmai.core.http import BioLMApi, BioLMApiClient
+from biolmai.models import Model, BioLM, predict, encode, generate
+from biolmai.protocols import Protocol
+from biolmai.workspaces import Workspace
+from biolmai.volumes import Volume
 from typing import Optional, Union, List, Any
 
-__all__ = ['biolm']
+__all__ = [
+    # Main interfaces
+    'Model',
+    'Protocol',
+    'Workspace',
+    'Volume',
+    # Convenience functions
+    'biolm',
+    'predict',
+    'encode',
+    'generate',
+    # Advanced/legacy
+    'BioLM',
+    'BioLMApi',
+    'BioLMApiClient',
+]
 
 
 def biolm(

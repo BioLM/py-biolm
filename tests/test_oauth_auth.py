@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 import requests
 
-from biolmai.auth import (
+from biolmai.core.auth import (
     _b64url,
     _gen_pkce_pair,
     are_credentials_valid,
@@ -17,7 +17,7 @@ from biolmai.auth import (
     parse_credentials_file,
     save_access_refresh_token,
 )
-from biolmai.const import ACCESS_TOK_PATH, OAUTH_REDIRECT_URI
+from biolmai.core.const import ACCESS_TOK_PATH, OAUTH_REDIRECT_URI
 
 
 class TestPKCEHelpers:
