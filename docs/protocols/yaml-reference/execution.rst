@@ -9,7 +9,7 @@ execution.progress
 Progress tracking configuration.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/Progress
+   :path: /$defs/Progress
 
 execution.ranking
 -----------------
@@ -17,7 +17,7 @@ execution.ranking
 Top-N ranking configuration for real-time updates.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/Ranking
+   :path: /$defs/Ranking
 
 execution.concurrency
 ---------------------
@@ -25,7 +25,7 @@ execution.concurrency
 Concurrency control for workflow execution.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/Concurrency
+   :path: /$defs/Concurrency
 
 execution.writing
 -----------------
@@ -33,5 +33,5 @@ execution.writing
 Output writing configuration.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/Writing
+   :path: /$defs/Writing
 

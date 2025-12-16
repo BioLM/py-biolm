@@ -28,7 +28,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :pointer: /properties/about
+   :path: /properties/about
 
 About Object Schema
 -------------------
@@ -36,7 +36,7 @@ About Object Schema
 The ``about`` object contains structured metadata. All fields are optional, but including at least a ``title`` and ``description`` is recommended.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :pointer: /$defs/About
+   :path: /$defs/About
 
 Field Descriptions
 ------------------

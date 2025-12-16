@@ -7,29 +7,29 @@ Output Rule
 -----------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/OutputRule
+   :path: /$defs/OutputRule
 
 Log Specification
 -----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/LogSpec
+   :path: /$defs/LogSpec
 
 Aggregate Specification
 -----------------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/AggregateSpec
+   :path: /$defs/AggregateSpec
 
 Artifact Specification
 ----------------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/ArtifactSpec
+   :path: /$defs/ArtifactSpec
 
 Sequence Entry
 --------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/SequenceEntry
+   :path: /$defs/SequenceEntry
 

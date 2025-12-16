@@ -15,7 +15,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/inputs
+   :path: /properties/inputs
 
 Examples
 --------

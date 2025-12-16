@@ -169,16 +169,31 @@ table.docutils th {
     font-weight: 600;
 }
 
-/* Custom code block styling to match Tailwind CSS */
+/* Custom code block styling - use same font as inline code */
+/* Remove default pre styling - let highlight container handle it */
 pre {
-    background-color: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    border-radius: 0.375rem; /* Tailwind's rounded-md */
-    padding: 1rem;
-    font-family: var(--biolm-font-mono) !important;
-    font-size: 0.875rem; /* Tailwind's text-sm */
-    line-height: 1.5;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    font-family: var(--biolm-font-mono) !important; /* Same as inline code */
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    letter-spacing: 0 !important;
+    word-spacing: 0.25em !important;
     overflow-x: auto;
+}
+
+/* Code block content - use same font as inline code */
+pre code {
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    letter-spacing: 0 !important;
+    word-spacing: 0.25em !important;
+    background: transparent !important;
+    padding: 0 !important;
+    border: none !important;
+    font-family: var(--biolm-font-mono) !important; /* Same as inline code */
 }
 
 /* Inline code styling */
@@ -189,19 +204,155 @@ code:not(pre code) {
     border-radius: 0.25rem; /* Tailwind's rounded */
     font-family: var(--biolm-font-mono) !important;
     font-size: 0.875em;
+    letter-spacing: 0.01em;
+}
+
+/* Light mode syntax highlighting - VIBRANT COLORS */
+.highlight {
+    color: #1e293b !important; /* Base text color */
+}
+
+.highlight .k,
+.highlight .kn,
+.highlight .kd {
+    color: #7c3aed !important; /* Keywords - purple */
+    font-weight: 600 !important;
+}
+
+.highlight .s,
+.highlight .s1,
+.highlight .s2,
+.highlight .sb,
+.highlight .sc {
+    color: #059669 !important; /* Strings - green */
+}
+
+.highlight .c1,
+.highlight .cm,
+.highlight .c {
+    color: #6b7280 !important; /* Comments - gray */
+    font-style: italic;
+}
+
+.highlight .n,
+.highlight .nn {
+    color: #2563eb !important; /* Names - blue */
+}
+
+.highlight .nb {
+    color: #d97706 !important; /* Built-ins - orange */
+    font-weight: 600 !important;
+}
+
+.highlight .o {
+    color: #0891b2 !important; /* Operators - cyan */
+}
+
+.highlight .p {
+    color: #64748b !important; /* Punctuation - gray */
+}
+
+.highlight .mi,
+.highlight .mf,
+.highlight .m {
+    color: #dc2626 !important; /* Numbers - red */
+}
+
+.highlight .bp {
+    color: #2563eb !important; /* Built-in pseudo - blue */
+}
+
+.highlight .ow {
+    color: #7c3aed !important; /* Operator words - purple */
+}
+
+.highlight .nx {
+    color: #2563eb !important; /* Other names - blue */
+}
+
+/* Bash/Shell specific highlighting - FORCE COLORS ON ALL TEXT */
+.highlight-bash,
+.highlight-shell,
+.highlight-console {
+    color: #2563eb !important; /* Default blue for all text */
+}
+
+/* Color ALL text in bash code blocks blue by default */
+.highlight-bash pre,
+.highlight-shell pre,
+.highlight-console pre,
+.highlight-bash code,
+.highlight-shell code,
+.highlight-console code,
+.highlight-bash pre span,
+.highlight-shell pre span,
+.highlight-console pre span,
+.highlight-bash code span,
+.highlight-shell code span,
+.highlight-console code span {
+    color: #2563eb !important;
+    font-weight: 600 !important;
+}
+
+/* Commands - blue (nb = name builtin) */
+.highlight-bash .highlight .nb,
+.highlight-shell .highlight .nb,
+.highlight-console .highlight .nb,
+.highlight-bash .highlight .n,
+.highlight-shell .highlight .n,
+.highlight-console .highlight .n {
+    color: #2563eb !important;
+    font-weight: 600 !important;
+}
+
+/* Arguments/strings - green */
+.highlight-bash .highlight .s,
+.highlight-shell .highlight .s,
+.highlight-console .highlight .s,
+.highlight-bash .highlight .s1,
+.highlight-shell .highlight .s1,
+.highlight-console .highlight .s1,
+.highlight-bash .highlight .s2,
+.highlight-shell .highlight .s2,
+.highlight-console .highlight .s2 {
+    color: #059669 !important;
+    font-weight: normal !important;
+}
+
+/* Flags/options - red (o = operator, includes --) */
+.highlight-bash .highlight .o,
+.highlight-shell .highlight .o,
+.highlight-console .highlight .o {
+    color: #dc2626 !important;
+    font-weight: 500 !important;
+}
+
+/* Whitespace - keep default color */
+.highlight-bash .highlight .w,
+.highlight-shell .highlight .w,
+.highlight-console .highlight .w {
+    color: inherit !important;
 }
 
 /* Dark mode code block styling */
-[data-theme="dark"] pre,
-[data-theme="dark"] .highlight {
-    background-color: #1e293b !important;
-    border-color: #334155 !important;
+[data-theme="dark"] pre {
+    background: transparent !important;
+    border: none !important;
     color: #e2e8f0 !important;
+    font-family: var(--biolm-font-mono) !important; /* Same as inline code */
 }
 
-[data-theme="dark"] .highlight-python .highlight,
-[data-theme="dark"] .highlight pre {
-    background-color: #1e293b !important;
+[data-theme="dark"] pre code {
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    letter-spacing: 0 !important;
+    word-spacing: 0.25em !important;
+    background: transparent !important;
+    font-family: var(--biolm-font-mono) !important; /* Same as inline code */
+}
+
+[data-theme="dark"] .highlight {
+    background: transparent !important;
     color: #e2e8f0 !important;
 }
 
@@ -209,6 +360,7 @@ code:not(pre code) {
 [data-theme="dark"] code:not(pre code) {
     background-color: #334155 !important;
     color: #e2e8f0 !important;
+    letter-spacing: 0.01em;
 }
 
 /* Dark mode syntax highlighting */
@@ -261,18 +413,71 @@ code:not(pre code) {
     stroke: #e2e8f0 !important;
 }
 
-/* Code block container styling */
-[data-theme="dark"] .highlight-python,
-[data-theme="dark"] .highlight-bash,
-[data-theme="dark"] .highlight-json,
-[data-theme="dark"] .highlight-yaml {
-    background-color: #1e293b !important;
-    border-radius: 0.375rem !important;
+/* Code block container styling - light mode - SINGLE BOX ONLY */
+div[class*="highlight"] {
+    background-color: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 0.5rem !important;
+    margin: 1rem 0 !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1) !important;
+    padding: 0.75rem 1rem !important;
 }
 
-/* Ensure all code containers have proper dark styling */
+/* REMOVE ALL NESTED BACKGROUNDS AND BORDERS */
+div[class*="highlight"] pre {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+div[class*="highlight"] .highlight {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+div[class*="highlight"] code {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Code block container styling - dark mode - SINGLE BOX ONLY */
 [data-theme="dark"] div[class*="highlight"] {
     background-color: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 0.5rem !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3) !important;
+    padding: 0.75rem 1rem !important;
+}
+
+/* REMOVE ALL NESTED BACKGROUNDS IN DARK MODE */
+[data-theme="dark"] div[class*="highlight"] pre {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+}
+
+[data-theme="dark"] div[class*="highlight"] .highlight {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+[data-theme="dark"] div[class*="highlight"] code {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
 }
 
 /* Additional Pygments token styling for dark mode */
@@ -291,6 +496,27 @@ code:not(pre code) {
 
 [data-theme="dark"] .highlight .nx {
     color: #82b1ff !important; /* Other names - blue */
+}
+
+/* Dark mode Bash/Shell specific highlighting */
+[data-theme="dark"] .highlight-bash .highlight .nb,
+[data-theme="dark"] .highlight-shell .highlight .nb,
+[data-theme="dark"] .highlight-console .highlight .nb {
+    color: #82b1ff !important; /* Commands - blue */
+    font-weight: 600 !important;
+}
+
+[data-theme="dark"] .highlight-bash .highlight .s,
+[data-theme="dark"] .highlight-shell .highlight .s,
+[data-theme="dark"] .highlight-console .highlight .s {
+    color: #c3e88d !important; /* Arguments - green */
+}
+
+[data-theme="dark"] .highlight-bash .highlight .o,
+[data-theme="dark"] .highlight-shell .highlight .o,
+[data-theme="dark"] .highlight-console .highlight .o {
+    color: #f78c6c !important; /* Flags/options - orange */
+    font-weight: 500 !important;
 }
 
 /* Custom navigation styling */
@@ -349,12 +575,14 @@ code:not(pre code) {
     font-size: 0.875rem !important;
 }
 
-/* Ensure code-formatted items in sidebar have same size */
+/* Ensure code-formatted items in sidebar have same size and font as inline code */
 .sidebar-tree a code,
 .sidebar-tree a .code,
 .sidebar-tree code {
     font-size: 0.875rem !important;
     font-family: var(--biolm-font-mono) !important;
+    letter-spacing: 0 !important;
+    word-spacing: 0 !important;
 }
 
 .sidebar-tree a:hover {
@@ -759,15 +987,17 @@ h1 {
 }
 
 h2 {
-    font-size: 1.875rem; /* Tailwind's text-3xl */
-    margin-top: 2rem;
-    margin-bottom: 1rem;
+    font-size: 1.25rem; /* Smaller, closer to Modal's style */
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    font-weight: 600 !important;
 }
 
 h3 {
-    font-size: 1.5rem; /* Tailwind's text-2xl */
-    margin-top: 1.5rem;
-    margin-bottom: 0.75rem;
+    font-size: 1.125rem; /* Smaller, closer to Modal's style */
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    font-weight: 600 !important;
 }
 
 h4 {

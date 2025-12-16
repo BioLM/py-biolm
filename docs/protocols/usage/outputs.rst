@@ -16,7 +16,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/outputs
+   :path: /properties/outputs
 
 Output Rule Structure
 ---------------------
@@ -34,7 +34,7 @@ Output Rule Schema
 ------------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/OutputRule
+   :path: /$defs/OutputRule
 
 Log Specification
 ----------------
@@ -42,7 +42,7 @@ Log Specification
 The ``log`` field defines what to log to MLflow:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/LogSpec
+   :path: /$defs/LogSpec
 
 Aggregate Specification
 ------------------------
@@ -50,7 +50,7 @@ Aggregate Specification
 Aggregates compute statistics over selected rows:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/AggregateSpec
+   :path: /$defs/AggregateSpec
 
 Artifact Specification
 -----------------------
@@ -58,7 +58,7 @@ Artifact Specification
 Artifacts define files and data to log:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/ArtifactSpec
+   :path: /$defs/ArtifactSpec
 
 Sequence Entry
 --------------
@@ -66,7 +66,7 @@ Sequence Entry
 Sequence entries are used in sequence-style artifacts:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /$defs/SequenceEntry
+   :path: /$defs/SequenceEntry
 
 Examples
 --------

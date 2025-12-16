@@ -7,53 +7,53 @@ name
 ----
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/name
+   :path: /properties/name
 
 description
 -----------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/description
+   :path: /properties/description
 
 about
 -----
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/about
+   :path: /properties/about
 
 schema_version
 --------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/schema_version
+   :path: /properties/schema_version
 
 protocol_version
 ----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/protocol_version
+   :path: /properties/protocol_version
 
 inputs
 ------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/inputs
+   :path: /properties/inputs
 
 outputs
 -------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/outputs
+   :path: /properties/outputs
 
 execution
 ---------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/execution
+   :path: /properties/execution
 
 tasks
 -----
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :pointer: /properties/tasks
+   :path: /properties/tasks
 
