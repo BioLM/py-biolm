@@ -7,53 +7,52 @@ name
 ----
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/name
+   #/properties/name
 
 description
 -----------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/description
+   #/properties/description
 
 about
 -----
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/about
+   #/properties/about
 
 schema_version
 --------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/schema_version
+   #/properties/schema_version
 
 protocol_version
 ----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/protocol_version
+   #/properties/protocol_version
 
 inputs
 ------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/inputs
+   #/properties/inputs
 
 outputs
 -------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/outputs
+   #/properties/outputs
 
 execution
 ---------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/execution
+   #/properties/execution
 
 tasks
 -----
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/tasks
-
+   #/properties/tasks

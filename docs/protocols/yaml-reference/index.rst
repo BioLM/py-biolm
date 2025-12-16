@@ -97,4 +97,3 @@ Validation Strategy
   - Validate API request/response schemas
   - Validate actual data types at runtime
 
-For more information about using protocols, see the :doc:`../usage/inputs`, :doc:`../usage/tasks`, :doc:`../usage/outputs`, and :doc:`../usage/settings` sections.

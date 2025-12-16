@@ -27,16 +27,14 @@ For internal or one-off protocols, you can omit this field entirely.
 Schema Definition
 -----------------
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   :path: /properties/about
+.. jsonschema:: ../../schema/protocol_schema.json#/properties/about
 
 About Object Schema
 -------------------
 
 The ``about`` object contains structured metadata. All fields are optional, but including at least a ``title`` and ``description`` is recommended.
 
-.. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/About
+.. jsonschema:: ../../schema/protocol_schema.json#/$defs/About
 
 Field Descriptions
 ------------------
@@ -130,4 +128,3 @@ For published or shared protocols, include comprehensive metadata:
      links:
        github: "https://github.com/biolm/protocols/antibody-design"
        publication: "https://example.com/papers/antibody-design"
-       docs: "https://docs.biolm.ai/protocols/antibody-design"

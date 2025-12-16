@@ -22,7 +22,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /properties/inputs
+   #/properties/inputs
 
 How Inputs Work
 ---------------
@@ -180,4 +180,3 @@ Common Patterns
 .. code-block:: yaml
 
    inputs:
-     regions: ["CDR1", "CDR2", "CDR3"]  # Can be overridden

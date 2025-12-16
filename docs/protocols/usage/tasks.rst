@@ -14,7 +14,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/tasks
+   #/properties/tasks
 
 Gather Tasks
 ------------
@@ -22,7 +22,7 @@ Gather Tasks
 Gather tasks collect and batch data from previous tasks.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/GatherTask
+   #/$defs/GatherTask
 
 **Example:**
 
@@ -51,7 +51,7 @@ Model tasks execute API calls to BioLM models. They support two identification p
   - ``method``: Method name (e.g., ``"generate"``, ``"predict"``, ``"predict_log_prob"``)
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/ApiTask
+   #/$defs/ApiTask
 
 Request Body
 ~~~~~~~~~~~~
@@ -59,7 +59,7 @@ Request Body
 The ``request_body`` field defines the API request payload:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/RequestBody
+   #/$defs/RequestBody
 
 Response Mapping
 ~~~~~~~~~~~~~~~~~
@@ -67,7 +67,7 @@ Response Mapping
 The ``response_mapping`` field maps API response fields to protocol fields:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/ResponseMapping
+   #/$defs/ResponseMapping
 
 Examples
 --------
@@ -128,4 +128,3 @@ Tasks can specify dependencies using:
 - **depends_on**: Array of task IDs that must complete before this task runs
 - **foreach**: Iterate over array results, creating subtasks
 - **skip_if**: Conditional execution expression
-- **skip_if_empty**: Skip if dependencies are empty

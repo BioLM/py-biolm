@@ -9,7 +9,7 @@ Gather Tasks
 Gather tasks collect and batch data from previous tasks.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/GatherTask
+   #/$defs/GatherTask
 
 Model Tasks (API Tasks)
 -----------------------
@@ -26,17 +26,16 @@ Model tasks execute API calls to BioLM models. They support two identification p
   - ``method``: Method name (e.g., ``"generate"``, ``"predict"``, ``"predict_log_prob"``)
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/ApiTask
+   #/$defs/ApiTask
 
 Request Body
 ------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/RequestBody
+   #/$defs/RequestBody
 
 Response Mapping
 ----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/ResponseMapping
-
+   #/$defs/ResponseMapping

@@ -16,7 +16,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/outputs
+   #/properties/outputs
 
 Output Rule Structure
 ---------------------
@@ -34,7 +34,7 @@ Output Rule Schema
 ------------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/OutputRule
+   #/$defs/OutputRule
 
 Log Specification
 ----------------
@@ -42,7 +42,7 @@ Log Specification
 The ``log`` field defines what to log to MLflow:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/LogSpec
+   #/$defs/LogSpec
 
 Aggregate Specification
 ------------------------
@@ -50,7 +50,7 @@ Aggregate Specification
 Aggregates compute statistics over selected rows:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/AggregateSpec
+   #/$defs/AggregateSpec
 
 Artifact Specification
 -----------------------
@@ -58,7 +58,7 @@ Artifact Specification
 Artifacts define files and data to log:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/ArtifactSpec
+   #/$defs/ArtifactSpec
 
 Sequence Entry
 --------------
@@ -66,7 +66,7 @@ Sequence Entry
 Sequence entries are used in sequence-style artifacts:
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/SequenceEntry
+   #/$defs/SequenceEntry
 
 Examples
 --------
@@ -122,4 +122,3 @@ Artifact Logging
                - id: "seq_1"
                  sequence: "${{ heavy }}"
                  metadata:
-                   score: "${{ score }}"

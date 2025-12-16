@@ -15,7 +15,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/inputs
+   #/properties/inputs
 
 Examples
 --------
@@ -53,4 +53,3 @@ Input values can be referenced in template expressions throughout the protocol:
 - In task parameters: ``${{ n_samples }}``
 - In request bodies: ``${{ pdb_str }}``
 - In expressions: ``${{ n_samples // execution.concurrency.workflow }}``
-

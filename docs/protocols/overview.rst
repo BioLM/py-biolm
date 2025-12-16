@@ -26,4 +26,3 @@ Documentation Structure
 3. **Overview (manually written):** Edit this file (``docs/protocols/overview.rst``) for general Protocol information.
 
 For more details, see the :doc:`../authoring-guide` section.
-

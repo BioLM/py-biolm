@@ -19,7 +19,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /properties/execution
+   #/properties/execution
 
 Progress Configuration
 ----------------------
@@ -27,7 +27,7 @@ Progress Configuration
 Progress tracking helps monitor long-running protocols. Set ``total_expected`` to the number of final records you expect, which enables progress percentage calculations.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/Progress
+   #/$defs/Progress
 
 **When to use**: Enable progress tracking when:
 - Protocols run for a long time
@@ -50,7 +50,7 @@ Ranking Configuration
 Ranking maintains a heap of the top-N results during execution, enabling real-time updates of the best results even before all tasks complete.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/Ranking
+   #/$defs/Ranking
 
 **When to use**: Enable ranking when:
 - You only care about the best N results
@@ -77,7 +77,7 @@ Concurrency Configuration
 Concurrency controls how many tasks run in parallel. This is crucial for performance optimization.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/Concurrency
+   #/$defs/Concurrency
 
 **workflow** (integer or expression)
   Number of concurrent protocol instances. Each instance processes a portion of the work.
@@ -113,7 +113,7 @@ Writing Configuration
 Writing configuration controls how results are written and deduplicated.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/Writing
+   #/$defs/Writing
 
 **deduplicate** (boolean)
   Enable deduplication of results. When enabled, duplicate results (based on content) are filtered out.
@@ -220,4 +220,3 @@ Common Patterns
      writing:
        deduplicate: false
      ranking:
-       top_n: 100  # Smaller heap

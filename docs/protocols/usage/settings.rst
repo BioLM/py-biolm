@@ -16,7 +16,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /properties/execution
+   #/properties/execution
 
 Progress Configuration
 ----------------------
@@ -24,7 +24,7 @@ Progress Configuration
 Progress tracking configuration for monitoring protocol execution.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/Progress
+   #/$defs/Progress
 
 **Example:**
 
@@ -40,7 +40,7 @@ Ranking Configuration
 Top-N ranking configuration for real-time updates during execution.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/Ranking
+   #/$defs/Ranking
 
 **Example:**
 
@@ -58,7 +58,7 @@ Concurrency Configuration
 Concurrency control for workflow execution.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/Concurrency
+   #/$defs/Concurrency
 
 **Example:**
 
@@ -75,7 +75,7 @@ Writing Configuration
 Output writing configuration for result handling.
 
 .. jsonschema:: ../../../schema/protocol_schema.json
-   :path: /$defs/Writing
+   #/$defs/Writing
 
 **Example:**
 
@@ -103,4 +103,3 @@ Complete Example
        tasks: 8
      writing:
        deduplicate: true
-       max_dedupe_size: 1000

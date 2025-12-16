@@ -26,7 +26,7 @@ Schema Definition
 -----------------
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /properties/outputs
+   #/properties/outputs
 
 How Output Rules Work
 ---------------------
@@ -57,7 +57,7 @@ Output Rule Schema
 ------------------
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/OutputRule
+   #/$defs/OutputRule
 
 **id** (string, required)
   The task ID whose results to process. The task must exist in the ``tasks`` array and must have a ``response_mapping``.
@@ -91,7 +91,7 @@ Log Specification
 The ``log`` field defines what to log to MLflow. All fields are optional - include only what you need.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/LogSpec
+   #/$defs/LogSpec
 
 **params** (object, optional)
   Parameters to log. Each key becomes a parameter name, each value is a template expression.
@@ -135,7 +135,7 @@ Aggregate Specification
 Aggregates compute statistics over the selected rows. Useful for summarizing results.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/AggregateSpec
+   #/$defs/AggregateSpec
 
 **field** (string, required)
   Field name to aggregate over. Must exist in the results.
@@ -169,7 +169,7 @@ Artifact Specification
 Artifacts define files and data to log to MLflow. Supports various artifact types.
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/ArtifactSpec
+   #/$defs/ArtifactSpec
 
 **type** (string, required)
   Artifact type. Common types:
@@ -216,7 +216,7 @@ Sequence Entry
 Sequence entries are used in sequence-style artifacts (like FASTA files).
 
 .. jsonschema:: ../../schema/protocol_schema.json
-   :path: /$defs/SequenceEntry
+   #/$defs/SequenceEntry
 
 **id** (string, required)
   Sequence identifier.
@@ -403,4 +403,3 @@ Common Patterns
      - id: scoring_task
        log:
          metrics:
-           mean_score: "${{ score }}"
