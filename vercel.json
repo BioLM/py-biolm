@@ -1,6 +1,7 @@
 {
   "buildCommand": "bash build-vercel.sh",
   "outputDirectory": "docs/_build/html",
-  "framework": null
+  "framework": null,
+  "installCommand": "pip install --upgrade pip setuptools wheel"
 }
 

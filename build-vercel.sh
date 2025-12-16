@@ -12,16 +12,6 @@ pip install -r requirements_vercel.txt
 # Install the package itself so sphinx-apidoc can import modules
 pip install -e .
 
-# Generate API docs
-mkdir -p docs/_static docs/api-reference
-rm -f docs/biolmai.rst docs/api-reference/biolmai.rst docs/api-reference/modules.rst
-# Try python module form first, fallback to direct command if available
-python -m sphinx.ext.apidoc -o docs/api-reference biolmai 2>/dev/null || \
-python -m sphinx.apidoc -o docs/api-reference biolmai 2>/dev/null || \
-sphinx-apidoc -o docs/api-reference biolmai
-
-# Build HTML docs in iframe mode
-cd docs
-make clean
-IFRAME_MODE=1 make html
+# Build HTML docs in iframe mode using Makefile target (same as GitHub Actions)
+make docs-iframe
 
