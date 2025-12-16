@@ -12,7 +12,7 @@ Authenticate with your BioLM account:
 
 .. code-block:: bash
 
-   biolmai login
+   biolm login
 
 You'll be prompted for your username and password. Upon successful authentication, your access and refresh tokens will be saved locally.
 
@@ -27,7 +27,7 @@ Remove saved authentication credentials:
 
 .. code-block:: bash
 
-   biolmai logout
+   biolm logout
 
 Status
 ------
@@ -36,7 +36,7 @@ Check your current authentication status and environment configuration:
 
 .. code-block:: bash
 
-   biolmai status
+   biolm status
 
 This displays:
 - Your authentication token status

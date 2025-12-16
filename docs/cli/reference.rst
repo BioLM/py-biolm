@@ -1,23 +1,14 @@
 CLI Reference
 =============
 
-Auto-generated reference documentation for all CLI commands.
+Auto-generated reference documentation for all CLI commands and command groups.
 
-Main CLI Group
--------------
+This reference is automatically generated from the CLI code using sphinx-click.
+All commands and their options are documented here.
+
+Main CLI Commands
+------------------
 
 .. click:: biolmai.cli:cli
-   :prog: biolmai
+   :prog: biolm
    :show-nested:
-
-Individual Commands
--------------------
-
-.. click:: biolmai.cli:status
-   :prog: biolmai status
-
-.. click:: biolmai.cli:login
-   :prog: biolmai login
-
-.. click:: biolmai.cli:logout
-   :prog: biolmai logout

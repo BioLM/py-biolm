@@ -29,6 +29,10 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    cli/login
    cli/logout
    cli/status
+   cli/workspace
+   cli/model
+   cli/protocol
+   cli/dataset
 
 .. toctree::
    :maxdepth: 1

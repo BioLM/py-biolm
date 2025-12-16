@@ -107,8 +107,9 @@ dependencies = [
     "async-lru",
     "aiofiles",
     "cryptography",
+    "rich>=13.0.0",
 ]
-scripts = { biolmai = "biolmai.cli:cli" }
+scripts = { biolm = "biolmai.cli:cli" }
 
 [project.entry-points."mlflow.request_header_provider"]
 unused = "biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider"

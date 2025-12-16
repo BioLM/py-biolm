@@ -44,7 +44,7 @@ extensions = [
     "sphinx_new_tab_link",
     "sphinx_reredirects",
     "sphinx-jsonschema",  # For auto-generating protocol schema documentation
-    # "sphinx_click",  # For auto-generating CLI documentation (install with: pip install sphinx-click)
+    "sphinx_click",  # For auto-generating CLI documentation
 ]
 
 # Add any paths that contain templates here, relative to this directory.
