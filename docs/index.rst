@@ -43,7 +43,6 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    sdk/protocols
    sdk/workspaces
    sdk/volumes
-   sdk/validate
 
 .. toctree::
    :maxdepth: 1

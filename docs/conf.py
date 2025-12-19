@@ -13,6 +13,7 @@
 # serve to show the default.
 
 import os
+import sys
 
 # Build option: iframe mode (hides header for embedding)
 # Set via environment variable: IFRAME_MODE=1 make html
@@ -23,6 +24,8 @@ iframe_mode = os.environ.get('IFRAME_MODE', '0') == '1'
 # relative to the documentation root, use os.path.abspath to make it
 # absolute, like shown here.
 #
+# Add parent directory to sys.path so Sphinx can import biolmai
+sys.path.insert(0, os.path.abspath('..'))
 
 # -- General configuration ---------------------------------------------
 
@@ -109,6 +112,8 @@ html_theme = "furo"
 html_theme_options = {
     "top_of_page_button": None,
     "sidebar_hide_name": True if not iframe_mode else True,
+    "light_logo": None,  # Hide logo, using text instead
+    "dark_logo": None,   # Hide logo, using text instead
     "navigation_with_keys": True,
     "light_logo": None if iframe_mode else "biolm_logo_light.svg",
     "dark_logo": None if iframe_mode else "biolm_logo_dark.svg",
