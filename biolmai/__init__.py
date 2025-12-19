@@ -8,6 +8,7 @@ from biolmai.models import Model, BioLM, predict, encode, generate
 from biolmai.protocols import Protocol
 from biolmai.workspaces import Workspace
 from biolmai.volumes import Volume
+from biolmai.examples import get_example, list_models
 from typing import Optional, Union, List, Any
 
 __all__ = [
@@ -21,6 +22,9 @@ __all__ = [
     'predict',
     'encode',
     'generate',
+    # Example generation
+    'get_example',
+    'list_models',
     # Advanced/legacy
     'BioLM',
     'BioLMApi',

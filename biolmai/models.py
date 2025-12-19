@@ -4,6 +4,7 @@ from typing import Optional, Union, List, Any
 
 from biolmai.core.http import BioLMApi, BioLMApiClient
 from biolmai.core.utils import is_list_of_lists
+from biolmai.examples import ExampleGeneratorSync
 
 log = logging.getLogger("biolm_util")
 
@@ -19,6 +20,7 @@ class Model:
     """
     def __init__(self, name: str, api_key: Optional[str] = None, **kwargs):
         self.name = name
+        self.api_key = api_key
         self._client = BioLMApi(name, api_key=api_key, **kwargs)
     
     def predict(self, items: Union[Any, List[Any]], type: Optional[str] = None, params: Optional[dict] = None, **kwargs):
@@ -77,6 +79,66 @@ class Model:
             Lookup results.
         """
         return self._client.lookup(query=query, **kwargs)
+    
+    def get_example(self, action: Optional[str] = None, format: str = 'python', **kwargs) -> str:
+        """Get SDK usage example for this model.
+        
+        Args:
+            action: Action name (encode, predict, generate, lookup). If None, generates for first available action.
+            format: Output format ('python', 'markdown', 'rst', 'json').
+            **kwargs: Additional arguments passed to ExampleGenerator (base_url).
+            
+        Returns:
+            Formatted example string.
+        """
+        # Use stored api_key or allow override via kwargs
+        api_key = kwargs.pop('api_key', self.api_key)
+        
+        # Get base_url from client if available
+        base_url = kwargs.get('base_url')
+        if base_url is None and hasattr(self._client, 'base_url'):
+            # Extract domain from base_url (remove /api/v3 suffix)
+            client_base = self._client.base_url.rstrip('/')
+            if client_base.endswith('/api/v3'):
+                base_url = client_base[:-7]  # Remove '/api/v3'
+            elif client_base.endswith('/api/v2'):
+                base_url = client_base[:-7]  # Remove '/api/v2'
+        
+        generator = ExampleGeneratorSync(api_key=api_key, base_url=base_url)
+        try:
+            return generator.generate_example(self.name, action, format)
+        finally:
+            generator.shutdown()
+    
+    def get_examples(self, format: str = 'python', **kwargs) -> str:
+        """Get SDK usage examples for all supported actions of this model.
+        
+        Args:
+            format: Output format ('python', 'markdown', 'rst', 'json').
+            **kwargs: Additional arguments passed to ExampleGenerator (base_url).
+            
+        Returns:
+            Formatted examples string with all actions.
+        """
+        # Use stored api_key or allow override via kwargs
+        api_key = kwargs.pop('api_key', self.api_key)
+        
+        # Get base_url from client if available
+        base_url = kwargs.get('base_url')
+        if base_url is None and hasattr(self._client, 'base_url'):
+            # Extract domain from base_url (remove /api/v3 suffix)
+            client_base = self._client.base_url.rstrip('/')
+            if client_base.endswith('/api/v3'):
+                base_url = client_base[:-7]  # Remove '/api/v3'
+            elif client_base.endswith('/api/v2'):
+                base_url = client_base[:-7]  # Remove '/api/v2'
+        
+        generator = ExampleGeneratorSync(api_key=api_key, base_url=base_url)
+        try:
+            # Pass None as action to generate for all actions
+            return generator.generate_example(self.name, None, format)
+        finally:
+            generator.shutdown()
     
     def _prepare_items(self, items: Union[Any, List[Any]], type: Optional[str] = None) -> List[dict]:
         """Prepare items for API calls."""

@@ -24,6 +24,7 @@ from biolmai.core.const import (
     BIOLMAI_BASE_API_URL,
     BIOLMAI_PUBLIC_CLIENT_ID,
 )
+from biolmai.examples import get_example, list_models
 
 # Create custom theme with BioLM brand colors
 brand_theme = Theme({
@@ -476,6 +477,86 @@ def run(model_name, input, output):
     ))
 
 
+@model.command()
+@click.argument('model_name', required=False)
+@click.option('--action', '-a', help='Specific action (encode, predict, generate, lookup)')
+@click.option('--format', '-f', type=click.Choice(['python', 'markdown', 'rst', 'json']), 
+              default='python', help='Output format')
+@click.option('--output', '-o', type=click.Path(), help='Output file path (default: stdout)')
+def example(model_name, action, format, output):
+    """Generate SDK usage examples for models.
+    
+    If model_name is not provided, lists all available models.
+    """
+    try:
+        if model_name is None:
+            # List all available models
+            models = list_models()
+            if not models:
+                console.print("[error]Could not fetch available models. Please check your connection and authentication.[/error]")
+                return
+            
+            # Display models in a table
+            table = Table(title="Available BioLM Models", show_header=True, header_style="brand.bold")
+            table.add_column("Name", style="brand.bright")
+            table.add_column("Slug", style="text.muted")
+            table.add_column("Actions", style="text")
+            
+            for model in models[:50]:  # Limit to first 50 for display
+                # Handle both old and new API response formats
+                name = model.get('model_name') or model.get('name') or 'Unknown'
+                slug = model.get('model_slug') or model.get('slug') or 'N/A'
+                
+                # Extract actions from boolean flags or actions array
+                actions_list = []
+                if 'actions' in model and isinstance(model['actions'], list):
+                    actions_list = model['actions']
+                else:
+                    # Build actions list from boolean flags
+                    if model.get('encoder'):
+                        actions_list.append('encode')
+                    if model.get('predictor'):
+                        actions_list.append('predict')
+                    if model.get('generator'):
+                        actions_list.append('generate')
+                    if model.get('classifier'):
+                        actions_list.append('classify')
+                    if model.get('similarity'):
+                        actions_list.append('similarity')
+                
+                actions = ', '.join(actions_list) if actions_list else 'N/A'
+                table.add_row(name, slug, actions)
+            
+            if len(models) > 50:
+                table.add_row("...", f"({len(models) - 50} more models)", "")
+            
+            console.print(table)
+            console.print(f"\n[text.muted]Use 'biolm model example <model_name>' to generate examples for a specific model.[/text.muted]")
+        else:
+            # Generate example for specific model
+            with console.status("[brand]Generating example...[/brand]"):
+                example_text = get_example(model_name, action=action, format=format)
+            
+            if output:
+                # Write to file
+                with open(output, 'w') as f:
+                    f.write(example_text)
+                console.print(f"[success]Example written to {output}[/success]")
+            else:
+                # Print to stdout
+                console.print("\n[brand]SDK Usage Example[/brand]\n")
+                console.print(Panel(
+                    example_text,
+                    title=f"[brand]{model_name}[/brand]",
+                    border_style="brand",
+                    box=box.ROUNDED,
+                ))
+    except Exception as e:
+        console.print(f"[error]Error generating example: {e}[/error]")
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]{e.__cause__}[/text.muted]")
+
+
 @cli.group(cls=RichGroup)
 def protocol():
     """Work with protocols.
@@ -535,18 +616,141 @@ def run(protocol_file):
 
 @protocol.command()
 @click.argument('protocol_file', type=click.Path(exists=True))
-def validate(protocol_file):
+@click.option('--json', 'output_json', is_flag=True, help='Output results in JSON format')
+def validate(protocol_file, output_json):
     """Validate a protocol YAML file.
     
-    Check if a protocol YAML file is valid.
+    Check if a protocol YAML file is valid. Validates YAML syntax, JSON schema
+    compliance, task references, circular dependencies, and template expressions.
     """
-    console.print(Panel(
-        "[text.muted]Protocol commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to validate protocol YAML files.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
+    from biolmai.protocols import Protocol
+    
+    try:
+        result = Protocol.validate(protocol_file)
+    except Exception as e:
+        if output_json:
+            import json
+            console.print(json.dumps({
+                "valid": False,
+                "errors": [{"message": str(e), "path": "", "error_type": "exception"}],
+                "warnings": [],
+                "statistics": {}
+            }))
+        else:
+            console.print(Panel(
+                f"[error]Validation failed: {e}[/error]",
+                title="[error]Error[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+        sys.exit(1)
+    
+    if output_json:
+        import json
+        output = {
+            "valid": result.is_valid,
+            "errors": [
+                {
+                    "message": err.message,
+                    "path": err.path,
+                    "error_type": err.error_type
+                }
+                for err in result.errors
+            ],
+            "warnings": result.warnings,
+            "statistics": result.statistics
+        }
+        console.print(json.dumps(output, indent=2))
+        sys.exit(0 if result.is_valid else 1)
+    
+    # Rich formatted output
+    if result.is_valid:
+        # Success message with statistics
+        stats = result.statistics
+        stats_text = f"✓ Valid protocol"
+        if stats:
+            parts = []
+            if "protocol_name" in stats:
+                parts.append(f"'{stats['protocol_name']}'")
+            if "task_count" in stats:
+                parts.append(f"{stats['task_count']} task{'s' if stats['task_count'] != 1 else ''}")
+            if "input_count" in stats:
+                parts.append(f"{stats['input_count']} input{'s' if stats['input_count'] != 1 else ''}")
+            if parts:
+                stats_text += " with " + ", ".join(parts)
+        
+        console.print(Panel(
+            stats_text,
+            title="[success]✓ Validation Successful[/success]",
+            border_style="success",
+            box=box.ROUNDED,
+        ))
+        
+        # Show warnings if any
+        if result.warnings:
+            console.print()
+            for warning in result.warnings:
+                console.print(f"[warning]⚠ {warning}[/warning]")
+        
+        # Show statistics table
+        if stats and len(stats) > 1:  # More than just protocol_name
+            console.print()
+            table = Table(title="Protocol Statistics", show_header=True, header_style="brand.bold")
+            table.add_column("Metric", style="text")
+            table.add_column("Value", style="brand.bright")
+            
+            stat_labels = {
+                "task_count": "Total Tasks",
+                "model_task_count": "Model Tasks",
+                "gather_task_count": "Gather Tasks",
+                "input_count": "Inputs",
+                "output_rule_count": "Output Rules"
+            }
+            
+            for key, label in stat_labels.items():
+                if key in stats:
+                    table.add_row(label, str(stats[key]))
+            
+            if table.rows:
+                console.print(table)
+        
+        sys.exit(0)
+    else:
+        # Error summary
+        error_count = len(result.errors)
+        console.print(Panel(
+            f"[error]Validation failed with {error_count} error{'s' if error_count != 1 else ''}[/error]",
+            title="[error]✗ Validation Failed[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        
+        # Show warnings if any
+        if result.warnings:
+            console.print()
+            for warning in result.warnings:
+                console.print(f"[warning]⚠ {warning}[/warning]")
+        
+        # Show errors in a table
+        if result.errors:
+            console.print()
+            error_table = Table(title="Validation Errors", show_header=True, header_style="error")
+            error_table.add_column("#", style="text.muted", width=4)
+            error_table.add_column("Type", style="error")
+            error_table.add_column("Path", style="text.muted")
+            error_table.add_column("Message", style="text")
+            
+            for i, err in enumerate(result.errors, 1):
+                error_table.add_row(
+                    str(i),
+                    err.error_type,
+                    err.path if err.path else "(root)",
+                    err.message
+                )
+            
+            console.print(error_table)
+        
+        sys.exit(1)
 
 
 @cli.group(cls=RichGroup)
