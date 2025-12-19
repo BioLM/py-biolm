@@ -72,8 +72,120 @@ class RichHelpFormatter(click.HelpFormatter):
         console.print()
 
 
+class RichCommand(click.Command):
+    """Custom Click Command with Rich help formatting."""
+    
+    def format_help(self, ctx, formatter):
+        """Format help output using Rich with Modal-style organization."""
+        # Write usage
+        self.write_usage(ctx, formatter)
+        
+        # Write description
+        if self.help:
+            # Get first line of help as description
+            desc_lines = self.help.split('\n')
+            first_line = desc_lines[0].strip()
+            if first_line:
+                console.print(f"[text]{first_line}[/text]")
+                console.print()
+            
+            # Write additional description lines if present
+            if len(desc_lines) > 1:
+                additional_lines = [line.strip() for line in desc_lines[1:] if line.strip()]
+                if additional_lines:
+                    for line in additional_lines:
+                        console.print(f"[text]{line}[/text]")
+                    console.print()
+        
+        # Write Options section with box
+        opts = []
+        for param in self.get_params(ctx):
+            if isinstance(param, click.Option) and not param.hidden:
+                rv = param.get_help_record(ctx)
+                if rv:
+                    opts.append(rv)
+        if opts:
+            # Create box content
+            box_content = []
+            for opt_name, opt_help in opts:
+                # Format option name in brand color, description in text
+                opt_padding = " " * max(0, 25 - len(opt_name))
+                if opt_help:
+                    line = f"[brand.bright]{opt_name}[/brand.bright]{opt_padding}  [text]{opt_help}[/text]"
+                else:
+                    line = f"[brand.bright]{opt_name}[/brand.bright]"
+                box_content.append(line)
+            
+            # Create panel with box style
+            panel = Panel(
+                "\n".join(box_content),
+                title="[bold]Options[/bold]",
+                border_style="text.muted",
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+            console.print(panel)
+            console.print()
+        
+        # Write Arguments section if present
+        args = []
+        for param in self.get_params(ctx):
+            if isinstance(param, click.Argument):
+                rv = param.get_help_record(ctx)
+                if rv:
+                    args.append(rv)
+        if args:
+            # Create box content
+            box_content = []
+            for arg_name, arg_help in args:
+                # Format argument name in brand color, description in text
+                arg_padding = " " * max(0, 25 - len(arg_name))
+                if arg_help:
+                    line = f"[brand.bright]{arg_name}[/brand.bright]{arg_padding}  [text]{arg_help}[/text]"
+                else:
+                    line = f"[brand.bright]{arg_name}[/brand.bright]"
+                box_content.append(line)
+            
+            # Create panel with box style
+            panel = Panel(
+                "\n".join(box_content),
+                title="[bold]Arguments[/bold]",
+                border_style="text.muted",
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+            console.print(panel)
+            console.print()
+    
+    def write_usage(self, ctx, formatter):
+        """Write usage line with Rich formatting."""
+        # Build usage string similar to Click's format
+        usage_parts = [ctx.command_path]
+        
+        # Add options marker if there are any options
+        has_options = any(isinstance(p, click.Option) and not p.hidden 
+                         for p in self.get_params(ctx))
+        if has_options:
+            usage_parts.append("[OPTIONS]")
+        
+        # Add arguments
+        for param in self.get_params(ctx):
+            if isinstance(param, click.Argument):
+                if param.required:
+                    usage_parts.append(param.name.upper())
+                else:
+                    usage_parts.append(f"[{param.name.upper()}]")
+        
+        usage_str = " ".join(usage_parts)
+        console.print(f"[text]Usage:[/text] [brand.bright]{usage_str}[/brand.bright]")
+        console.print()
+
+
 class RichGroup(click.Group):
     """Custom Click Group with Rich help formatting."""
+    
+    # Set command_class so all subcommands use Rich formatting
+    command_class = RichCommand
     
     def format_help(self, ctx, formatter):
         """Format help output using Rich with Modal-style organization."""
@@ -750,6 +862,162 @@ def validate(protocol_file, output_json):
             
             console.print(error_table)
         
+        sys.exit(1)
+
+
+@protocol.command()
+@click.argument('filename', required=False)
+@click.option('--output', '-o', type=click.Path(), help='Output file path (default: protocol.yaml)')
+@click.option('--example', '-e', help='Use an example template')
+@click.option('--list-examples', is_flag=True, help='List available example templates')
+@click.option('--force', '-f', is_flag=True, help='Overwrite existing file')
+@click.option('--interactive', '-i', is_flag=True, help='Interactive mode to select example')
+def init(filename, output, example, list_examples, force, interactive):
+    """Initialize a new protocol YAML file.
+    
+    Create a blank protocol YAML file or initialize from an example template.
+    The generated file will be validated automatically.
+    
+    Examples:
+    
+        # Create a blank protocol
+        biolm protocol init
+        
+        # Create with custom filename
+        biolm protocol init my_protocol.yaml
+        
+        # Create from example
+        biolm protocol init --example antibody_design
+        
+        # List available examples
+        biolm protocol init --list-examples
+        
+        # Interactive mode
+        biolm protocol init --interactive
+    """
+    from biolmai.protocols import Protocol
+    
+    # List examples if requested
+    if list_examples:
+        examples = Protocol._list_available_examples()
+        if not examples:
+            console.print(Panel(
+                "[text.muted]No example templates found in examples/ directory.[/text.muted]",
+                title="[brand]Examples[/brand]",
+                border_style="brand",
+                box=box.ROUNDED,
+            ))
+            return
+        
+        table = Table(title="Available Protocol Examples", show_header=True, header_style="brand.bold")
+        table.add_column("Name", style="brand.bright")
+        table.add_column("File", style="text.muted")
+        
+        for ex in examples:
+            table.add_row(ex, f"{ex}.yaml")
+        
+        console.print(table)
+        console.print(f"\n[text.muted]Use 'biolm protocol init --example <name>' to create a protocol from an example.[/text.muted]")
+        return
+    
+    # Determine output path
+    if output:
+        output_path = output
+    elif filename:
+        output_path = filename
+    else:
+        output_path = "protocol.yaml"
+    
+    # Interactive mode
+    if interactive:
+        examples = Protocol._list_available_examples()
+        if not examples:
+            console.print(Panel(
+                "[error]No example templates available for interactive selection.[/error]",
+                title="[error]Error[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Display examples in a table
+        table = Table(title="Select an Example Template", show_header=True, header_style="brand.bold")
+        table.add_column("#", style="text.muted", width=4)
+        table.add_column("Name", style="brand.bright")
+        table.add_column("File", style="text.muted")
+        
+        for i, ex in enumerate(examples, 1):
+            table.add_row(str(i), ex, f"{ex}.yaml")
+        
+        console.print(table)
+        console.print()
+        
+        # Prompt for selection
+        try:
+            choice = click.prompt(
+                f"Select an example (1-{len(examples)})",
+                type=click.IntRange(1, len(examples))
+            )
+            example = examples[choice - 1]
+        except (click.Abort, KeyboardInterrupt):
+            console.print("\n[text.muted]Cancelled.[/text.muted]")
+            sys.exit(0)
+    
+    # Create the protocol file
+    try:
+        with console.status("[brand]Creating protocol file...[/brand]"):
+            created_path = Protocol.init(output_path, example=example, force=force)
+        
+        # Display success message
+        success_msg = f"[success]✓ Protocol file created successfully![/success]\n\n"
+        success_msg += f"File: [brand]{created_path}[/brand]"
+        
+        if example:
+            success_msg += f"\nTemplate: [text.muted]{example}[/text.muted]"
+        
+        success_msg += f"\n\n[text.muted]Use 'biolm protocol validate {created_path}' to validate the file.[/text.muted]"
+        
+        console.print(Panel(
+            success_msg,
+            title="[success]Success[/success]",
+            border_style="success",
+            box=box.ROUNDED,
+        ))
+    
+    except FileExistsError as e:
+        console.print(Panel(
+            f"[error]✗ {str(e)}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    except FileNotFoundError as e:
+        console.print(Panel(
+            f"[error]✗ {str(e)}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    except ValueError as e:
+        console.print(Panel(
+            f"[error]✗ {str(e)}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    except Exception as e:
+        console.print(Panel(
+            f"[error]✗ Failed to create protocol file: {e}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
         sys.exit(1)
 
 
