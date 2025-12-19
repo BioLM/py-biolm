@@ -35,20 +35,11 @@ Usage
 
 .. include:: usage/models.rst
 
-Synchronous and Asynchronous Usage
------------------------------------
+For more detailed information, see:
 
-.. include:: usage/async-sync.rst
-
-Batching and Input Formats
----------------------------
-
-.. include:: usage/batching.rst
-
-Error Handling
---------------
-
-.. include:: usage/error-handling.rst
+- :doc:`usage/async-sync` - Synchronous and asynchronous usage
+- :doc:`usage/batching` - Batching and input formats
+- :doc:`usage/error-handling` - Error handling strategies
 
 Generating Usage Examples
 -------------------------
