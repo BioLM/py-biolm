@@ -1,4 +1,4 @@
-``biolmai.Workspaces``
+``biolmai.workspaces``
 ======================
 
 Workspaces allow you to organize and manage your BioLM projects. This page covers workspace usage and API reference.
@@ -6,7 +6,7 @@ Workspaces allow you to organize and manage your BioLM projects. This page cover
 Usage
 -----
 
-Working with workspaces in the SDK.
+.. include:: usage/workspaces.rst
 
 API Reference
 -------------

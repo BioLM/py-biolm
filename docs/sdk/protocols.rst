@@ -1,4 +1,4 @@
-``biolmai.Protocols``
+``biolmai.protocols``
 =====================
 
 Protocols define reusable workflows for BioLM models. This page covers protocol usage, schema validation, and API reference.
@@ -6,7 +6,7 @@ Protocols define reusable workflows for BioLM models. This page covers protocol 
 Usage
 -----
 
-Working with protocols in the SDK.
+.. include:: usage/protocols.rst
 
 For detailed information about the Protocol YAML schema, see :doc:`../../protocols/yaml-reference/index`.
 

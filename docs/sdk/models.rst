@@ -30,6 +30,11 @@ Quick Start
     model = Model("esmfold")
     result = model.predict(items=[{"sequence": "MDNELE"}])
 
+Usage
+-----
+
+.. include:: usage/models.rst
+
 Synchronous and Asynchronous Usage
 -----------------------------------
 

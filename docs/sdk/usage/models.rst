@@ -1,11 +1,10 @@
-Models
-======
-
 Working with models in the SDK.
 
-.. note::
+The BioLM Python SDK provides several ways to interact with models:
 
-   **Documentation authors:** This page should contain usage examples and explanations for using models in the SDK. Add Python code examples, common workflows, and troubleshooting tips here.
+- **Convenience function** ``biolm()`` - Quick one-liner calls
+- **Model class** - Object-oriented interface for repeated operations
+- **Low-level clients** - ``BioLMApi`` and ``BioLMApiClient`` for advanced use cases
 
-   For API reference, see :doc:`../api-reference/index` (auto-generated from Python docstrings).
+All methods support batching, error handling, and various output formats.
 

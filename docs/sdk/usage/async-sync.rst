@@ -147,11 +147,3 @@ Best Practices
 - For batch jobs in scripts, `BioLMApi` gives you more control but stays synchronous.
 - Always use the async client in async code (e.g., FastAPI, aiohttp, etc).
 
-------------------------
-See Also
-------------------------
-
-- :doc:`batching`
-- :doc:`../rate_limiting`
-- :doc:`error-handling`
-- :doc:`../disk_output`

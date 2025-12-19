@@ -178,10 +178,3 @@ Best Practices
 - Always specify `type` if your items are not dicts.
 - For large jobs, consider `output='disk'` to avoid memory issues.
 
-------------------------
-See Also
-------------------------
-
-- :doc:`error-handling`
-- :doc:`../disk_output`
-- :doc:`../faq`
