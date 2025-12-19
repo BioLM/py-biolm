@@ -85,12 +85,12 @@ Validation Strategy
 
 **Phase 2: Semantic Validation (Custom Python)**
   - Validate template expression syntax
-  - Validate task ID references in ``depends_on``, ``from``, ``foreach``, ``outputs``
+  - Validate task ID references in ``depends_on``, ``from``, ``foreach``
   - Validate JSONPath syntax in ``response_mapping``
   - Validate slug/action mappings (requires API lookup)
   - Validate class/app/method combinations (requires API lookup)
   - Check for circular dependencies in task graph
-  - Validate that ``outputs`` references valid task IDs and fields
+  - Validate that ``outputs`` field references exist in the merged results
 
 **Phase 3: Runtime Validation (During Execution)**
   - Validate template expression evaluation

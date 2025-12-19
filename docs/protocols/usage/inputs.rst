@@ -11,10 +11,7 @@ Inputs are defined as a mapping (dictionary) where:
 - **Values** can be any YAML type (string, number, boolean, array, object)
 - **Values** may contain template expressions: ``${{ ... }}``
 
-Schema Definition
------------------
-
-.. jsonschema:: ../../../schema/protocol_schema.json#/properties/inputs
+**What it is:** An object (dictionary) where keys are input parameter names and values are default values. Inputs can be referenced throughout your protocol using ``${{ input_name }}`` and can be overridden when executing the protocol.
 
 Examples
 --------

@@ -61,7 +61,7 @@
       "items": {
         "$ref": "#/$defs/OutputRule"
       },
-      "description": "Output rules for MLflow logging. Each rule selects rows from the final merged results table, applies filtering/ordering, and specifies what to log."
+      "description": "Output rules for MLflow logging. Each rule operates on the final merged results table (a single list of records from all tasks), applies filtering/ordering, and specifies what to log to MLflow."
     },
     "execution": {
       "$ref": "#/$defs/Execution"
@@ -397,14 +397,10 @@
     },
     "OutputRule": {
       "type": "object",
-      "required": ["id"],
+      "required": [],
       "additionalProperties": false,
-      "description": "Output rule for MLflow logging",
+      "description": "Output rule for MLflow logging. Operates on the final merged results table from all tasks.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Task ID to select outputs from"
-        },
         "where": {
           "oneOf": [
             {"type": "string"},

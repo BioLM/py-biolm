@@ -18,11 +18,6 @@ There are two types of tasks:
 - **Gather tasks**: Collect and batch data from previous tasks
 - **Model tasks (API tasks)**: Execute API calls to BioLM models
 
-Schema Definition
------------------
-
-.. jsonschema:: ../../schema/protocol_schema.json#/properties/tasks
-
 Task Execution Model
 --------------------
 
@@ -52,7 +47,7 @@ Gather tasks collect data from a previous task and batch it for downstream proce
 - **Data transformation**: Selecting and combining specific fields
 - **Workflow control**: Creating checkpoints in the workflow
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/GatherTask
+**Gather Task Properties**:
 
 **Required fields**:
 - ``id``: Unique task identifier
@@ -110,7 +105,7 @@ Model tasks support two identification patterns. Choose based on your needs:
   - ``method``: Method name (e.g., ``"generate"``, ``"predict"``, ``"predict_log_prob"``)
   - **Use when**: Working with older protocols or specific method requirements
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/ApiTask
+**Model Task Properties**:
 
 **Required fields**:
 - ``id``: Unique task identifier
@@ -130,9 +125,9 @@ Request Body
 
 The ``request_body`` defines what to send to the API. It has two main parts:
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/RequestBody
+**Request Body Properties**:
 
-**items** (array or expression)
+**items** (array or expression, required)
   The input items to process. Can be:
   - A literal array: ``[{pdb: "...", chain: "A"}]``
   - A template expression: ``${{ previous_task.results }}``
@@ -161,7 +156,11 @@ Response Mapping
 
 The ``response_mapping`` extracts fields from the API response and makes them available to downstream tasks.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/ResponseMapping
+**Response Mapping Properties**:
+
+- **Type**: Object with string keys and JSONPath expression values
+- **Format**: Each key becomes a field name, each value is a JSONPath expression
+- **Example**: ``heavy: "${{ response.results[*].sequences[*].heavy }}"``
 
 **How it works**:
 - Each key becomes a field name available to downstream tasks

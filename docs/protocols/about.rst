@@ -24,17 +24,26 @@ Include the ``about`` field when:
 
 For internal or one-off protocols, you can omit this field entirely.
 
-Schema Definition
------------------
-
-.. jsonschema:: ../../schema/protocol_schema.json#/properties/about
-
-About Object Schema
--------------------
+About Object Structure
+----------------------
 
 The ``about`` object contains structured metadata. All fields are optional, but including at least a ``title`` and ``description`` is recommended.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/About
+**Example:**
+
+.. code-block:: yaml
+
+   about:
+     title: "Antibody Design Protocol"
+     description: "A workflow for designing antibody sequences"
+     authors:
+       - name: "Jane Smith"
+         affiliation: "BioLM Research"
+         email: "jane@biolm.ai"
+     keywords: ["antibody", "design", "protein"]
+     doi: "10.1234/example.doi"
+     links:
+       github: "https://github.com/biolm/protocols"
 
 Field Descriptions
 ------------------

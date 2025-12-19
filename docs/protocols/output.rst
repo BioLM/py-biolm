@@ -1,14 +1,13 @@
 ``outputs``
 ===========
 
-The ``outputs`` field defines output rules for MLflow logging. Each rule selects rows from the final merged results table, applies filtering/ordering, and specifies what to log (params, metrics, tags, aggregates, artifacts).
+The ``outputs`` field defines output rules for MLflow logging. Each rule operates on the final merged results table (a single list of records from all tasks), applies filtering/ordering, and specifies what to log (params, metrics, tags, aggregates, artifacts).
 
 Overview
 --------
 
 Output rules are the **interface** between your protocol execution and MLflow tracking. They allow you to:
 
-- **Select** which task outputs to log
 - **Filter** results using row-level expressions
 - **Order** results by specific fields
 - **Limit** the number of rows processed
@@ -22,43 +21,32 @@ Output rules are the **interface** between your protocol execution and MLflow tr
 
 If you don't need MLflow logging, you can omit the ``outputs`` field entirely.
 
-Schema Definition
------------------
-
-.. jsonschema:: ../../schema/protocol_schema.json#/properties/outputs
+**Important**: Protocols always output a single merged list of records from all tasks. The ``outputs`` field operates on this final merged results table, not on individual task outputs.
 
 How Output Rules Work
 ---------------------
 
 Output rules process results in this order:
 
-1. **Select**: Choose results from a specific task (via ``id``)
-2. **Filter**: Apply ``where`` expression to filter rows
-3. **Order**: Sort results by ``order_by`` specification
-4. **Limit**: Take top N rows (via ``limit``)
-5. **Log**: Extract and log specified fields to MLflow
+1. **Filter**: Apply ``where`` expression to filter rows from the merged results
+2. **Order**: Sort results by ``order_by`` specification
+3. **Limit**: Take top N rows (via ``limit``)
+4. **Log**: Extract and log specified fields to MLflow
 
-Each rule operates independently - you can have multiple rules logging different aspects of the same or different tasks.
+Each rule operates independently - you can have multiple rules logging different aspects of the merged results.
 
 Output Rule Structure
 ---------------------
 
 Each output rule specifies:
 
-- **id**: Task ID to select outputs from (required)
 - **where**: Optional row-level filter expression
 - **order_by**: Optional ordering specification
 - **limit**: Maximum rows to select (default: 200)
 - **run**: Optional MLflow run configuration
 - **log**: What to log (params, metrics, tags, aggregates, artifacts)
 
-Output Rule Schema
-------------------
-
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/OutputRule
-
-**id** (string, required)
-  The task ID whose results to process. The task must exist in the ``tasks`` array and must have a ``response_mapping``.
+**Output Rule Properties**:
 
 **where** (string, optional)
   Row-level filter expression. Only rows where this expression evaluates to ``true`` are included. Uses template expression syntax.
@@ -71,7 +59,7 @@ Output Rule Schema
   Sort specification. Results are sorted by the first field, then by the second, etc.
   
   Each entry has:
-  - ``field``: Field name to sort by (must exist in results)
+  - ``field``: Field name to sort by (must exist in the merged results)
   - ``order``: ``"asc"`` or ``"desc"``
 
 **limit** (integer, optional, default: 200)
@@ -88,7 +76,7 @@ Log Specification
 
 The ``log`` field defines what to log to MLflow. All fields are optional - include only what you need.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/LogSpec
+**Log Specification Properties**:
 
 **params** (object, optional)
   Parameters to log. Each key becomes a parameter name, each value is a template expression.
@@ -131,10 +119,20 @@ Aggregate Specification
 
 Aggregates compute statistics over the selected rows. Useful for summarizing results.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/AggregateSpec
+**Example:**
 
-**field** (string, required)
-  Field name to aggregate over. Must exist in the results.
+.. code-block:: yaml
+
+   aggregates:
+     - field: score
+       ops: [mean, max, p95]
+     - field: __rows__
+       ops: [count]
+
+**Fields:**
+
+**field** (required)
+  Field name to aggregate over. Must exist in the merged results. Use ``"__rows__"`` to count rows.
 
 **ops** (array, required)
   Operations to compute. Supported operations:
@@ -164,9 +162,23 @@ Artifact Specification
 
 Artifacts define files and data to log to MLflow. Supports various artifact types.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/ArtifactSpec
+**Example:**
 
-**type** (string, required)
+.. code-block:: yaml
+
+   artifacts:
+     - type: pdb
+       name: "best_structure.pdb"
+       content: "${{ designed_pdb }}"
+     - type: fasta
+       name: "sequences.fasta"
+       entries:
+         - id: "seq_1"
+           sequence: "${{ heavy }}"
+
+**Fields:**
+
+**type** (required)
   Artifact type. Common types:
   - ``pdb``: Protein structure files
   - ``fasta``: Sequence files
@@ -210,9 +222,19 @@ Sequence Entry
 
 Sequence entries are used in sequence-style artifacts (like FASTA files).
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/SequenceEntry
+**Example:**
 
-**id** (string, required)
+.. code-block:: yaml
+
+   entries:
+     - id: "seq_1"
+       sequence: "${{ heavy }}"
+       metadata:
+         chain: "H"
+
+**Fields:**
+
+**id** (optional)
   Sequence identifier.
 
 **sequence** (string, required)
@@ -227,13 +249,12 @@ Examples
 Basic Output Rule
 ~~~~~~~~~~~~~~~~~
 
-Log a simple metric from a task:
+Log a simple metric from the merged results:
 
 .. code-block:: yaml
 
    outputs:
-     - id: igbert_score
-       limit: 100
+     - limit: 100
        log:
          metrics:
            mean_log_prob: "${{ log_prob }}"
@@ -246,8 +267,7 @@ Filter results, order by score, and log multiple things:
 .. code-block:: yaml
 
    outputs:
-     - id: antifold_generate
-       where: "${{ score > 0.5 }}"           # Only high-scoring results
+     - where: "${{ score > 0.5 }}"           # Only high-scoring results
        order_by:
          - field: log_prob
            order: desc                       # Best first
@@ -265,18 +285,17 @@ Filter results, order by score, and log multiple things:
 Multiple Output Rules
 ~~~~~~~~~~~~~~~~~~~~~
 
-Log different aspects from different tasks:
+Log different aspects with different filters:
 
 .. code-block:: yaml
 
    outputs:
-     - id: igbert_score
+     - where: "${{ log_prob > -2.0 }}"
        log:
          metrics:
            mean_log_prob: "${{ log_prob }}"
      
-     - id: fold_designs
-       where: "${{ plddt > 0.8 }}"
+     - where: "${{ plddt > 0.8 }}"
        log:
          metrics:
            mean_plddt: "${{ plddt }}"
@@ -293,7 +312,7 @@ Log files and sequences:
 .. code-block:: yaml
 
    outputs:
-     - id: fold_designs
+     - where: "${{ plddt > 0.8 }}"
        log:
          artifacts:
            - type: pdb
@@ -320,8 +339,7 @@ Comprehensive output configuration:
 .. code-block:: yaml
 
    outputs:
-     - id: igbert_score
-       where: "${{ log_prob > -2.0 }}"
+     - where: "${{ log_prob > -2.0 }}"
        order_by:
          - field: log_prob
            order: desc
@@ -338,8 +356,7 @@ Comprehensive output configuration:
            - field: log_prob
              ops: [mean, std, p95]
      
-     - id: fold_designs
-       where: "${{ plddt > 0.8 }}"
+     - where: "${{ plddt > 0.8 }}"
        limit: 10
        log:
          artifacts:
@@ -365,8 +382,7 @@ Common Patterns
 .. code-block:: yaml
 
    outputs:
-     - id: scoring_task
-       order_by:
+     - order_by:
          - field: score
            order: desc
        limit: 10  # Top 10 only
@@ -379,21 +395,21 @@ Common Patterns
 .. code-block:: yaml
 
    outputs:
-     - id: scoring_task
-       log:
+     - log:
          aggregates:
            - field: score
              ops: [mean, std, min, max, p95]
 
-**Multi-task logging pattern**:
+**Multiple filtered views pattern**:
 
 .. code-block:: yaml
 
    outputs:
-     - id: generation_task
-       log:
-         params:
-           n_samples: "${{ n_samples }}"
-     - id: scoring_task
+     - where: "${{ score > 0.9 }}"
        log:
          metrics:
+           high_score_count: "${{ __rows__ }}"
+     - where: "${{ log_prob > -1.0 }}"
+       log:
+         metrics:
+           high_log_prob_mean: "${{ log_prob }}"

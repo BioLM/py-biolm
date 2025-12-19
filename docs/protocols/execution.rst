@@ -15,17 +15,15 @@ Execution configuration allows you to optimize protocol performance and behavior
 
 All execution sub-fields are optional. You can include only the ones you need.
 
-Schema Definition
------------------
-
-.. jsonschema:: ../../schema/protocol_schema.json#/properties/execution
-
 Progress Configuration
 ----------------------
 
 Progress tracking helps monitor long-running protocols. Set ``total_expected`` to the number of final records you expect, which enables progress percentage calculations.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/Progress
+**Progress Properties**:
+
+**total_expected** (integer or expression, optional)
+  Expected number of final records. Used to calculate progress percentage.
 
 **When to use**: Enable progress tracking when:
 - Protocols run for a long time
@@ -47,7 +45,25 @@ Ranking Configuration
 
 Ranking maintains a heap of the top-N results during execution, enabling real-time updates of the best results even before all tasks complete.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/Ranking
+**Example:**
+
+.. code-block:: yaml
+
+   execution:
+     ranking:
+       field: "log_prob"        # Field from response_mapping to rank by
+       order: "descending"       # "ascending" or "descending"
+       top_n: 10                 # Keep top 10 results
+
+**What each field does:**
+
+- **field**: The name of a field from your task's ``response_mapping``. This is the value that will be used to rank results. For example, if your response_mapping has a field called ``log_prob``, use ``"log_prob"`` here.
+
+- **order**: How to sort the results:
+  - ``"descending"``: Higher values are better (use for scores, probabilities, log probabilities)
+  - ``"ascending"``: Lower values are better (use for loss values, distances, errors)
+
+- **top_n**: How many top results to keep. Must be at least 1. You can use a number like ``10`` or an expression like ``${{ n_samples // 10 }}``.
 
 **When to use**: Enable ranking when:
 - You only care about the best N results
@@ -73,9 +89,9 @@ Concurrency Configuration
 
 Concurrency controls how many tasks run in parallel. This is crucial for performance optimization.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/Concurrency
+**Concurrency Properties**:
 
-**workflow** (integer or expression)
+**workflow** (integer or expression, required)
   Number of concurrent protocol instances. Each instance processes a portion of the work.
   
   - Higher values = more parallelism but more resource usage
@@ -108,9 +124,9 @@ Writing Configuration
 
 Writing configuration controls how results are written and deduplicated.
 
-.. jsonschema:: ../../schema/protocol_schema.json#/$defs/Writing
+**Writing Properties**:
 
-**deduplicate** (boolean)
+**deduplicate** (boolean, optional)
   Enable deduplication of results. When enabled, duplicate results (based on content) are filtered out.
   
   - ``true``: Remove duplicate results

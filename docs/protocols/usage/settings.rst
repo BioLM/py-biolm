@@ -12,17 +12,13 @@ Execution configuration includes:
 - **concurrency**: Concurrency control for workflow execution
 - **writing**: Output writing configuration
 
-Schema Definition
------------------
-
-.. jsonschema:: ../../../schema/protocol_schema.json#/properties/execution
-
 Progress Configuration
 ----------------------
 
 Progress tracking configuration for monitoring protocol execution.
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Progress
+**Properties**:
+- **total_expected** (integer or expression, optional): Expected number of final records
 
 **Example:**
 
@@ -37,7 +33,16 @@ Ranking Configuration
 
 Top-N ranking configuration for real-time updates during execution.
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Ranking
+**Properties**:
+
+**field** (string, required)
+  Field name from ``response_mapping`` to rank by. Must exist in the task's response mapping.
+
+**order** (string, required)
+  Sort order: ``"ascending"`` or ``"descending"``.
+
+**top_n** (integer or expression, required)
+  Number of top results to maintain. Must be at least 1.
 
 **Example:**
 
@@ -54,7 +59,9 @@ Concurrency Configuration
 
 Concurrency control for workflow execution.
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Concurrency
+**Properties**:
+- **workflow** (integer or expression, required): Number of concurrent protocol instances
+- **tasks** (integer or expression, required): Per-instance max concurrent sub-tasks
 
 **Example:**
 
@@ -70,7 +77,9 @@ Writing Configuration
 
 Output writing configuration for result handling.
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/Writing
+**Properties**:
+- **deduplicate** (boolean, optional): Enable deduplication of results
+- **max_dedupe_size** (integer or expression, optional): Maximum deduplication cache size in MB
 
 **Example:**
 

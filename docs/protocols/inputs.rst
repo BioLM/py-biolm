@@ -18,10 +18,12 @@ Inputs are defined as a mapping (dictionary) where:
 - **Values** can be any YAML type (string, number, boolean, array, object)
 - **Values** may contain template expressions: ``${{ ... }}``
 
-Schema Definition
------------------
+**Inputs Properties**:
 
-.. jsonschema:: ../../schema/protocol_schema.json#/properties/inputs
+- **Type**: Object (dictionary/mapping)
+- **Keys**: Input parameter names (must be valid identifiers)
+- **Values**: Any YAML type (string, number, boolean, array, object) or template expressions
+- **Evaluation**: Inputs are evaluated in order, so later inputs can reference earlier ones
 
 How Inputs Work
 ---------------

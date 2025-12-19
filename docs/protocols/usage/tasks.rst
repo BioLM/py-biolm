@@ -10,17 +10,19 @@ Tasks can be one of two types:
 - **Gather tasks**: Collect and batch data from previous tasks
 - **Model tasks (API tasks)**: Execute API calls to BioLM models
 
-Schema Definition
------------------
-
-.. jsonschema:: ../../../schema/protocol_schema.json#/properties/tasks
-
 Gather Tasks
 ------------
 
 Gather tasks collect and batch data from previous tasks.
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/GatherTask
+**Properties**:
+- **id** (string, required): Unique task identifier
+- **type** (string, required): Must be ``"gather"``
+- **from** (string, required): Source task ID to gather from
+- **fields** (array of strings, required): Field names to collect
+- **into** (integer or expression, optional): Batch size
+- **depends_on** (array of strings, optional): Task dependencies
+- **skip_if_empty** (boolean, optional): Skip if dependencies are empty
 
 **Example:**
 
@@ -48,21 +50,37 @@ Model tasks execute API calls to BioLM models. They support two identification p
   - ``app``: Application identifier (e.g., ``"antifold"``)
   - ``method``: Method name (e.g., ``"generate"``, ``"predict"``, ``"predict_log_prob"``)
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/ApiTask
+**Properties**:
+- **id** (string, required): Unique task identifier
+- **request_body** (object, required): API request payload
+- **One of** (required):
+  - **slug** (string or expression) + **action** (string)
+  - **class** (string) + **app** (string) + **method** (string)
+- **response_mapping** (object, optional): Maps API response to protocol fields
+- **depends_on** (array of strings, optional): Task dependencies
+- **foreach** (string or expression, optional): Iterate over array
+- **skip_if** (string or expression, optional): Conditional execution
+- **skip_if_empty** (boolean, optional): Skip if dependencies are empty
+- **fail_on_error** (boolean, optional): Whether to fail on errors (default: ``true``)
 
 Request Body
 ~~~~~~~~~~~~
 
 The ``request_body`` field defines the API request payload:
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/RequestBody
+**Properties**:
+- **items** (array or expression, required): Input items to process
+- **params** (object, optional): Additional parameters for the API call
 
 Response Mapping
 ~~~~~~~~~~~~~~~~~
 
 The ``response_mapping`` field maps API response fields to protocol fields:
 
-.. jsonschema:: ../../../schema/protocol_schema.json#/$defs/ResponseMapping
+**Properties**:
+- Object with string keys and JSONPath expression values
+- Each key becomes a field name available to downstream tasks
+- Each value is a JSONPath expression: ``"${{ response.path.to.field }}"``
 
 Examples
 --------
