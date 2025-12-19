@@ -1,6 +1,3 @@
-Protocols
-=========
-
 Working with protocols in the SDK.
 
 .. note::

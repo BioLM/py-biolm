@@ -1,6 +1,3 @@
-Workspaces
-==========
-
 Working with workspaces in the SDK.
 
 .. note::
