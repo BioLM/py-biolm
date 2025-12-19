@@ -694,20 +694,121 @@ def list():
 
 
 @protocol.command()
-@click.argument('protocol_id', required=False)
-def show(protocol_id):
+@click.argument('protocol_source', required=False)
+def show(protocol_source):
     """Show protocol details.
     
-    Display information about a specific protocol. If no protocol ID is provided,
-    lists all available protocols.
+    Display a formatted report about a protocol configuration. The protocol can be
+    specified either as a YAML file path or as a protocol ID from the platform.
+    
+    Examples:
+    
+        # Show protocol from YAML file
+        biolm protocol show protocol.yaml
+        
+        # Show protocol from platform by ID
+        biolm protocol show abc123
     """
-    console.print(Panel(
-        "[text.muted]Protocol commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to manage and execute BioLM protocols.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
+    from biolmai.protocols import Protocol
+    import os
+    
+    if not protocol_source:
+        console.print(Panel(
+            "[error]Protocol source required[/error]\n\n"
+            "Specify either a YAML file path or a protocol ID from the platform.\n\n"
+            "Examples:\n"
+            "  biolm protocol show protocol.yaml\n"
+            "  biolm protocol show abc123",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    try:
+        # Check if it's a file path (exists on filesystem or has YAML extension)
+        is_file = os.path.exists(protocol_source) or protocol_source.endswith(('.yaml', '.yml'))
+        
+        if is_file:
+            # Treat as file path
+            try:
+                if not os.path.exists(protocol_source):
+                    # File doesn't exist but has YAML extension - try anyway
+                    console.print(Panel(
+                        f"[warning]File not found: {protocol_source}[/warning]\n\n"
+                        "Trying to load as YAML file...",
+                        title="[warning]Warning[/warning]",
+                        border_style="warning",
+                        box=box.ROUNDED,
+                    ))
+                protocol_data = Protocol._load_yaml_static(protocol_source)
+                Protocol.render_report(protocol_data, source=f"file: {protocol_source}", console=console)
+            except FileNotFoundError:
+                console.print(Panel(
+                    f"[error]File not found: {protocol_source}[/error]",
+                    title="[error]Error[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+            except ValueError as e:
+                console.print(Panel(
+                    f"[error]Invalid protocol data: {e}[/error]",
+                    title="[error]Error[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+            except Exception as e:
+                console.print(Panel(
+                    f"[error]Failed to load protocol file: {e}[/error]",
+                    title="[error]Error[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+        else:
+            # Treat as protocol ID from platform
+            try:
+                with console.status("[brand]Fetching protocol from platform...[/brand]"):
+                    protocol_data = Protocol.fetch_by_id(protocol_source)
+                Protocol.render_report(protocol_data, source=f"platform: {protocol_source}", console=console)
+            except FileNotFoundError as e:
+                console.print(Panel(
+                    f"[error]{str(e)}[/error]",
+                    title="[error]Error[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+            except PermissionError as e:
+                console.print(Panel(
+                    f"[error]{str(e)}[/error]",
+                    title="[error]Authentication Error[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+            except ValueError as e:
+                # Could be from fetch_by_id or render_report
+                console.print(Panel(
+                    f"[error]{str(e)}[/error]",
+                    title="[error]Error[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+            except Exception as e:
+                console.print(Panel(
+                    f"[error]Unexpected error: {e}[/error]",
+                    title="[error]Error[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+    except KeyboardInterrupt:
+        console.print("\n[text.muted]Cancelled.[/text.muted]")
+        sys.exit(0)
 
 
 @protocol.command()
