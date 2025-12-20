@@ -40,30 +40,28 @@ outputs:
   - limit: 100
     log:
       metrics:
-        mean_log_prob: "${{ log_prob }}"
+        mean_log_prob: "${{ log_probs }}"
   
   # Example 2: Filtered and ordered outputs
-  - where: "${{ score > 0.5 }}"
+  - where: "${{ overall_confidence > 0.5 }}"
     order_by:
-      - field: log_prob
+      - field: log_probs
         order: desc
     limit: 50
     log:
-      params:
-        temperature: "${{ temperature }}"
-        n_samples: "${{ n_samples }}"
       metrics:
-        max_score: "${{ score }}"
-        best_log_prob: "${{ log_prob }}"
+        max_confidence: "${{ overall_confidence }}"
+        best_log_prob: "${{ log_probs }}"
+        seq_rec: "${{ seq_rec }}"
       aggregates:
-        - field: score
+        - field: overall_confidence
           ops: [mean, max, p95]
   
   # Example 3: Artifact logging
-  - where: "${{ plddt > 0.8 }}"
+  - where: "${{ overall_confidence > 0.8 }}"
     limit: 10
     log:
       artifacts:
         - type: pdb
           name: "top_structures.pdb"
-          content: "${{ designed_pdb }}"
+          content: "${{ pdb }}"

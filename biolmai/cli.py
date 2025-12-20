@@ -1122,6 +1122,295 @@ def init(filename, output, example, list_examples, force, interactive):
         sys.exit(1)
 
 
+@protocol.command()
+@click.argument('results', type=click.Path(exists=True))
+@click.option('--outputs', type=click.Path(exists=True), help='Outputs config YAML or protocol YAML file')
+@click.option('--experiment', required=True, help='MLflow experiment name')
+@click.option('--dry-run', is_flag=True, help='Prepare data without logging to MLflow')
+@click.option('--mlflow-uri', default='https://mlflow.biolm.ai/', help='MLflow tracking URI')
+@click.option('--aggregate-over', type=click.Choice(['selected', 'all']), default='selected', 
+              help='Compute aggregates over selected rows or all rows')
+@click.option('--protocol-name', help='Protocol name for metadata')
+@click.option('--protocol-version', help='Protocol version for metadata')
+def log(results, outputs, experiment, dry_run, mlflow_uri, aggregate_over, protocol_name, protocol_version):
+    """Log protocol results to MLflow.
+    
+    Log protocol execution results to MLflow based on the protocol's outputs
+    configuration. This command processes results, applies output rules (filtering,
+    ordering, limiting), and logs to MLflow with parent/child run structure.
+    
+    Examples:
+    
+        # Log results with outputs config from protocol file
+        biolm protocol log results.jsonl --outputs protocol.yaml --experiment my_experiment
+        
+        # Dry run to see what would be logged
+        biolm protocol log results.jsonl --outputs protocol.yaml --experiment my_experiment --dry-run
+        
+        # Use custom MLflow URI
+        biolm protocol log results.jsonl --outputs protocol.yaml --experiment my_experiment --mlflow-uri http://localhost:5000
+    """
+    try:
+        from biolmai.protocols_mlflow import (
+            MLflowNotAvailableError,
+            log_protocol_results,
+        )
+    except ImportError:
+        console.print(Panel(
+            "[error]MLflow logging functionality is not available.[/error]\n\n"
+            "Install MLflow support with: [brand]pip install biolmai[mlflow][/brand]",
+            title="[error]MLflow Not Available[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    if not outputs:
+        console.print(Panel(
+            "[error]--outputs option is required[/error]\n\n"
+            "Specify the outputs configuration file (protocol YAML or outputs config YAML).",
+            title="[error]Missing Outputs Config[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    try:
+        # Prepare protocol metadata
+        protocol_metadata = {}
+        
+        # Try to extract protocol name and version from protocol YAML if outputs is a protocol file
+        if outputs and os.path.exists(outputs):
+            try:
+                import yaml
+                with open(outputs, 'r') as f:
+                    protocol_data = yaml.safe_load(f)
+                    if isinstance(protocol_data, dict):
+                        # Extract protocol name if not provided via CLI
+                        if not protocol_name and "name" in protocol_data:
+                            protocol_metadata["name"] = protocol_data["name"]
+                        # Extract protocol version if not provided via CLI
+                        if not protocol_version:
+                            if "protocol_version" in protocol_data:
+                                protocol_metadata["version"] = protocol_data["protocol_version"]
+                            elif "about" in protocol_data and isinstance(protocol_data["about"], dict) and "version" in protocol_data["about"]:
+                                protocol_metadata["version"] = protocol_data["about"]["version"]
+                        # Extract inputs for parent run tags
+                        if "inputs" in protocol_data and isinstance(protocol_data["inputs"], dict):
+                            protocol_metadata["inputs"] = protocol_data["inputs"]
+            except Exception:
+                # If we can't load the protocol file, just continue with CLI-provided values
+                pass
+        
+        # CLI-provided values override extracted values
+        if protocol_name:
+            protocol_metadata["name"] = protocol_name
+        if protocol_version:
+            protocol_metadata["version"] = protocol_version
+        
+        # Log results
+        with console.status("[brand]Logging protocol results to MLflow...[/brand]"):
+            result = log_protocol_results(
+                results=results,
+                outputs_config=outputs,
+                experiment_name=experiment,
+                protocol_metadata=protocol_metadata if protocol_metadata else None,
+                mlflow_uri=mlflow_uri,
+                dry_run=dry_run,
+                aggregate_over=aggregate_over,
+            )
+        
+        # Display results
+        if dry_run:
+                # 1. Overall Summary Box
+                summary_content = (
+                    f"Experiment: [brand]{result['experiment_name']}[/brand]\n"
+                    f"Results processed: [text]{result['num_results']}[/text]\n"
+                    f"Results selected: [text]{result['num_selected']}[/text]\n"
+                    f"Aggregates computed: [text]{result['num_aggregates']}[/text]\n\n"
+                    f"[text.muted]No data was logged to MLflow (dry run mode).[/text.muted]"
+                )
+                console.print(Panel(
+                    summary_content,
+                    title="[success]Summary[/success]",
+                    border_style="success",
+                    box=box.ROUNDED,
+                ))
+                console.print()
+                
+                # 2. Protocol Run (Parent Run) Box with Tags, Parameters, and Aggregate Metrics
+                if "prepared_data" in result:
+                    prepared_data = result["prepared_data"]
+                    parent_content_lines = []
+                    
+                    # Parent run tags
+                    parent_tags = prepared_data.get("parent_tags", {})
+                    parent_metadata = prepared_data.get("parent_metadata", {})
+                    
+                    # Combine parent_tags and parent_metadata (metadata becomes tags in MLflow)
+                    all_parent_tags = {**parent_tags}
+                    for key, value in parent_metadata.items():
+                        if value is not None:
+                            if key == "inputs" and isinstance(value, dict):
+                                # Inputs are logged as individual tags with "input." prefix
+                                for input_key, input_value in value.items():
+                                    all_parent_tags[f"input.{input_key}"] = str(input_value)
+                            else:
+                                all_parent_tags[key] = str(value)
+                    
+                    if all_parent_tags:
+                        parent_content_lines.append("[bold]Tags:[/bold]")
+                        for tag_name, tag_value in sorted(all_parent_tags.items()):
+                            parent_content_lines.append(f"  {tag_name}: [brand]{tag_value}[/brand]")
+                        parent_content_lines.append("")
+                    
+                    # Parent run parameters (currently none, but structure is here)
+                    parent_params = prepared_data.get("parent_params", {})
+                    if parent_params:
+                        parent_content_lines.append("[bold]Parameters:[/bold]")
+                        for param_name, param_value in sorted(parent_params.items()):
+                            parent_content_lines.append(f"  {param_name}: [brand]{param_value}[/brand]")
+                        parent_content_lines.append("")
+                    
+                    # Aggregate metrics
+                    aggregate_metrics = prepared_data.get("aggregate_metrics", {})
+                    if aggregate_metrics:
+                        parent_content_lines.append("[bold]Aggregate Metrics:[/bold]")
+                        for metric_name, metric_value in sorted(aggregate_metrics.items()):
+                            if isinstance(metric_value, float):
+                                parent_content_lines.append(f"  {metric_name}: [brand]{metric_value:.6f}[/brand]")
+                            else:
+                                parent_content_lines.append(f"  {metric_name}: [brand]{metric_value}[/brand]")
+                    
+                    if parent_content_lines:
+                        console.print(Panel(
+                            "\n".join(parent_content_lines),
+                            title="[brand]Protocol Run (Parent Run)[/brand]",
+                            border_style="brand",
+                            box=box.ROUNDED,
+                        ))
+                        console.print()
+                
+                # 3. Table of Selected Results with MLflow Logging Fields
+                if "prepared_data" in result and result["prepared_data"].get("child_runs"):
+                    try:
+                        child_runs_list = result["prepared_data"]["child_runs"]
+                        
+                        # Create main table for selected results
+                        results_table = Table(
+                            title="Selected Results (Output Records)",
+                            show_header=True,
+                            header_style="brand.bold",
+                            box=box.ROUNDED,
+                            title_style="brand.bright",
+                        )
+                        results_table.add_column("#", style="text.muted", width=4, justify="right")
+                        results_table.add_column("Parameters", style="text", width=25)
+                        results_table.add_column("Metrics", style="text", width=25)
+                        results_table.add_column("Tags", style="text", width=20)
+                        results_table.add_column("Artifacts", style="text", width=20)
+                        
+                        for idx, child_data in enumerate(child_runs_list, 1):
+                            # Format parameters
+                            params = child_data.get("params", {})
+                            params_str = ", ".join([f"{k}={v}" for k, v in params.items()]) if params else "[text.muted]—[/text.muted]"
+                            if len(params_str) > 100:
+                                params_str = params_str[:97] + "..."
+                            
+                            # Format metrics
+                            metrics = child_data.get("metrics", {})
+                            metrics_str = ", ".join([f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}" for k, v in metrics.items()]) if metrics else "[text.muted]—[/text.muted]"
+                            if len(metrics_str) > 100:
+                                metrics_str = metrics_str[:97] + "..."
+                            
+                            # Format tags (include automatically added "type": "model")
+                            tags = child_data.get("tags", {}).copy()
+                            tags["type"] = "model"  # This is automatically added in MLflow logging
+                            tags_str = ", ".join([f"{k}={v}" for k, v in sorted(tags.items())]) if tags else "[text.muted]—[/text.muted]"
+                            if len(tags_str) > 80:
+                                tags_str = tags_str[:77] + "..."
+                            
+                            # Format artifacts
+                            artifacts = child_data.get("artifacts", [])
+                            if artifacts:
+                                artifact_list = []
+                                for artifact_name, artifact_content in artifacts:
+                                    size = len(artifact_content) if isinstance(artifact_content, str) else len(str(artifact_content))
+                                    artifact_list.append(f"{artifact_name} ({size} bytes)")
+                                artifacts_str = ", ".join(artifact_list)
+                            else:
+                                artifacts_str = "[text.muted]—[/text.muted]"
+                            if len(artifacts_str) > 80:
+                                artifacts_str = artifacts_str[:77] + "..."
+                            
+                            results_table.add_row(
+                                str(idx),
+                                params_str,
+                                metrics_str,
+                                tags_str,
+                                artifacts_str
+                            )
+                        
+                        console.print(results_table)
+                        console.print()
+                    except Exception as e:
+                        console.print(f"[error]Error displaying selected results: {e}[/error]")
+                        import traceback
+                        import sys
+                        exc_type, exc_value, exc_tb = sys.exc_info()
+                        console.print(f"[text.muted]Exception type: {exc_type.__name__}[/text.muted]")
+                        console.print(f"[text.muted]Exception message: {str(exc_value)}[/text.muted]")
+        else:
+            console.print(Panel(
+                f"[success]✓ Results logged successfully![/success]\n\n"
+                f"Experiment: [brand]{result['experiment_name']}[/brand]\n"
+                f"Parent run ID: [text]{result['parent_run_id']}[/text]\n"
+                f"Child runs: [text]{len(result['child_run_ids'])}[/text]\n"
+                f"Results processed: [text]{result['num_results']}[/text]\n"
+                f"Results selected: [text]{result['num_selected']}[/text]\n"
+                f"Aggregates computed: [text]{result['num_aggregates']}[/text]",
+                title="[success]Logging Complete[/success]",
+                border_style="success",
+                box=box.ROUNDED,
+            ))
+    
+    except MLflowNotAvailableError as e:
+        console.print(Panel(
+            f"[error]{str(e)}[/error]",
+            title="[error]MLflow Not Available[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    except FileNotFoundError as e:
+        console.print(Panel(
+            f"[error]File not found: {str(e)}[/error]",
+            title="[error]File Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    except ValueError as e:
+        console.print(Panel(
+            f"[error]{str(e)}[/error]",
+            title="[error]Validation Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    
+    except Exception as e:
+        console.print(Panel(
+            f"[error]Unexpected error: {str(e)}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+
+
 @cli.group(cls=RichGroup)
 def dataset():
     """Manage datasets.
