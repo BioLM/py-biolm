@@ -6,7 +6,7 @@ expression evaluation, and MLflow run creation.
 """
 import json
 import statistics
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -558,7 +558,7 @@ def prepare_logging_data(
         if protocol_metadata
         else None,
         "inputs": protocol_metadata.get("inputs") if protocol_metadata else None,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     
     return {

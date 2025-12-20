@@ -244,15 +244,21 @@ class TestArtifactGeneration:
         """Test generating seqparse format."""
         result = generate_seqparse("ACDEFGHIKLMNPQRSTVWY")
         data = json.loads(result)
-        assert "entries" in data
-        assert len(data["entries"]) == 1
-        assert data["entries"][0]["sequence"] == "ACDEFGHIKLMNPQRSTVWY"
+        # Check proper seqparse format: name, type, seq, annotations
+        assert "name" in data
+        assert "type" in data
+        assert "seq" in data
+        assert "annotations" in data
+        assert data["seq"] == "ACDEFGHIKLMNPQRSTVWY"
+        assert data["type"] == "aa"  # Amino acid sequence
+        assert isinstance(data["annotations"], list)
 
     def test_generate_seqparse_with_id(self):
         """Test generating seqparse with ID."""
         result = generate_seqparse("ACDEFGHIKLMNPQRSTVWY", sequence_id="seq1")
         data = json.loads(result)
-        assert data["entries"][0]["id"] == "seq1"
+        assert data["name"] == "seq1"
+        assert data["seq"] == "ACDEFGHIKLMNPQRSTVWY"
 
     def test_prepare_artifact_seqparse(self):
         """Test preparing seqparse artifact."""
@@ -265,7 +271,11 @@ class TestArtifactGeneration:
         name, content = prepare_artifact(artifact_spec, result)
         assert name == "sequence.json"
         data = json.loads(content)
-        assert "entries" in data
+        # Check proper seqparse format
+        assert "name" in data
+        assert "type" in data
+        assert "seq" in data
+        assert "annotations" in data
 
 
 class TestLoadFunctions:
@@ -404,10 +414,16 @@ class TestMLflowIntegration:
         mock_experiment.experiment_id = "exp123"
         mock_client.get_experiment_by_name.return_value = mock_experiment
 
+        # Setup context manager mocks for start_run
         mock_parent_run = MagicMock()
         mock_parent_run.info.run_id = "parent123"
+        mock_parent_run.__enter__ = MagicMock(return_value=mock_parent_run)
+        mock_parent_run.__exit__ = MagicMock(return_value=None)
+        
         mock_child_run = MagicMock()
         mock_child_run.info.run_id = "child123"
+        mock_child_run.__enter__ = MagicMock(return_value=mock_child_run)
+        mock_child_run.__exit__ = MagicMock(return_value=None)
 
         mock_mlflow.start_run.side_effect = [mock_parent_run, mock_child_run]
 
