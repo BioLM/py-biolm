@@ -261,8 +261,8 @@ def test_generate_python_example(mock_model_schema_encode):
     assert "from biolmai import Model" in example
     assert "Model(\"esm2-8m\")" in example
     assert "model.encode" in example
-    assert "from biolmai import biolm" in example
-    assert "Batch processing" in example or "batch" in example.lower()
+    # Should be a single, simple example (not multiple variations)
+    assert example.count("from biolmai import Model") == 1
     
     generator.shutdown()
 

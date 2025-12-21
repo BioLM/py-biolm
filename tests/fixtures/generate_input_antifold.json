@@ -1,0 +1,5 @@
+[
+  {
+    "pdb": "HEADER    PROTEIN                           01-JAN-23   TEST\nTITLE     TEST STRUCTURE\nATOM      1  N   MET A   1      20.154  16.967  19.502  1.00 30.00           N\nATOM      2  CA  MET A   1      19.032  15.993  19.443  1.00 30.00           C\nATOM      3  C   MET A   1      17.694  16.677  19.443  1.00 30.00           C\nATOM      4  O   MET A   1      17.615  17.901  19.443  1.00 30.00           O\nATOM      5  CB  MET A   1      19.032  15.993  19.443  1.00 30.00           C\nATOM      6  CG  MET A   1      19.032  15.993  19.443  1.00 30.00           C\nATOM      7  SD  MET A   1      19.032  15.993  19.443  1.00 30.00           S\nATOM      8  CE  MET A   1      19.032  15.993  19.443  1.00 30.00           C\nEND\n"
+  }
+]

@@ -1,4 +1,4 @@
-``biolmai.Volumes``
+``biolmai.volumes``
 ===================
 
 Volumes provide persistent storage for BioLM workflows. This page covers volume usage and API reference.

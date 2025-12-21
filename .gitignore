@@ -110,4 +110,5 @@ ENV/
 
 # Examples
 examples/
+cursor_examples/
 .vercel

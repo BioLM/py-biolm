@@ -28,6 +28,8 @@ requirements = [
     "aiofiles",
     "cryptography",
     "rich>=13.0.0",
+    "jsonschema>=4.0.0",
+    "pyyaml>=5.0",
 ]
 
 test_requirements = [

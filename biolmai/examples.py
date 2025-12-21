@@ -91,6 +91,55 @@ class ExampleGenerator:
         log.warning("Could not fetch community models from any endpoint")
         return []
     
+    async def fetch_model_details(self, model_slug: str, code_examples: bool = False, exclude_docs_html: bool = True) -> Optional[Dict[str, Any]]:
+        """
+        Fetch detailed information for a specific model from community-api-models endpoint.
+        
+        Args:
+            model_slug: Model slug (e.g., 'esmfold')
+            code_examples: If True, include code examples in the response
+            exclude_docs_html: If True, exclude HTML documentation
+            
+        Returns:
+            Model details dictionary or None if not found
+        """
+        # Try both possible endpoint locations
+        endpoints = [
+            f"{self.base_url}/api/ui/community-api-models/{model_slug}/",
+            f"{self.base_url}/ui/community-api-models/{model_slug}/",
+        ]
+        
+        # Build query parameters
+        params = {}
+        if code_examples:
+            params['code_examples'] = 'true'
+        if exclude_docs_html:
+            params['exclude_docs_html'] = 'true'
+        
+        for endpoint in endpoints:
+            try:
+                async with httpx.AsyncClient(
+                    base_url=self.base_url,
+                    headers=self._headers,
+                    timeout=DEFAULT_TIMEOUT
+                ) as client:
+                    if "/api/ui/" in endpoint:
+                        url = endpoint.replace(self.base_url, "")
+                    else:
+                        url = endpoint.replace(self.base_url, "")
+                    
+                    resp = await client.get(url, params=params if params else None)
+                    if resp.status_code == 200:
+                        return resp.json()
+                    elif resp.status_code == 404:
+                        log.debug(f"Model {model_slug} not found at {endpoint}")
+                        return None
+            except Exception as e:
+                log.debug(f"Failed to fetch model details from {endpoint}: {e}")
+                continue
+        
+        return None
+    
     async def get_model_schema(self, model_name: str, action: str) -> Optional[Dict[str, Any]]:
         """
         Get schema for a model and action.
@@ -483,6 +532,33 @@ def list_models(api_key: Optional[str] = None, base_url: Optional[str] = None) -
     generator = ExampleGeneratorSync(api_key=api_key, base_url=base_url)
     try:
         return generator.fetch_community_models()
+    finally:
+        generator.shutdown()
+
+
+def get_model_details(
+    model_slug: str,
+    code_examples: bool = False,
+    exclude_docs_html: bool = True,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch detailed information for a specific model (synchronous).
+    
+    Args:
+        model_slug: Model slug (e.g., 'esmfold').
+        code_examples: If True, include code examples in the response.
+        exclude_docs_html: If True, exclude HTML documentation.
+        api_key: Optional API key.
+        base_url: Optional base URL.
+        
+    Returns:
+        Model details dictionary or None if not found.
+    """
+    generator = ExampleGeneratorSync(api_key=api_key, base_url=base_url)
+    try:
+        return generator.fetch_model_details(model_slug, code_examples, exclude_docs_html)
     finally:
         generator.shutdown()
 

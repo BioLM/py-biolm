@@ -1,6 +1,10 @@
 """Console script for biolmai."""
 import os
 import sys
+from pathlib import Path
+from typing import Optional, Union, Any, List, Dict
+import json
+import builtins
 
 import click
 from click.formatting import HelpFormatter
@@ -24,7 +28,9 @@ from biolmai.core.const import (
     BIOLMAI_BASE_API_URL,
     BIOLMAI_PUBLIC_CLIENT_ID,
 )
-from biolmai.examples import get_example, list_models
+from biolmai.examples import get_example, list_models, get_model_details
+from biolmai.io import load_fasta, load_csv, load_pdb, load_json, to_fasta, to_csv, to_pdb, to_json
+from biolmai.models import Model
 
 # Create custom theme with BioLM brand colors
 brand_theme = Theme({
@@ -530,6 +536,353 @@ def delete(workspace_id):
     ))
 
 
+# Helper functions for model commands
+def _format_tags(tags: List[str]) -> str:
+    """Format tags with emoji and color."""
+    if not tags:
+        return "[text.muted]—[/text.muted]"
+    # Show first 5 tags, color each tag
+    tag_colors = ["accent", "brand", "success", "warning", "brand.bright"]
+    formatted_tags = []
+    for i, tag in enumerate(tags[:5]):
+        color = tag_colors[i % len(tag_colors)]
+        formatted_tags.append(f"[{color}]🏷️ {tag}[/{color}]")
+    result = " ".join(formatted_tags)
+    if len(tags) > 5:
+        result += f" [text.muted](+{len(tags) - 5} more)[/text.muted]"
+    return result
+
+
+def _format_actions(actions: List[str]) -> str:
+    """Format actions with emojis and colors."""
+    if not actions:
+        return "[text.muted]—[/text.muted]"
+    
+    action_emojis = {
+        'encode': '🔢',
+        'predict': '🔮',
+        'generate': '✨',
+        'classify': '🏷️',
+        'similarity': '🔍',
+        'lookup': '🔎',
+    }
+    
+    action_colors = {
+        'encode': 'brand',
+        'predict': 'success',
+        'generate': 'accent',
+        'classify': 'warning',
+        'similarity': 'brand.bright',
+        'lookup': 'text',
+    }
+    
+    formatted = []
+    for action in actions:
+        emoji = action_emojis.get(action, '⚡')
+        color = action_colors.get(action, 'text')
+        formatted.append(f"[{color}]{emoji} {action}[/{color}]")
+    
+    return " ".join(formatted)
+
+
+def _format_description(description: str, max_length: int = 100) -> str:
+    """Format description with emoji and color."""
+    if not description:
+        return "[text.muted]—[/text.muted]"
+    
+    truncated = description
+    if len(description) > max_length:
+        truncated = description[:max_length - 3] + "..."
+    
+    return f"[text]📝 {truncated}[/text]"
+
+
+def _format_date(date_str: str, include_emoji: bool = True) -> str:
+    """Format date with emoji and color."""
+    if not date_str:
+        return "[text.muted]—[/text.muted]"
+    
+    # Try to parse and format date
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        formatted_date = dt.strftime('%Y-%m-%d')
+        emoji = "📅 " if include_emoji else ""
+        return f"[text.muted]{emoji}{formatted_date}[/text.muted]"
+    except:
+        emoji = "📅 " if include_emoji else ""
+        return f"[text.muted]{emoji}{date_str}[/text.muted]"
+
+
+def _format_capability(value: bool, label: str) -> str:
+    """Format capability (encoder, predictor, etc.) with emoji."""
+    if value:
+        return f"[success]✅ {label}[/success]"
+    else:
+        return f"[text.muted]❌ {label}[/text.muted]"
+
+
+def _parse_filter_expression(filter_str: str) -> tuple[str, Any]:
+    """Parse filter expression like 'encoder=true' or 'model_name=esm2'.
+    
+    Args:
+        filter_str: Filter expression string (e.g., 'encoder=true', 'model_name=esm2')
+        
+    Returns:
+        Tuple of (field_name, expected_value)
+        
+    Raises:
+        ValueError: If filter expression is invalid
+    """
+    if '=' not in filter_str:
+        raise ValueError(f"Invalid filter expression: {filter_str}. Expected format: field=value")
+    
+    field, value_str = filter_str.split('=', 1)
+    field = field.strip()
+    value_str = value_str.strip()
+    
+    # Try to convert value to appropriate type
+    if value_str.lower() == 'true':
+        value = True
+    elif value_str.lower() == 'false':
+        value = False
+    elif value_str.lower() == 'null' or value_str.lower() == 'none':
+        value = None
+    elif value_str.isdigit():
+        value = int(value_str)
+    else:
+        # Try float
+        try:
+            value = float(value_str)
+        except ValueError:
+            # Keep as string
+            value = value_str
+    
+    return field, value
+
+
+def _filter_models(models: List[Dict], filter_expr: str) -> List[Dict]:
+    """Filter model list based on filter expression.
+    
+    Args:
+        models: List of model dictionaries
+        filter_expr: Filter expression (e.g., 'encoder=true')
+        
+    Returns:
+        Filtered list of models
+    """
+    if not filter_expr:
+        return models
+    
+    field, expected_value = _parse_filter_expression(filter_expr)
+    
+    filtered = []
+    for model in models:
+        # Handle both old and new API response formats
+        model_value = model.get(field)
+        if model_value is None:
+            # Try alternative field names
+            if field == 'model_name':
+                model_value = model.get('name')
+            elif field == 'model_slug':
+                model_value = model.get('slug')
+        
+        if model_value == expected_value:
+            filtered.append(model)
+    
+    return filtered
+
+
+def _sort_models(models: List[Dict], sort_field: str) -> List[Dict]:
+    """Sort model list by field.
+    
+    Args:
+        models: List of model dictionaries
+        sort_field: Field name to sort by (optionally prefixed with '-' for descending)
+        
+    Returns:
+        Sorted list of models
+    """
+    if not sort_field:
+        return models
+    
+    # Check for descending sort
+    descending = False
+    if sort_field.startswith('-'):
+        descending = True
+        sort_field = sort_field[1:]
+    
+    def get_sort_value(model: dict) -> Any:
+        """Get sort value from model, handling various field names."""
+        value = model.get(sort_field)
+        if value is None:
+            # Try alternative field names
+            if sort_field == 'model_name':
+                value = model.get('name')
+            elif sort_field == 'model_slug':
+                value = model.get('slug')
+        
+        # Handle None values (put at end)
+        if value is None:
+            return '' if not descending else 'zzz'
+        
+        # Convert to comparable type
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value
+        return str(value).lower()
+    
+    return sorted(models, key=get_sort_value, reverse=descending)
+
+
+def _detect_file_format(file_path: Union[str, Path]) -> str:
+    """Detect file format from extension.
+    
+    Args:
+        file_path: Path to file or file-like object
+        
+    Returns:
+        Format string: 'fasta', 'csv', 'pdb', 'json', or 'unknown'
+    """
+    # Handle file-like objects (StringIO, etc.) - can't detect from extension
+    if hasattr(file_path, 'read') and not hasattr(file_path, 'suffix'):
+        return 'unknown'
+    
+    if isinstance(file_path, str):
+        file_path = Path(file_path)
+    
+    # Check if it's a Path object with suffix
+    if not hasattr(file_path, 'suffix'):
+        return 'unknown'
+    
+    ext = file_path.suffix.lower()
+    
+    if ext in ['.fasta', '.fa', '.fas']:
+        return 'fasta'
+    elif ext == '.csv':
+        return 'csv'
+    elif ext == '.pdb':
+        return 'pdb'
+    elif ext in ['.json', '.jsonl']:
+        return 'json'
+    else:
+        return 'unknown'
+
+
+def _load_input_data(file_path: Union[str, Path], format: Optional[str] = None, type: Optional[str] = None) -> List[Dict]:
+    """Load input data from file using appropriate IO module.
+    
+    Args:
+        file_path: Path to input file or '-' for stdin
+        format: Format override ('fasta', 'csv', 'pdb', 'json')
+        type: Input type override (for API requests)
+        
+    Returns:
+        List of dictionaries ready for API requests
+        
+    Raises:
+        ValueError: If format cannot be determined or file cannot be loaded
+        FileNotFoundError: If file doesn't exist
+    """
+    # Handle stdin
+    if file_path == '-' or (isinstance(file_path, str) and file_path == '-'):
+        if not format:
+            raise ValueError("Format must be specified when reading from stdin (use --format)")
+        file_path = sys.stdin
+    else:
+        # Auto-detect format if not provided
+        if not format:
+            format = _detect_file_format(file_path)
+            if format == 'unknown':
+                raise ValueError(
+                    f"Cannot detect file format from extension. "
+                    f"Please specify --format option. "
+                    f"Supported formats: fasta, csv, pdb, json"
+                )
+    
+    # Load data based on format
+    # CRITICAL: Validate format before loading to prevent JSON files being read as FASTA
+    if format == 'json':
+        data = load_json(file_path)
+        # Validate that we got proper dicts, not strings
+        if data and isinstance(data[0], str):
+            raise ValueError(
+                f"JSON file appears to be parsed incorrectly. "
+                f"This usually means format detection failed. "
+                f"File: {file_path}, Detected format: {format}. "
+                f"Try specifying --format json explicitly."
+            )
+    elif format == 'fasta':
+        data = load_fasta(file_path)
+        # Convert to API format if type is specified
+        if type:
+            data = [{type: item.get('sequence', '')} for item in data]
+    elif format == 'csv':
+        data = load_csv(file_path)
+        # Convert to API format if type is specified
+        if type:
+            # Assume first column or 'sequence' column contains the data
+            for item in data:
+                if type not in item:
+                    # Try to find sequence-like data
+                    if 'sequence' in item:
+                        item[type] = item.pop('sequence')
+                    else:
+                        # Use first value
+                        first_key = next(iter(item.keys()), None)
+                        if first_key:
+                            item[type] = item.pop(first_key)
+    elif format == 'pdb':
+        data = load_pdb(file_path)
+    else:
+        raise ValueError(f"Unsupported format: {format}. Supported: json, fasta, csv, pdb")
+    
+    return data
+
+
+def _save_output_data(data: List[Dict], file_path: Optional[Union[str, Path]], format: Optional[str] = None) -> None:
+    """Save output data to file using appropriate IO module.
+    
+    Args:
+        data: List of dictionaries from API response
+        file_path: Path to output file, None for stdout, or '-' for stdout
+        format: Format override ('json', 'fasta', 'csv', 'pdb')
+        
+    Raises:
+        ValueError: If format cannot be determined
+    """
+    # Determine format
+    if file_path and file_path != '-':
+        if not format:
+            format = _detect_file_format(file_path)
+            if format == 'unknown':
+                # Default to JSON
+                format = 'json'
+    else:
+        # stdout - default to JSON
+        if not format:
+            format = 'json'
+        file_path = '-'
+    
+    # Save data based on format
+    if format == 'json':
+        # Check if JSONL based on extension
+        jsonl = False
+        if file_path != '-' and isinstance(file_path, (str, Path)):
+            if Path(file_path).suffix == '.jsonl':
+                jsonl = True
+        to_json(data, file_path, jsonl=jsonl)
+    elif format == 'fasta':
+        to_fasta(data, file_path)
+    elif format == 'csv':
+        to_csv(data, file_path)
+    elif format == 'pdb':
+        to_pdb(data, file_path)
+    else:
+        raise ValueError(f"Unsupported output format: {format}")
+
+
 @cli.group(cls=RichGroup)
 def model():
     """Work with BioLM models.
@@ -540,53 +893,1020 @@ def model():
 
 
 @model.command()
-def list():
+@click.option('--filter', help='Filter models (e.g., encoder=true, model_name=esm2)')
+@click.option('--sort', help='Sort by field (e.g., model_name, -model_name for descending)')
+@click.option('--format', type=click.Choice(['table', 'json', 'yaml', 'csv']), default='table', help='Output format')
+@click.option('--output', '-o', type=click.Path(), help='Save output to file')
+@click.option('--fields', help='Comma-separated list of fields to display')
+@click.option('--view', type=click.Choice(['compact', 'detailed', 'full', 'enriched']), help='Predefined field views (enriched includes description, tags, etc.)')
+def list(filter, sort, format, output, fields, view):
     """List available models.
     
-    Display a list of all available BioLM models.
-    """
-    console.print(Panel(
-        "[text.muted]Model commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to list and explore BioLM models.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
-
-
-@model.command()
-@click.argument('model_name', required=False)
-def show(model_name):
-    """Show model details.
+    Display a list of all available BioLM models with filtering, sorting, and
+    various output format options.
     
-    Display information about a specific model. If no model name is provided,
-    lists all available models.
+    Examples:
+    
+        # List all models
+        biolm model list
+        
+        # Filter for encoder models
+        biolm model list --filter encoder=true
+        
+        # Sort by model name
+        biolm model list --sort model_name
+        
+        # Output as JSON
+        biolm model list --format json --output models.json
+        
+        # Compact view
+        biolm model list --view compact
     """
-    console.print(Panel(
-        "[text.muted]Model commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to explore and use BioLM models.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
+    try:
+        with console.status("[brand]Fetching models...[/brand]"):
+            models = list_models()
+        
+        if not models:
+            console.print(Panel(
+                "[error]No models found.[/error]\n\n"
+                "Please check your connection and authentication.",
+                title="[error]Error[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Apply filtering
+        if filter:
+            try:
+                models = _filter_models(models, filter)
+            except ValueError as e:
+                console.print(Panel(
+                    f"[error]{str(e)}[/error]",
+                    title="[error]Invalid Filter[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+        
+        # Apply sorting
+        if sort:
+            models = _sort_models(models, sort)
+        
+        if not models:
+            console.print("[text.muted]No models match the specified filter.[/text.muted]")
+            sys.exit(0)
+        
+        # Determine fields to display
+        if view:
+            if view == 'compact':
+                default_fields = ['model_name', 'model_slug', 'actions']
+            elif view == 'detailed':
+                default_fields = ['model_name', 'model_slug', 'actions', 'encoder', 'predictor', 'generator']
+            elif view == 'enriched':
+                default_fields = ['model_name', 'model_slug', 'actions', 'description', 'tags', 'created_at']
+            else:  # full
+                default_fields = None  # Show all fields
+        else:
+            default_fields = ['model_name', 'model_slug', 'actions']
+        
+        if fields:
+            display_fields = [f.strip() for f in fields.split(',')]
+        else:
+            display_fields = default_fields
+        
+        # Output based on format
+        if format == 'json':
+            output_data = json.dumps(models, indent=2, default=str)
+            if output:
+                with open(output, 'w') as f:
+                    f.write(output_data)
+                console.print(f"[success]✓ Models saved to {output}[/success]")
+            else:
+                console.print(output_data)
+        elif format == 'yaml':
+            try:
+                import yaml
+                output_data = yaml.dump(models, default_flow_style=False, allow_unicode=True)
+                if output:
+                    with open(output, 'w') as f:
+                        f.write(output_data)
+                    console.print(f"[success]✓ Models saved to {output}[/success]")
+                else:
+                    console.print(output_data)
+            except ImportError:
+                console.print(Panel(
+                    "[error]PyYAML is required for YAML output.[/error]\n\n"
+                    "Install with: pip install pyyaml",
+                    title="[error]Missing Dependency[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+        elif format == 'csv':
+            if not models:
+                console.print("[text.muted]No models to display.[/text.muted]")
+                sys.exit(0)
+            
+            # Flatten models for CSV
+            csv_data = []
+            for model in models:
+                row = {}
+                # Handle both old and new API formats
+                for field in display_fields if display_fields else model.keys():
+                    value = model.get(field)
+                    if value is None:
+                        # Try alternative field names
+                        if field == 'model_name':
+                            value = model.get('name')
+                        elif field == 'model_slug':
+                            value = model.get('slug')
+                        elif field == 'actions':
+                            # Build actions list
+                            actions = []
+                            if 'actions' in model and isinstance(model['actions'], builtins.list):
+                                actions = model['actions']
+                            else:
+                                if model.get('encoder'):
+                                    actions.append('encode')
+                                if model.get('predictor'):
+                                    actions.append('predict')
+                                if model.get('generator'):
+                                    actions.append('generate')
+                                if model.get('classifier'):
+                                    actions.append('classify')
+                                if model.get('similarity'):
+                                    actions.append('similarity')
+                            value = ', '.join(actions) if actions else ''
+                    
+                    # Convert value to string
+                    if isinstance(value, (builtins.list, builtins.dict)):
+                        value = json.dumps(value)
+                    elif value is None:
+                        value = ''
+                    else:
+                        value = str(value)
+                    
+                    row[field] = value
+                csv_data.append(row)
+            
+            to_csv(csv_data, output if output else '-')
+            if output:
+                console.print(f"[success]✓ Models saved to {output}[/success]")
+        else:  # table format
+            table = Table(
+                title="[brand]🤖 Available BioLM Models[/brand]",
+                show_header=True,
+                header_style="brand.bold",
+                box=box.ROUNDED,
+                title_style="brand.bright",
+            )
+            
+            # Add columns based on display_fields with emojis
+            emoji_map = {
+                'model_name': '🤖',
+                'model_slug': '🔗',
+                'actions': '⚡',
+                'description': '📝',
+                'tags': '🏷️',
+                'created_at': '📅',
+                'encoder': '🔢',
+                'predictor': '🔮',
+                'generator': '✨',
+            }
+            if display_fields:
+                for field in display_fields:
+                    # Use friendly column names with emojis
+                    emoji = emoji_map.get(field, '')
+                    col_name = f"{emoji} {field.replace('_', ' ').title()}" if emoji else field.replace('_', ' ').title()
+                    table.add_column(col_name, style="text")
+            else:
+                # Show all available fields (limit to common ones)
+                common_fields = ['model_name', 'model_slug', 'actions', 'encoder', 'predictor', 'generator']
+                for field in common_fields:
+                    col_name = field.replace('_', ' ').title()
+                    table.add_column(col_name, style="text")
+            
+            # Add rows
+            for model in models[:100]:  # Limit to first 100 for display
+                row_data = []
+                
+                fields_to_use = display_fields if display_fields else ['model_name', 'model_slug', 'actions']
+                for field in fields_to_use:
+                    value = model.get(field)
+                    if value is None:
+                        # Try alternative field names
+                        if field == 'model_name':
+                            value = model.get('name') or 'Unknown'
+                        elif field == 'model_slug':
+                            value = model.get('slug') or 'N/A'
+                        elif field == 'actions':
+                            # Build actions list
+                            actions = []
+                            if 'actions' in model and isinstance(model['actions'], builtins.list):
+                                actions = model['actions']
+                            else:
+                                if model.get('encoder'):
+                                    actions.append('encode')
+                                if model.get('predictor'):
+                                    actions.append('predict')
+                                if model.get('generator'):
+                                    actions.append('generate')
+                                if model.get('classifier'):
+                                    actions.append('classify')
+                                if model.get('similarity'):
+                                    actions.append('similarity')
+                            value = ', '.join(actions) if actions else 'N/A'
+                        else:
+                            value = 'N/A'
+                    
+                    # Format value for display with colors and emojis
+                    if field == 'tags' and isinstance(value, builtins.list):
+                        value = _format_tags(value)
+                    elif field == 'actions':
+                        # Actions might be a list or we need to build it
+                        if isinstance(value, builtins.list):
+                            value = _format_actions(value)
+                        else:
+                            # Build actions list from boolean flags if needed
+                            actions_list = []
+                            if 'actions' in model and isinstance(model['actions'], builtins.list):
+                                actions_list = model['actions']
+                            else:
+                                if model.get('encoder'):
+                                    actions_list.append('encode')
+                                if model.get('predictor'):
+                                    actions_list.append('predict')
+                                if model.get('generator'):
+                                    actions_list.append('generate')
+                                if model.get('classifier'):
+                                    actions_list.append('classify')
+                                if model.get('similarity'):
+                                    actions_list.append('similarity')
+                            value = _format_actions(actions_list)
+                    elif field == 'description' and isinstance(value, str):
+                        value = _format_description(value)
+                    elif field == 'created_at' and isinstance(value, str):
+                        value = _format_date(value)
+                    elif field in ['encoder', 'predictor', 'generator', 'classifier', 'similarity'] and isinstance(value, bool):
+                        value = _format_capability(value, field.replace('_', ' ').title())
+                    elif isinstance(value, bool):
+                        value = '[success]✓[/success]' if value else '[text.muted]✗[/text.muted]'
+                    elif isinstance(value, (builtins.list, builtins.dict)):
+                        value = json.dumps(value)
+                    elif value is None:
+                        value = '[text.muted]—[/text.muted]'
+                    else:
+                        # Default: just convert to string
+                        value = str(value)
+                    
+                    row_data.append(value)
+                
+                table.add_row(*row_data)
+            
+            if len(models) > 100:
+                table.add_row(*(['...'] * len(fields_to_use)))
+                console.print(f"\n[text.muted]Showing first 100 of {len(models)} models. Use --filter to narrow results.[/text.muted]")
+            
+            console.print(table)
+            if output:
+                # Also save table data to file as JSON
+                with open(output, 'w') as f:
+                    json.dump(models, f, indent=2, default=str)
+                console.print(f"\n[success]✓ Model data saved to {output}[/success]")
+    
+    except Exception as e:
+        console.print(Panel(
+            f"[error]Error listing models: {e}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]{e.__cause__}[/text.muted]")
+        sys.exit(1)
 
 
 @model.command()
 @click.argument('model_name')
-@click.option('--input', '-i', help='Input data for the model')
-@click.option('--output', '-o', help='Output file path')
-def run(model_name, input, output):
+@click.option('--format', type=click.Choice(['table', 'json', 'yaml']), default='table', help='Output format')
+@click.option('--output', '-o', type=click.Path(), help='Save output to file')
+@click.option('--include-schemas', is_flag=True, help='Include JSON schemas for each action')
+@click.option('--include-code-examples', is_flag=True, help='Include code examples from API (fetches detailed model info)')
+def show(model_name, format, output, include_schemas, include_code_examples):
+    """Show model details.
+    
+    Display detailed information about a specific model, including metadata,
+    available actions, and optionally JSON schemas for each action.
+    
+    Examples:
+    
+        # Show model details
+        biolm model show esm2-8m
+        
+        # Include schemas
+        biolm model show esmfold --include-schemas
+        
+        # Output as JSON
+        biolm model show esm2-8m --format json --output model.json
+    """
+    try:
+        with console.status("[brand]Fetching model information...[/brand]"):
+            models = list_models()
+        
+        if not models:
+            console.print(Panel(
+                "[error]Could not fetch models.[/error]\n\n"
+                "Please check your connection and authentication.",
+                title="[error]Error[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Find model by name or slug
+        model_info = None
+        for model in models:
+            model_slug = model.get('model_slug') or model.get('slug')
+            model_name_field = model.get('model_name') or model.get('name')
+            if (model_slug and model_slug == model_name) or (model_name_field and model_name_field == model_name):
+                model_info = model
+                break
+        
+        if not model_info:
+            console.print(Panel(
+                f"[error]Model '{model_name}' not found.[/error]\n\n"
+                f"Use 'biolm model list' to see available models.",
+                title="[error]Model Not Found[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Extract available actions
+        actions = []
+        if 'actions' in model_info and isinstance(model_info['actions'], builtins.list):
+            actions = model_info['actions']
+        else:
+            # Build actions list from boolean flags
+            if model_info.get('encoder'):
+                actions.append('encode')
+            if model_info.get('predictor'):
+                actions.append('predict')
+            if model_info.get('generator'):
+                actions.append('generate')
+            if model_info.get('classifier'):
+                actions.append('classify')
+            if model_info.get('similarity'):
+                actions.append('similarity')
+        
+        # Fetch schemas if requested
+        schemas = {}
+        if include_schemas and actions:
+            from biolmai.core.http import BioLMApiClient
+            import asyncio
+            
+            async def fetch_schemas():
+                client = BioLMApiClient(
+                    model_info.get('model_slug') or model_info.get('slug') or model_name,
+                    raise_httpx=False
+                )
+                try:
+                    for action in actions:
+                        schema = await client.schema(
+                            model_info.get('model_slug') or model_info.get('slug') or model_name,
+                            action
+                        )
+                        if schema:
+                            schemas[action] = schema
+                finally:
+                    await client.shutdown()
+            
+            with console.status("[brand]Fetching schemas...[/brand]"):
+                asyncio.run(fetch_schemas())
+        
+        # Fetch detailed model information if requested
+        detailed_info = None
+        if include_code_examples:
+            model_slug = model_info.get('model_slug') or model_info.get('slug') or model_name
+            with console.status("[brand]Fetching detailed model information...[/brand]"):
+                detailed_info = get_model_details(model_slug, code_examples=True, exclude_docs_html=True)
+        
+        # Merge detailed info with basic info if available
+        if detailed_info:
+            # Merge detailed info, giving priority to detailed_info
+            model_info = {**model_info, **detailed_info}
+        
+        # Prepare output data
+        output_data = {
+            'model_name': model_info.get('model_name') or model_info.get('name'),
+            'model_slug': model_info.get('model_slug') or model_info.get('slug'),
+            'actions': actions,
+            'metadata': {k: v for k, v in model_info.items() 
+                        if k not in ['model_name', 'name', 'model_slug', 'slug', 'actions']}
+        }
+        
+        if include_schemas and schemas:
+            output_data['schemas'] = schemas
+        
+        # Add code examples if available
+        if include_code_examples and detailed_info:
+            if 'code_examples' in detailed_info:
+                output_data['code_examples'] = detailed_info['code_examples']
+        
+        # Output based on format
+        if format == 'json':
+            output_str = json.dumps(output_data, indent=2, default=str)
+            if output:
+                with open(output, 'w') as f:
+                    f.write(output_str)
+                console.print(f"[success]✓ Model information saved to {output}[/success]")
+            else:
+                console.print(output_str)
+        elif format == 'yaml':
+            try:
+                import yaml
+                output_str = yaml.dump(output_data, default_flow_style=False, allow_unicode=True)
+                if output:
+                    with open(output, 'w') as f:
+                        f.write(output_str)
+                    console.print(f"[success]✓ Model information saved to {output}[/success]")
+                else:
+                    console.print(output_str)
+            except ImportError:
+                console.print(Panel(
+                    "[error]PyYAML is required for YAML output.[/error]\n\n"
+                    "Install with: pip install pyyaml",
+                    title="[error]Missing Dependency[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+        else:  # table format
+            # Display model information in panels
+            model_name_display = output_data['model_name'] or model_name
+            model_slug_display = output_data['model_slug'] or 'N/A'
+            
+            # Main model info panel with emojis
+            info_lines = [
+                f"[bold]🤖 Name:[/bold] [brand]{model_name_display}[/brand]",
+                f"[bold]🔗 Slug:[/bold] [text]{model_slug_display}[/text]",
+            ]
+            
+            if actions:
+                formatted_actions = _format_actions(actions)
+                info_lines.append(f"[bold]Actions:[/bold] {formatted_actions}")
+            
+            # Add other metadata with enhanced formatting
+            metadata = output_data.get('metadata', {})
+            if metadata:
+                for key, value in sorted(metadata.items()):
+                    if value is not None and key not in ['encoder', 'predictor', 'generator', 'classifier', 'similarity']:
+                        if key == 'tags' and isinstance(value, builtins.list):
+                            value_str = _format_tags(value)
+                        elif key == 'description' and isinstance(value, str):
+                            value_str = _format_description(value, max_length=200)  # Longer for show command
+                        elif key == 'created_at' and isinstance(value, str):
+                            value_str = _format_date(value, include_emoji=False)  # Emoji already in label
+                        elif isinstance(value, bool):
+                            value_str = '[success]✓[/success]' if value else '[text.muted]✗[/text.muted]'
+                        elif isinstance(value, (builtins.list, builtins.dict)):
+                            value_str = json.dumps(value)
+                        else:
+                            value_str = str(value)
+                        
+                        # Add emoji prefix for certain fields
+                        emoji_map = {
+                            'description': '📝',
+                            'tags': '🏷️',
+                            'created_at': '📅',
+                            'api_docs_link': '🔗',
+                            'docs_link': '📚',
+                        }
+                        emoji = emoji_map.get(key, '')
+                        field_label = f"{emoji} {key.replace('_', ' ').title()}" if emoji else key.replace('_', ' ').title()
+                        info_lines.append(f"[bold]{field_label}:[/bold] {value_str}")
+            
+            console.print(Panel(
+                "\n".join(info_lines),
+                title=f"[brand]🤖 {model_name_display}[/brand]",
+                border_style="brand",
+                box=box.ROUNDED,
+            ))
+            
+            # Display schemas if included
+            if include_schemas and schemas:
+                console.print()
+                for action, schema in schemas.items():
+                    schema_str = json.dumps(schema, indent=2)
+                    console.print(Panel(
+                        schema_str,
+                        title=f"[brand]Schema: {action}[/brand]",
+                        border_style="text.muted",
+                        box=box.ROUNDED,
+                    ))
+            elif include_schemas and not schemas:
+                console.print()
+                console.print("[text.muted]No schemas available for this model.[/text.muted]")
+            
+            # Display code examples if included
+            if include_code_examples and 'code_examples' in output_data:
+                console.print()
+                code_examples = output_data['code_examples']
+                if isinstance(code_examples, dict):
+                    for action, example_code in code_examples.items():
+                        if example_code:
+                            console.print(Panel(
+                                example_code,
+                                title=f"[brand]Code Example: {action}[/brand]",
+                                border_style="text.muted",
+                                box=box.ROUNDED,
+                            ))
+                elif isinstance(code_examples, str):
+                    console.print(Panel(
+                        code_examples,
+                        title="[brand]Code Examples[/brand]",
+                        border_style="text.muted",
+                        box=box.ROUNDED,
+                    ))
+            elif include_code_examples and 'code_examples' not in output_data:
+                console.print()
+                console.print("[text.muted]No code examples available for this model.[/text.muted]")
+            
+            if output:
+                # Also save to file as JSON
+                with open(output, 'w') as f:
+                    json.dump(output_data, f, indent=2, default=str)
+                console.print(f"\n[success]✓ Model information saved to {output}[/success]")
+    
+    except Exception as e:
+        console.print(Panel(
+            f"[error]Error showing model details: {e}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]{e.__cause__}[/text.muted]")
+        sys.exit(1)
+
+
+@model.command()
+@click.argument('model_name')
+@click.argument('action', type=click.Choice(['encode', 'predict', 'generate', 'lookup']))
+@click.option('--input', '-i', type=click.Path(exists=False), help='Input file path or "-" for stdin')
+@click.option('--output', '-o', type=click.Path(), help='Output file path (default: stdout)')
+@click.option('--format', type=click.Choice(['json', 'fasta', 'csv', 'pdb']), help='Output format (auto-detected from output file extension)')
+@click.option('--input-format', type=click.Choice(['json', 'fasta', 'csv', 'pdb']), help='Input format (auto-detected from input file extension)')
+@click.option('--type', help='Input type override (sequence, pdb, context, etc.)')
+@click.option('--params', help='Parameters as JSON string or file path')
+@click.option('--batch-size', type=int, help='Batch size for processing (default: auto-detect from schema)')
+@click.option('--progress', is_flag=True, help='Show progress bar for batch processing')
+def run(model_name, action, input, output, format, input_format, type, params, batch_size, progress):
     """Run a model.
     
-    Execute a BioLM model with the specified input.
+    Execute a BioLM model with the specified action. Supports reading from files
+    (FASTA, CSV, PDB, JSON) or stdin, and writing results to files or stdout.
+    
+    Examples:
+    
+        # Run model with inline input
+        echo '{"sequence": "ACDEFGHIKLMNPQRSTVWY"}' | biolm model run esm2-8m encode -i - --format json
+        
+        # Run model with FASTA file
+        biolm model run esmfold predict -i sequences.fasta -o results.json
+        
+        # Run with parameters
+        biolm model run esm2-8m encode -i seq.fasta --params '{"normalize": true}'
+        
+        # Run with progress bar
+        biolm model run esmfold predict -i large.fasta --progress
     """
-    console.print(Panel(
-        "[text.muted]Model commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to run BioLM models.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
+    # Initialize items variable for error reporting
+    items = None
+    
+    try:
+        # Load parameters if provided
+        params_dict = None
+        if params:
+            if Path(params).exists():
+                # Load from file
+                with open(params, 'r') as f:
+                    params_dict = json.load(f)
+            else:
+                # Parse as JSON string
+                try:
+                    params_dict = json.loads(params)
+                except json.JSONDecodeError as e:
+                    console.print(Panel(
+                        f"[error]Invalid JSON in --params: {e}[/error]",
+                        title="[error]Invalid Parameters[/error]",
+                        border_style="error",
+                        box=box.ROUNDED,
+                    ))
+                    sys.exit(1)
+        
+        # Show initial feedback
+        console.print(f"[brand]🤖 Running {model_name} {action}...[/brand]")
+        
+        # Load input data
+        if input:
+            if input == '-':
+                # Read from stdin
+                # For stdin, need input format (not output format)
+                stdin_input_format = input_format if input_format else format  # Fallback to format if input_format not specified
+                if not stdin_input_format:
+                    console.print(Panel(
+                        "[error]Format must be specified when reading from stdin.[/error]\n\n"
+                        "Use --input-format json, fasta, csv, or pdb (or --format as fallback)",
+                        title="[error]Format Required[/error]",
+                        border_style="error",
+                        box=box.ROUNDED,
+                    ))
+                    sys.exit(1)
+                
+                with console.status("[brand]Reading from stdin...[/brand]"):
+                    # Read stdin content
+                    stdin_content = sys.stdin.read()
+                    if not stdin_content.strip():
+                        console.print(Panel(
+                            "[error]No input data provided from stdin.[/error]",
+                            title="[error]Empty Input[/error]",
+                            border_style="error",
+                            box=box.ROUNDED,
+                        ))
+                        sys.exit(1)
+                
+                # Create temporary file-like object
+                import io
+                file_obj = io.StringIO(stdin_content)
+                items = _load_input_data(file_obj, format=stdin_input_format, type=type)
+            else:
+                # Load from file
+                # Use input_format if specified, otherwise auto-detect
+                input_format_to_use = input_format
+                # CRITICAL: Force JSON format for .json/.jsonl files FIRST - before ANY detection
+                if isinstance(input, str) and (input.endswith('.json') or input.endswith('.jsonl')):
+                    input_format_to_use = 'json'
+                    console.print(f"[text.muted]Using JSON format for .json file[/text.muted]")
+                elif not input_format_to_use:
+                    detected_format = _detect_file_format(input)
+                    if detected_format == 'unknown':
+                        # Try to detect from file content as fallback
+                        try:
+                            with open(input, 'r') as f:
+                                first_chars = f.read(100)
+                                if first_chars.strip().startswith('[') or first_chars.strip().startswith('{'):
+                                    detected_format = 'json'
+                                    console.print(f"[text.muted]Auto-detected JSON format from content[/text.muted]")
+                                else:
+                                    console.print(Panel(
+                                        f"[error]Cannot detect file format from extension or content.[/error]\n\n"
+                                        f"File: {input}\n"
+                                        f"Please specify --input-format option.\n"
+                                        f"Supported formats: json, fasta, csv, pdb",
+                                        title="[error]Format Detection Failed[/error]",
+                                        border_style="error",
+                                        box=box.ROUNDED,
+                                    ))
+                                    sys.exit(1)
+                        except Exception:
+                            console.print(Panel(
+                                f"[error]Cannot detect file format from extension.[/error]\n\n"
+                                f"File: {input}\n"
+                                f"Please specify --input-format option.\n"
+                                f"Supported formats: json, fasta, csv, pdb",
+                                title="[error]Format Detection Failed[/error]",
+                                border_style="error",
+                                box=box.ROUNDED,
+                            ))
+                            sys.exit(1)
+                    input_format_to_use = detected_format
+                    console.print(f"[text.muted]Detected input format: {input_format_to_use}[/text.muted]")
+                
+                # CRITICAL: Force JSON format for .json files regardless of detection
+                if isinstance(input, str) and (input.endswith('.json') or input.endswith('.jsonl')):
+                    if input_format_to_use != 'json':
+                        console.print(f"[warning]Forcing JSON format for .json file (was: {input_format_to_use})[/warning]")
+                    input_format_to_use = 'json'
+                
+                with console.status(f"[brand]Loading input from {input}...[/brand]"):
+                    items = _load_input_data(input, format=input_format_to_use, type=type)
+        else:
+            # No input specified - this is an error for run command
+            console.print(Panel(
+                "[error]Input is required.[/error]\n\n"
+                "Specify input with --input/-i option or use '-' for stdin.\n\n"
+                "Examples:\n"
+                "  biolm model run esm2-8m encode -i sequences.fasta\n"
+                "  echo '{\"sequence\": \"ACDEF\"}' | biolm model run esm2-8m encode -i - --format json",
+                title="[error]Missing Input[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        if not items:
+            console.print(Panel(
+                "[error]No items loaded from input.[/error]",
+                title="[error]Empty Input[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Validate items structure
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                # Check if it's a string that looks like JSON (common error - file read as FASTA)
+                if isinstance(item, str) and (item.strip().startswith('[') or item.strip().startswith('{')):
+                    console.print(Panel(
+                        f"[error]Item {i+1} appears to be unparsed JSON string.[/error]\n\n"
+                        f"This usually means the file format was detected incorrectly.\n"
+                        f"File: {input if 'input' in locals() else 'unknown'}\n"
+                        f"Detected format: {format if 'format' in locals() else 'unknown'}\n\n"
+                        f"Try specifying format explicitly: --format json\n\n"
+                        f"Raw content preview: {item[:200]}...",
+                        title="[error]JSON Parsing Error[/error]",
+                        border_style="error",
+                        box=box.ROUNDED,
+                    ))
+                else:
+                    console.print(Panel(
+                        f"[error]Item {i+1} is not a dictionary (got {type(item).__name__}).[/error]\n\n"
+                        f"Expected format: [{{\"sequence\": \"...\"}}, ...] or [{{\"prompt\": \"...\"}}, ...]\n"
+                        f"Got: {str(item)[:100]}",
+                        title="[error]Invalid Input Format[/error]",
+                        border_style="error",
+                        box=box.ROUNDED,
+                    ))
+                sys.exit(1)
+        
+        console.print(f"[success]✓ Loaded {len(items)} item(s)[/success]")
+        
+        # Initialize model
+        with console.status(f"[brand]Initializing {model_name} model...[/brand]"):
+            model = Model(model_name)
+        
+        # Determine batch size
+        if batch_size is None:
+            # Try to get from schema
+            try:
+                from biolmai.core.http import BioLMApiClient
+                import asyncio
+                
+                async def get_batch_size():
+                    client = BioLMApiClient(model_name, raise_httpx=False)
+                    try:
+                        schema = await client.schema(model_name, action)
+                        if schema:
+                            return BioLMApiClient.extract_max_items(schema)
+                    finally:
+                        await client.shutdown()
+                    return None
+                
+                batch_size = asyncio.run(get_batch_size())
+            except Exception:
+                # If we can't get batch size, use a reasonable default
+                batch_size = 100
+        
+        # Process items
+        results = []
+        
+        # Always show progress for multiple items, or if --progress flag is set
+        show_progress = (progress or len(items) > 1) and len(items) > 0
+        
+        if show_progress:
+            # Show progress bar for batch processing
+            from rich.progress import BarColumn, TaskProgressColumn
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console,
+            ) as progress_bar:
+                task = progress_bar.add_task(
+                    f"[brand]Processing {len(items)} item(s) with {model_name}...[/brand]",
+                    total=len(items)
+                )
+                
+                # Process in batches
+                for i in range(0, len(items), batch_size or len(items)):
+                    batch = items[i:i + (batch_size or len(items))]
+                    
+                    # Call appropriate model method
+                    if action == 'encode':
+                        batch_results = model.encode(items=batch, params=params_dict)
+                    elif action == 'predict':
+                        batch_results = model.predict(items=batch, params=params_dict)
+                    elif action == 'generate':
+                        batch_results = model.generate(items=batch, params=params_dict)
+                    elif action == 'lookup':
+                        batch_results = model.lookup(query=batch)
+                    else:
+                        raise ValueError(f"Unknown action: {action}")
+                    
+                    # Handle single result vs list
+                    if not isinstance(batch_results, builtins.list):
+                        batch_results = [batch_results]
+                    
+                    results.extend(batch_results)
+                    progress_bar.update(task, advance=len(batch))
+        else:
+            # Process without progress bar (single item)
+            with console.status(f"[brand]Processing with {model_name}...[/brand]"):
+                if action == 'encode':
+                    results = model.encode(items=items, params=params_dict)
+                elif action == 'predict':
+                    results = model.predict(items=items, params=params_dict)
+                elif action == 'generate':
+                    results = model.generate(items=items, params=params_dict)
+                elif action == 'lookup':
+                    results = model.lookup(query=items)
+                else:
+                    raise ValueError(f"Unknown action: {action}")
+                
+                # Ensure results is a list
+                if not isinstance(results, builtins.list):
+                    results = [results]
+        
+        # Save output
+        # CRITICAL: --format is for OUTPUT format only
+        # Priority: 1) --format option (explicit), 2) file extension, 3) default to JSON
+        output_format = None
+        
+        # If --format is explicitly provided, use it (highest priority)
+        if format:
+            output_format = format
+            console.print(f"[text.muted]Using output format from --format option: {output_format}[/text.muted]")
+        elif output and output != '-':
+            # Detect from output file extension if --format not specified
+            detected_output_format = _detect_file_format(output)
+            if detected_output_format != 'unknown':
+                output_format = detected_output_format
+                console.print(f"[text.muted]Output format detected from file extension: {output_format}[/text.muted]")
+        
+        # Default to JSON if still not set
+        if not output_format:
+            output_format = 'json'
+            if output and output != '-':
+                console.print(f"[text.muted]Defaulting to JSON output format[/text.muted]")
+        
+        with console.status(f"[brand]Saving results as {output_format}...[/brand]"):
+            _save_output_data(results, output, output_format)
+        
+        if output and output != '-':
+            console.print(f"[success]✓ Results saved to {output} ({len(results)} item(s))[/success]")
+        elif not output:
+            # If outputting to stdout and format is table, show summary
+            if format and format != 'json':
+                console.print(f"[success]✓ Processed {len(results)} item(s)[/success]")
+    
+    except FileNotFoundError as e:
+        console.print(Panel(
+            f"[error]File not found: {e}[/error]",
+            title="[error]File Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    except ValueError as e:
+        console.print(Panel(
+            f"[error]{str(e)}[/error]",
+            title="[error]Validation Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    except Exception as e:
+        # Try to parse API error responses for better error messages
+        error_msg = str(e)
+        error_details = []
+        error_dict = None
+        
+        # Check if it's an httpx exception with response body
+        try:
+            import httpx
+            if isinstance(e, httpx.HTTPStatusError):
+                # Try to get error from response
+                if hasattr(e, 'response') and e.response is not None:
+                    try:
+                        resp_json = e.response.json()
+                        if isinstance(resp_json, dict):
+                            error_dict = resp_json
+                            error_msg = e.response.text
+                        else:
+                            error_msg = str(e.response.text)
+                    except:
+                        error_msg = str(e.response.text) if hasattr(e, 'response') else str(e)
+        except ImportError:
+            pass
+        
+        # Check if error is a dict/JSON string with API error format
+        try:
+            if isinstance(e, dict):
+                error_dict = e
+            elif not error_dict:
+                # Try to parse error message as JSON (might be stringified)
+                # Handle cases like: "{'error': {...}}" or '{"error": {...}}'
+                cleaned_msg = error_msg.strip()
+                # Replace single quotes with double quotes if needed
+                if cleaned_msg.startswith("{'") or cleaned_msg.startswith("'{'"):
+                    cleaned_msg = cleaned_msg.replace("'", '"')
+                
+                if cleaned_msg.startswith('{'):
+                    error_dict = json.loads(cleaned_msg)
+                elif hasattr(e, 'args') and e.args:
+                    # Try parsing first argument if it's a string
+                    first_arg = e.args[0]
+                    if isinstance(first_arg, str):
+                        cleaned_arg = first_arg.strip()
+                        if cleaned_arg.startswith("{'") or cleaned_arg.startswith("'{'"):
+                            cleaned_arg = cleaned_arg.replace("'", '"')
+                        if cleaned_arg.startswith('{'):
+                            error_dict = json.loads(cleaned_arg)
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError):
+            pass
+        
+        # Parse the error
+        if error_dict and 'error' in error_dict:
+            api_error = error_dict['error']
+            
+            # Parse field-level errors like "items__3__sequence"
+            if isinstance(api_error, dict):
+                for field_path, error_list in api_error.items():
+                    # Extract item index from field path (e.g., "items__3__sequence" -> index 3)
+                    if '__' in field_path:
+                        parts = field_path.split('__')
+                        if len(parts) >= 2 and parts[0] == 'items':
+                            try:
+                                item_index = int(parts[1])
+                                field_name = '__'.join(parts[2:]) if len(parts) > 2 else 'unknown'
+                                
+                                # Get the problematic item
+                                problematic_item = None
+                                try:
+                                    if items is not None and item_index < len(items):
+                                        problematic_item = items[item_index]
+                                except (IndexError, TypeError):
+                                    pass
+                                
+                                error_details.append(f"[error]❌ Item {item_index + 1} ({field_name}):[/error]")
+                                
+                                # Show the problematic value
+                                if problematic_item and field_name in problematic_item:
+                                    value = problematic_item[field_name]
+                                    if isinstance(value, str):
+                                        # Show first and last 50 chars if too long
+                                        if len(value) > 100:
+                                            value_preview = value[:50] + '...' + value[-50:]
+                                        else:
+                                            value_preview = value
+                                        # Highlight invalid characters
+                                        invalid_chars = set(value) - set('ACDEFGHIKLMNPQRSTVWYBXZUO')
+                                        if invalid_chars:
+                                            error_details.append(f"  [text]Sequence contains invalid characters: {', '.join(sorted(invalid_chars))}[/text]")
+                                        error_details.append(f"  [text]Sequence: {value_preview}[/text]")
+                                    else:
+                                        error_details.append(f"  [text]Value: {value}[/text]")
+                                
+                                # Show the error message
+                                if isinstance(error_list, builtins.list) and error_list:
+                                    error_details.append(f"  [error]Error: {error_list[0]}[/error]")
+                                elif isinstance(error_list, str):
+                                    error_details.append(f"  [error]Error: {error_list}[/error]")
+                            except (ValueError, IndexError):
+                                # Fall through to generic error handling
+                                pass
+            
+            # If we couldn't parse it, show the raw error
+            if not error_details:
+                if isinstance(api_error, dict):
+                    error_details.append(f"[error]{json.dumps(api_error, indent=2)}[/error]")
+                else:
+                    error_details.append(f"[error]{api_error}[/error]")
+        else:
+            error_details.append(f"[error]{error_msg}[/error]")
+        
+        # Build error message
+        error_content = "\n".join(error_details) if error_details else f"[error]{error_msg}[/error]"
+        
+        # Add helpful context
+        help_text = "\n\n[text.muted]💡 Tip: Check your input file for invalid characters in sequences.[/text.muted]"
+        help_text += "\n[text.muted]Valid amino acid characters: ACDEFGHIKLMNPQRSTVWYBXZUO[/text.muted]"
+        help_text += "\n[text.muted]Remove numbers, spaces, or other non-amino-acid characters from sequences.[/text.muted]"
+        
+        console.print(Panel(
+            error_content + help_text,
+            title="[error]❌ Error Running Model[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]Cause: {e.__cause__}[/text.muted]")
+        sys.exit(1)
 
 
 @model.command()
@@ -621,7 +1941,7 @@ def example(model_name, action, format, output):
                 
                 # Extract actions from boolean flags or actions array
                 actions_list = []
-                if 'actions' in model and isinstance(model['actions'], list):
+                if 'actions' in model and isinstance(model['actions'], builtins.list):
                     actions_list = model['actions']
                 else:
                     # Build actions list from boolean flags

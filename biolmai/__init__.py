@@ -9,6 +9,7 @@ from biolmai.protocols import Protocol
 from biolmai.workspaces import Workspace
 from biolmai.volumes import Volume
 from biolmai.examples import get_example, list_models
+from biolmai.io import load_fasta, to_fasta, load_csv, to_csv, load_pdb, to_pdb
 from typing import Optional, Union, List, Any
 
 __all__ = [
@@ -25,6 +26,13 @@ __all__ = [
     # Example generation
     'get_example',
     'list_models',
+    # IO utilities
+    'load_fasta',
+    'to_fasta',
+    'load_csv',
+    'to_csv',
+    'load_pdb',
+    'to_pdb',
     # Advanced/legacy
     'BioLM',
     'BioLMApi',
