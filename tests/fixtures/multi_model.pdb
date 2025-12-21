@@ -1,0 +1,10 @@
+HEADER    MULTI-MODEL                         01-JAN-23   TEST
+MODEL        1
+ATOM      1  N   MET A   1      20.154  16.967  19.502  1.00 30.00           N
+ATOM      2  CA  MET A   1      19.032  15.993  19.443  1.00 30.00           C
+ENDMDL
+MODEL        2
+ATOM      1  N   MET A   1      21.154  17.967  20.502  1.00 30.00           N
+ATOM      2  CA  MET A   1      20.032  16.993  20.443  1.00 30.00           C
+ENDMDL
+
