@@ -1,0 +1,67 @@
+name: Protocol
+schema_version: 1
+
+about:
+  title: "My Awesome Protocol"
+  description: "This is a description of my protocol"
+  authors:
+    - name: "Nikhil Haas"
+      email: "nhaas@biolm.ai"
+    - name: "Andrew Stewart"
+      email: "astewart@biolm.ai"
+  keywords: ["protocol", "example"]
+
+inputs:
+  pdb_str: string
+  # Add your input parameters here
+  # Example: input_param: string
+
+  heavy_chain: "A"
+  n_samples: 20
+  temperature: 1.0
+  regions: ["CDR1", "CDR2", "CDR3"]
+
+tasks:
+  - id: my_task
+    slug: model-slug
+    action: predict
+    request_body:
+      items: []
+  # Add your tasks here
+  # Example:
+  # - id: my_task
+  #   slug: model-slug
+  #   action: predict
+  #   request_body:
+  #     items: []
+
+outputs:
+  # Example 1: Simple metric logging
+  - limit: 100
+    log:
+      metrics:
+        mean_log_prob: "${{ log_probs }}"
+  
+  # Example 2: Filtered and ordered outputs
+  - where: "${{ overall_confidence > 0.5 }}"
+    order_by:
+      - field: log_probs
+        order: desc
+    limit: 50
+    log:
+      metrics:
+        max_confidence: "${{ overall_confidence }}"
+        best_log_prob: "${{ log_probs }}"
+        seq_rec: "${{ seq_rec }}"
+      aggregates:
+        - field: overall_confidence
+          ops: [mean, max, p95]
+  
+  # Example 3: Artifact logging
+  - where: "${{ overall_confidence > 0.8 }}"
+    limit: 10
+    log:
+      artifacts:
+        - type: pdb
+          name: "top_structures.pdb"
+          content: "${{ pdb }}"

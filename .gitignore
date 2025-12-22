@@ -107,3 +107,8 @@ ENV/
 
 # Mac
 *.DS_Store
+
+# Examples
+examples/
+cursor_examples/
+.vercel

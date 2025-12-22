@@ -96,13 +96,34 @@ coverage: ## check code coverage quickly with the default Python
 	$(BROWSER) htmlcov/index.html
 
 docs: ## generate Sphinx HTML documentation, including API docs
-	mkdir -p docs/_static
-	rm -f docs/biolmai.rst
-	rm -f docs/modules.rst
-	sphinx-apidoc -o docs/ biolmai
+	mkdir -p docs/_static docs/api-reference
+	rm -f docs/biolmai.rst docs/api-reference/biolmai.rst docs/api-reference/modules.rst
+	python -m sphinx.ext.apidoc -o docs/api-reference biolmai 2>/dev/null || \
+	python -m sphinx.apidoc -o docs/api-reference biolmai 2>/dev/null || \
+	sphinx-apidoc -o docs/api-reference biolmai
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	$(BROWSER) docs/_build/html/index.html
+
+docs-iframe: ## generate docs in iframe mode (no header, for embedding)
+	mkdir -p docs/_static docs/api-reference
+	rm -f docs/biolmai.rst docs/api-reference/biolmai.rst docs/api-reference/modules.rst
+	python -m sphinx.ext.apidoc -o docs/api-reference biolmai 2>/dev/null || \
+	python -m sphinx.apidoc -o docs/api-reference biolmai 2>/dev/null || \
+	sphinx-apidoc -o docs/api-reference biolmai
+	$(MAKE) -C docs clean
+	IFRAME_MODE=1 $(MAKE) -C docs html
+
+docs-iframe-rebuild: ## rebuild docs in iframe mode (routine updates, with clean)
+	$(MAKE) -C docs clean-html
+	IFRAME_MODE=1 $(MAKE) -C docs html
+
+docs-rebuild: ## rebuild docs without opening browser (for routine updates)
+	$(MAKE) -C docs html
+
+docs-clean: ## clean and rebuild docs
+	$(MAKE) -C docs clean
+	$(MAKE) -C docs html
 
 servedocs: docs ## compile the docs watching for changes
 	watchmedo shell-command -p '*.rst' -c '$(MAKE) -C docs html' -R -D .

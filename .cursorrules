@@ -1,0 +1,17 @@
+# Conventional Commits for py-biolm
+
+Use conventional commit format for automatic version bumping:
+
+- `feat: description` - New feature (minor version bump: 0.2.8 → 0.3.0)
+- `fix: description` - Bug fix (patch version bump: 0.2.8 → 0.2.9)
+- `BREAKING: description` - Breaking change (major version bump: 0.2.8 → 1.0.0)
+- `docs: description` - Documentation only (no version bump)
+- `chore: description` - Maintenance tasks (no version bump)
+- `refactor: description` - Code refactoring (no version bump)
+
+Examples:
+- `feat: add batch processing support`
+- `fix: resolve authentication timeout issue`
+- `BREAKING: change API endpoint structure`
+- `docs: update installation instructions`
+

@@ -102,8 +102,8 @@ Before you submit a pull request, check that it meets these guidelines:
 2. If the pull request adds functionality, the docs should be updated. Put
    your new functionality into a function with a docstring, and add the
    feature to the list in README.rst.
-3. The pull request should work for Python 3.5, 3.6, 3.7 and 3.8, and for PyPy. Check
-   https://travis-ci.com/BioLM/py-biolm/pull_requests
+3. The pull request should work for all supported Python versions. Check
+   https://github.com/BioLM/py-biolm/actions
    and make sure that the tests pass for all supported Python versions.
 
 Tips
@@ -114,15 +114,53 @@ To run a subset of tests::
 $ pytest tests.test_biolmai
 
 
+Commit Message Format
+---------------------
+
+This project uses `Conventional Commits <https://www.conventionalcommits.org/>`_ for automatic version bumping. Use the following prefixes in your commit messages:
+
+* ``feat:`` - New feature (minor version bump: 0.2.8 → 0.3.0)
+* ``fix:`` - Bug fix (patch version bump: 0.2.8 → 0.2.9)
+* ``BREAKING:`` - Breaking change (major version bump: 0.2.8 → 1.0.0)
+* ``docs:`` - Documentation only (no version bump)
+* ``chore:`` - Maintenance tasks (no version bump)
+* ``refactor:`` - Code refactoring (no version bump)
+
+Examples::
+
+    $ git commit -m "feat: add batch processing support"
+    $ git commit -m "fix: resolve authentication timeout issue"
+    $ git commit -m "BREAKING: change API endpoint structure"
+    $ git commit -m "docs: update installation instructions"
+
 Deploying
 ---------
 
-A reminder for the maintainers on how to deploy.
-Make sure all your changes are committed (including an entry in HISTORY.rst).
-Then run::
+This project uses automatic semantic versioning and release management.
 
-$ bump2version patch # possible: major / minor / patch
-$ git push
-$ git push --tags
+**For Contributors:**
 
-Travis will then deploy to PyPI if tests pass.
+1. Make your changes and commit using conventional commit format (see above).
+2. Push to your branch and create a pull request.
+3. After the PR is merged to ``main``, the CI workflow will automatically:
+   * Analyze commit messages
+   * Bump version if needed (based on commit types)
+   * Update version in ``biolmai/__init__.py``, ``setup.py``, and ``pyproject.toml``
+   * Update ``HISTORY.rst`` changelog
+   * Create a git tag
+   * Push the tag to GitHub
+
+**For Maintainers:**
+
+1. After a version tag is created automatically, create a GitHub release:
+   * Go to https://github.com/BioLM/py-biolm/releases/new
+   * Select the tag created by semantic-release
+   * Add release notes (or use auto-generated ones)
+   * Click "Publish release"
+
+2. The publish workflow will automatically:
+   * Build the package
+   * Publish to PyPI (or TestPyPI for release candidates)
+   * Update the release with publish status
+
+**Note:** The old ``production`` branch deployment is still available for backward compatibility, but release-based publishing is the preferred method.
