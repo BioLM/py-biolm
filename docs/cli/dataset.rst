@@ -6,7 +6,7 @@ Manage datasets.
 Usage
 -----
 
-The dataset commands allow you to create, list, and manage datasets.
+The dataset commands allow you to create, list, upload, download, and manage datasets using MLflow.
 
 Examples
 --------
@@ -23,17 +23,17 @@ Show details for a specific dataset:
 
    biolm dataset show dataset-id
 
-Create a new dataset:
-
-.. code-block:: bash
-
-   biolm dataset create my-dataset
-
 Upload data to a dataset:
 
 .. code-block:: bash
 
    biolm dataset upload dataset-id data.csv
+
+Download a dataset:
+
+.. code-block:: bash
+
+   biolm dataset download dataset-id ./downloads
 
 Command Reference
 -----------------

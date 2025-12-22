@@ -31,6 +31,13 @@ from biolmai.core.const import (
 from biolmai.examples import get_example, list_models, get_model_details
 from biolmai.io import load_fasta, load_csv, load_pdb, load_json, to_fasta, to_csv, to_pdb, to_json
 from biolmai.models import Model
+from biolmai.datasets_mlflow import (
+    MLflowNotAvailableError,
+    list_datasets,
+    get_dataset,
+    upload_dataset,
+    download_dataset,
+)
 
 # Create custom theme with BioLM brand colors
 brand_theme = Theme({
@@ -2741,68 +2748,575 @@ def dataset():
 
 
 @dataset.command()
-def list():
+@click.option('--experiment', default=None, help='MLflow experiment name (default: {username}/datasets)')
+@click.option('--format', type=click.Choice(['table', 'json', 'csv']), default='table', help='Output format')
+@click.option('--output', '-o', type=click.Path(), help='Save output to file')
+@click.option('--mlflow-uri', default='https://mlflow.biolm.ai/', help='MLflow tracking URI')
+@click.option('--all-runs', is_flag=True, help='List all runs in experiment, not just datasets (for debugging)')
+def list(experiment, format, output, mlflow_uri, all_runs):
     """List datasets.
     
     Display a list of all datasets you have access to.
+    
+    Examples:
+    
+        # List all datasets
+        biolm dataset list
+        
+        # List datasets in specific experiment
+        biolm dataset list --experiment my-datasets
+        
+        # Output as JSON
+        biolm dataset list --format json --output datasets.json
+        
+        # List all runs (for debugging - shows runs without dataset tag)
+        biolm dataset list --all-runs
     """
-    console.print(Panel(
-        "[text.muted]Dataset commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to list and manage BioLM datasets.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
+    try:
+        # Check MLflow availability
+        try:
+            from biolmai.datasets_mlflow import _check_mlflow_available
+            _check_mlflow_available()
+        except MLflowNotAvailableError:
+            console.print(Panel(
+                "[error]MLflow logging functionality is not available.[/error]\n\n"
+                "Install MLflow support with: [brand]pip install biolmai[mlflow][/brand]",
+                title="[error]MLflow Not Available[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Check if credentials file exists (MLflow will handle actual authentication)
+        if not os.path.exists(ACCESS_TOK_PATH):
+            console.print(Panel(
+                "[error]Authentication required.[/error]\n\n"
+                "Please run [brand]biolm login[/brand] to authenticate.",
+                title="[error]Not Authenticated[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        with console.status("[brand]Fetching datasets...[/brand]"):
+            try:
+                datasets = list_datasets(experiment_name=experiment, mlflow_uri=mlflow_uri, all_runs=all_runs)
+            except RuntimeError as e:
+                console.print(Panel(
+                    f"[error]{str(e)}[/error]\n\n"
+                    "This might indicate:\n"
+                    "- Authentication issues with MLflow\n"
+                    "- Network connectivity problems\n"
+                    "- MLflow server configuration issues",
+                    title="[error]Error Fetching Datasets[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+        
+        if not datasets:
+            console.print(Panel(
+                "[text.muted]No datasets found in experiment '{experiment}'.[/text.muted]\n\n"
+                "Datasets are created automatically when you upload files.\n"
+                "Try: [brand]biolm dataset upload my-dataset-123 data.csv[/brand]".format(experiment=experiment),
+                title="[text.muted]No Datasets[/text.muted]",
+                border_style="text.muted",
+                box=box.ROUNDED,
+            ))
+            sys.exit(0)
+        
+        # Output based on format
+        if format == 'json':
+            output_data = json.dumps(datasets, indent=2, default=str)
+            if output:
+                with open(output, 'w') as f:
+                    f.write(output_data)
+                console.print(f"[success]✓ Datasets saved to {output}[/success]")
+            else:
+                console.print(output_data)
+        elif format == 'csv':
+            if not datasets:
+                console.print("[text.muted]No datasets to display.[/text.muted]")
+                sys.exit(0)
+            
+            # Flatten datasets for CSV
+            csv_data = []
+            for dataset in datasets:
+                row = {
+                    'dataset_id': dataset.get('dataset_id', ''),
+                    'name': dataset.get('name', ''),
+                    'run_id': dataset.get('run_id', ''),
+                    'status': dataset.get('status', ''),
+                    'artifact_count': dataset.get('artifact_count', 0),
+                    'start_time': dataset.get('start_time', ''),
+                }
+                csv_data.append(row)
+            
+            to_csv(csv_data, output if output else '-')
+            if output:
+                console.print(f"[success]✓ Datasets saved to {output}[/success]")
+        else:  # table format
+            table = Table(
+                title="[brand]📊 Available Datasets[/brand]",
+                show_header=True,
+                header_style="brand.bold",
+                box=box.ROUNDED,
+                title_style="brand.bright",
+            )
+            
+            table.add_column("Dataset ID", style="brand", width=20)
+            table.add_column("Name", style="text", width=25)
+            table.add_column("Status", style="text", width=10)
+            table.add_column("Artifacts", style="text", width=10)
+            table.add_column("Run ID", style="text.muted", width=20)
+            
+            for dataset in datasets:
+                dataset_id = dataset.get('dataset_id', 'N/A')
+                name = dataset.get('name', 'N/A')
+                status = dataset.get('status', 'UNKNOWN')
+                artifact_count = dataset.get('artifact_count', 0)
+                run_id = dataset.get('run_id', 'N/A')
+                
+                # Format status with color
+                if status == 'FINISHED':
+                    status_str = f"[success]{status}[/success]"
+                elif status == 'RUNNING':
+                    status_str = f"[brand]{status}[/brand]"
+                elif status == 'FAILED':
+                    status_str = f"[error]{status}[/error]"
+                else:
+                    status_str = status
+                
+                table.add_row(
+                    dataset_id,
+                    name,
+                    status_str,
+                    str(artifact_count),
+                    run_id[:18] + "..." if len(run_id) > 18 else run_id,
+                )
+            
+            console.print(table)
+            if output:
+                # Also save table data to file as JSON
+                with open(output, 'w') as f:
+                    json.dump(datasets, f, indent=2, default=str)
+                console.print(f"\n[success]✓ Dataset data saved to {output}[/success]")
+    
+    except Exception as e:
+        console.print(Panel(
+            f"[error]Error listing datasets: {e}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]{e.__cause__}[/text.muted]")
+        sys.exit(1)
 
 
 @dataset.command()
-@click.argument('dataset_id', required=False)
-def show(dataset_id):
+@click.argument('dataset_id', required=True)
+@click.option('--experiment', default=None, help='MLflow experiment name (default: {username}/datasets)')
+@click.option('--format', type=click.Choice(['table', 'json', 'yaml']), default='table', help='Output format')
+@click.option('--output', '-o', type=click.Path(), help='Save output to file')
+@click.option('--mlflow-uri', default='https://mlflow.biolm.ai/', help='MLflow tracking URI')
+def show(dataset_id, experiment, format, output, mlflow_uri):
     """Show dataset details.
     
-    Display information about a specific dataset. If no dataset ID is provided,
-    lists all available datasets.
-    """
-    console.print(Panel(
-        "[text.muted]Dataset commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to manage BioLM datasets.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
-
-
-@dataset.command()
-@click.argument('name')
-def create(name):
-    """Create a new dataset.
+    Display detailed information about a specific dataset, including metadata,
+    tags, parameters, metrics, and artifacts.
     
-    Create a new dataset with the specified name.
+    By default, looks for datasets in the "{username}/datasets" experiment.
+    
+    Examples:
+    
+        # Show dataset details
+        biolm dataset show my-dataset-123
+        
+        # Output as JSON
+        biolm dataset show my-dataset-123 --format json --output dataset.json
     """
-    console.print(Panel(
-        "[text.muted]Dataset commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to create BioLM datasets.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
+    try:
+        # Check MLflow availability
+        try:
+            from biolmai.datasets_mlflow import _check_mlflow_available
+            _check_mlflow_available()
+        except MLflowNotAvailableError:
+            console.print(Panel(
+                "[error]MLflow logging functionality is not available.[/error]\n\n"
+                "Install MLflow support with: [brand]pip install biolmai[mlflow][/brand]",
+                title="[error]MLflow Not Available[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Check if credentials file exists (MLflow will handle actual authentication)
+        if not os.path.exists(ACCESS_TOK_PATH):
+            console.print(Panel(
+                "[error]Authentication required.[/error]\n\n"
+                "Please run [brand]biolm login[/brand] to authenticate.",
+                title="[error]Not Authenticated[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        with console.status(f"[brand]Fetching dataset '{dataset_id}'...[/brand]"):
+            dataset = get_dataset(dataset_id, experiment_name=experiment, mlflow_uri=mlflow_uri)
+        
+        if not dataset:
+            console.print(Panel(
+                f"[error]Dataset '{dataset_id}' not found.[/error]\n\n"
+                f"Use 'biolm dataset list' to see available datasets.",
+                title="[error]Dataset Not Found[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Output based on format
+        if format == 'json':
+            output_data = json.dumps(dataset, indent=2, default=str)
+            if output:
+                with open(output, 'w') as f:
+                    f.write(output_data)
+                console.print(f"[success]✓ Dataset details saved to {output}[/success]")
+            else:
+                console.print(output_data)
+        elif format == 'yaml':
+            try:
+                import yaml
+                output_data = yaml.dump(dataset, default_flow_style=False, allow_unicode=True)
+                if output:
+                    with open(output, 'w') as f:
+                        f.write(output_data)
+                    console.print(f"[success]✓ Dataset details saved to {output}[/success]")
+                else:
+                    console.print(output_data)
+            except ImportError:
+                console.print(Panel(
+                    "[error]YAML support not available.[/error]\n\n"
+                    "Install with: pip install pyyaml",
+                    title="[error]Missing Dependency[/error]",
+                    border_style="error",
+                    box=box.ROUNDED,
+                ))
+                sys.exit(1)
+        else:  # table format
+            # Create main info table
+            info_table = Table(
+                title=f"[brand]📊 Dataset: {dataset.get('name', dataset_id)}[/brand]",
+                show_header=False,
+                box=box.ROUNDED,
+                title_style="brand.bright",
+            )
+            
+            info_table.add_column("Field", style="brand.bold", width=20)
+            info_table.add_column("Value", style="text", width=50)
+            
+            info_table.add_row("Dataset ID", dataset.get('dataset_id', 'N/A'))
+            info_table.add_row("Run ID", dataset.get('run_id', 'N/A'))
+            info_table.add_row("Name", dataset.get('name', 'N/A'))
+            info_table.add_row("Status", dataset.get('status', 'UNKNOWN'))
+            
+            # Format timestamps
+            start_time = dataset.get('start_time')
+            if start_time:
+                from datetime import datetime
+                try:
+                    dt = datetime.fromtimestamp(start_time / 1000.0)
+                    info_table.add_row("Start Time", dt.strftime("%Y-%m-%d %H:%M:%S"))
+                except:
+                    info_table.add_row("Start Time", str(start_time))
+            
+            console.print(info_table)
+            console.print()
+            
+            # Tags table
+            tags = dataset.get('tags', {})
+            if tags:
+                tags_table = Table(
+                    title="[brand]Tags[/brand]",
+                    show_header=True,
+                    header_style="brand.bold",
+                    box=box.ROUNDED,
+                )
+                tags_table.add_column("Key", style="brand")
+                tags_table.add_column("Value", style="text")
+                
+                for key, value in sorted(tags.items()):
+                    tags_table.add_row(key, str(value))
+                
+                console.print(tags_table)
+                console.print()
+            
+            # Parameters table
+            params = dataset.get('params', {})
+            if params:
+                params_table = Table(
+                    title="[brand]Parameters[/brand]",
+                    show_header=True,
+                    header_style="brand.bold",
+                    box=box.ROUNDED,
+                )
+                params_table.add_column("Key", style="brand")
+                params_table.add_column("Value", style="text")
+                
+                for key, value in sorted(params.items()):
+                    params_table.add_row(key, str(value))
+                
+                console.print(params_table)
+                console.print()
+            
+            # Metrics table
+            metrics = dataset.get('metrics', {})
+            if metrics:
+                metrics_table = Table(
+                    title="[brand]Metrics[/brand]",
+                    show_header=True,
+                    header_style="brand.bold",
+                    box=box.ROUNDED,
+                )
+                metrics_table.add_column("Key", style="brand")
+                metrics_table.add_column("Value", style="text")
+                
+                for key, value in sorted(metrics.items()):
+                    metrics_table.add_row(key, str(value))
+                
+                console.print(metrics_table)
+                console.print()
+            
+            # Artifacts table
+            artifacts = dataset.get('artifacts', [])
+            if artifacts:
+                artifacts_table = Table(
+                    title="[brand]Artifacts[/brand]",
+                    show_header=True,
+                    header_style="brand.bold",
+                    box=box.ROUNDED,
+                )
+                artifacts_table.add_column("Path", style="brand")
+                artifacts_table.add_column("Type", style="text")
+                artifacts_table.add_column("Size", style="text.muted")
+                
+                for artifact in artifacts:
+                    path = artifact.get('path', 'N/A')
+                    is_dir = artifact.get('is_dir', False)
+                    file_size = artifact.get('file_size')
+                    size_str = f"{file_size} bytes" if file_size else "N/A"
+                    type_str = "Directory" if is_dir else "File"
+                    artifacts_table.add_row(path, type_str, size_str)
+                
+                console.print(artifacts_table)
+            else:
+                console.print("[text.muted]No artifacts found.[/text.muted]")
+            
+            if output:
+                # Also save dataset data to file as JSON
+                with open(output, 'w') as f:
+                    json.dump(dataset, f, indent=2, default=str)
+                console.print(f"\n[success]✓ Dataset data saved to {output}[/success]")
+    
+    except Exception as e:
+        console.print(Panel(
+            f"[error]Error showing dataset: {e}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]{e.__cause__}[/text.muted]")
+        sys.exit(1)
 
 
 @dataset.command()
 @click.argument('dataset_id')
 @click.argument('file_path', type=click.Path(exists=True))
-def upload(dataset_id, file_path):
+@click.option('--experiment', default=None, help='MLflow experiment name (default: {username}/datasets)')
+@click.option('--name', help='Dataset name/description (stored as run name)')
+@click.option('--recursive', '-r', is_flag=True, help='Upload directory recursively')
+@click.option('--mlflow-uri', default='https://mlflow.biolm.ai/', help='MLflow tracking URI')
+def upload(dataset_id, file_path, experiment, name, recursive, mlflow_uri):
     """Upload data to a dataset.
     
-    Upload data from a file to the specified dataset.
+    Upload data from a file or directory to the specified dataset.
+    If the dataset doesn't exist, it will be created automatically.
+    
+    Examples:
+    
+        # Upload a single file
+        biolm dataset upload my-dataset-123 data.csv
+        
+        # Upload a directory
+        biolm dataset upload my-dataset-123 ./data --recursive
+        
+        # Upload with a custom name
+        biolm dataset upload my-dataset-123 data.csv --name "Training Data"
     """
-    console.print(Panel(
-        "[text.muted]Dataset commands are coming soon![/text.muted]\n\n"
-        "This feature will allow you to upload data to BioLM datasets.",
-        title="[brand]Coming Soon[/brand]",
-        border_style="brand",
-        box=box.ROUNDED,
-    ))
+    try:
+        # Check MLflow availability
+        try:
+            from biolmai.datasets_mlflow import _check_mlflow_available
+            _check_mlflow_available()
+        except MLflowNotAvailableError:
+            console.print(Panel(
+                "[error]MLflow logging functionality is not available.[/error]\n\n"
+                "Install MLflow support with: [brand]pip install biolmai[mlflow][/brand]",
+                title="[error]MLflow Not Available[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Check if credentials file exists (MLflow will handle actual authentication)
+        if not os.path.exists(ACCESS_TOK_PATH):
+            console.print(Panel(
+                "[error]Authentication required.[/error]\n\n"
+                "Please run [brand]biolm login[/brand] to authenticate.",
+                title="[error]Not Authenticated[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        file_path_obj = Path(file_path)
+        if not file_path_obj.exists():
+            console.print(Panel(
+                f"[error]File or directory not found: {file_path}[/error]",
+                title="[error]File Not Found[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        with console.status(f"[brand]Uploading to dataset '{dataset_id}'...[/brand]"):
+            result = upload_dataset(
+                dataset_id=dataset_id,
+                file_path=file_path,
+                experiment_name=experiment,
+                name=name,
+                mlflow_uri=mlflow_uri,
+                recursive=recursive
+            )
+        
+        console.print(Panel(
+            f"[success]✓ Successfully uploaded to dataset '{dataset_id}'[/success]\n\n"
+            f"Run ID: {result.get('run_id', 'N/A')}\n"
+            f"Dataset ID: {result.get('dataset_id', 'N/A')}",
+            title="[success]Upload Complete[/success]",
+            border_style="success",
+            box=box.ROUNDED,
+        ))
+    
+    except FileNotFoundError as e:
+        console.print(Panel(
+            f"[error]{str(e)}[/error]",
+            title="[error]File Not Found[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    except Exception as e:
+        console.print(Panel(
+            f"[error]Error uploading dataset: {e}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]{e.__cause__}[/text.muted]")
+        sys.exit(1)
+
+
+@dataset.command()
+@click.argument('dataset_id')
+@click.argument('output_path', type=click.Path(), required=False, default='.')
+@click.option('--experiment', default=None, help='MLflow experiment name (default: {username}/datasets)')
+@click.option('--artifact-path', help='Specific artifact path to download (default: all artifacts)')
+@click.option('--mlflow-uri', default='https://mlflow.biolm.ai/', help='MLflow tracking URI')
+def download(dataset_id, output_path, experiment, artifact_path, mlflow_uri):
+    """Download a dataset.
+    
+    Download all artifacts from a dataset to the specified directory.
+    
+    By default, looks for datasets in the "{username}/datasets" experiment.
+    
+    Examples:
+    
+        # Download all artifacts to current directory
+        biolm dataset download my-dataset-123
+        
+        # Download to specific directory
+        biolm dataset download my-dataset-123 ./downloads
+        
+        # Download specific artifact
+        biolm dataset download my-dataset-123 ./downloads --artifact-path model.pkl
+    """
+    try:
+        # Check MLflow availability
+        try:
+            from biolmai.datasets_mlflow import _check_mlflow_available
+            _check_mlflow_available()
+        except MLflowNotAvailableError:
+            console.print(Panel(
+                "[error]MLflow logging functionality is not available.[/error]\n\n"
+                "Install MLflow support with: [brand]pip install biolmai[mlflow][/brand]",
+                title="[error]MLflow Not Available[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        # Check if credentials file exists (MLflow will handle actual authentication)
+        if not os.path.exists(ACCESS_TOK_PATH):
+            console.print(Panel(
+                "[error]Authentication required.[/error]\n\n"
+                "Please run [brand]biolm login[/brand] to authenticate.",
+                title="[error]Not Authenticated[/error]",
+                border_style="error",
+                box=box.ROUNDED,
+            ))
+            sys.exit(1)
+        
+        output_path_obj = Path(output_path)
+        
+        with console.status(f"[brand]Downloading dataset '{dataset_id}'...[/brand]"):
+            result = download_dataset(
+                dataset_id=dataset_id,
+                output_path=output_path,
+                experiment_name=experiment,
+                artifact_path=artifact_path,
+                mlflow_uri=mlflow_uri
+            )
+        
+        console.print(Panel(
+            f"[success]✓ Successfully downloaded dataset '{dataset_id}'[/success]\n\n"
+            f"Download location: {result.get('output_path', output_path)}\n"
+            f"Run ID: {result.get('run_id', 'N/A')}",
+            title="[success]Download Complete[/success]",
+            border_style="success",
+            box=box.ROUNDED,
+        ))
+    
+    except ValueError as e:
+        console.print(Panel(
+            f"[error]{str(e)}[/error]",
+            title="[error]Dataset Not Found[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        sys.exit(1)
+    except Exception as e:
+        console.print(Panel(
+            f"[error]Error downloading dataset: {e}[/error]",
+            title="[error]Error[/error]",
+            border_style="error",
+            box=box.ROUNDED,
+        ))
+        if hasattr(e, '__cause__') and e.__cause__:
+            console.print(f"[text.muted]{e.__cause__}[/text.muted]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
