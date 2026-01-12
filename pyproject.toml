@@ -90,5 +90,6 @@ dependencies = [
     "async-lru",
     "aiofiles",
     "websockets>=11",
+    "tqdm>=4.65.0",
 ]
 scripts = { biolmai = "biolmai.cli:cli" }

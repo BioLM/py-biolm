@@ -22,6 +22,7 @@ requirements = [
     "async-lru",
     "aiofiles",
     "websockets>=11",
+    "tqdm>=4.65.0",
 ]
 
 test_requirements = [

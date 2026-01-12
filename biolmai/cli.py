@@ -71,5 +71,17 @@ def logout():
     os.remove(ACCESS_TOK_PATH)
 
 
+@cli.command()
+@click.option('--json', is_flag=True, help='Output raw JSON events instead of formatted display')
+def watch(json):
+    """Watch live activity updates (resources, cache hits, billing).
+    
+    Connects to the Activity WebSocket and displays real-time updates
+    until interrupted with Ctrl+C.
+    """
+    from biolmai.watch import watch_activity
+    watch_activity(json_output=json)
+
+
 if __name__ == "__main__":
     sys.exit(main())  # pragma: no cover

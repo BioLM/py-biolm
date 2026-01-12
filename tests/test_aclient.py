@@ -15,6 +15,7 @@ def model():
         raise_httpx=False,
         unwrap_single=False,
         telemetry=True,
+        progress=True,  # Enable progress bars for telemetry tests
     )
 
 @pytest.mark.asyncio

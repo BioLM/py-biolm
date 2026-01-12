@@ -10,7 +10,7 @@ LOGGER = logging.getLogger(__name__)
 
 @pytest.fixture(scope='module')
 def model():
-    return BioLMApi("esmfold", raise_httpx=False, unwrap_single=False)
+    return BioLMApi("esmfold", raise_httpx=False, unwrap_single=False, telemetry=True, progress=True)
 
 def test_valid_sequence(model):
     result = model.predict(items=[{"sequence": "MDNELE"}])

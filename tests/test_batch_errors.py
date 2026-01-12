@@ -11,7 +11,7 @@ else:
 
 @pytest.fixture
 def model():
-    return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False)
+    return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, telemetry=True, progress=True)
 
 @pytest.mark.asyncio
 async def test_batch_call_with_schema_error_unpacking(monkeypatch, model):

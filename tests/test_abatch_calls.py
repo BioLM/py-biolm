@@ -12,7 +12,7 @@ def random_sequence(length=5):
 
 @pytest.fixture(scope='function')
 def model():
-    return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, telemetry=True)
+    return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, telemetry=True, progress=True)
 
 @pytest.mark.asyncio
 async def test_large_batch_encode_consistency(model):

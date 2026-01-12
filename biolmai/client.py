@@ -30,6 +30,12 @@ import json as _json
 from urllib.parse import urlparse
 import inspect
 
+# Progress manager import (optional)
+try:
+    from biolmai.telemetry_progress import TelemetryProgressManager
+except ImportError:  # pragma: no cover
+    TelemetryProgressManager = None  # type: ignore
+
 # "websockets" is a lightweight dependency (~50 KB) used for realtime telemetry
 # It is optional at runtime; if unavailable, telemetry is silently disabled.
 try:
@@ -270,8 +276,164 @@ class TelemetryListener:
     them without scraping stdout.
     """
 
-    def __init__(self, ws_url: str, handler: Optional[Callable[[Any], Any]] = None):
+    def __init__(self, ws_url: str, handler: Optional[Callable[[Any], Any]] = None, progress_manager: Optional[Any] = None, headers: Optional[dict] = None):
         self.ws_url = ws_url
+        self.headers = headers or {}
+        self.events: List[Any] = []
+        self._connected = asyncio.Event()
+        self._handler = handler  # user-supplied callback (sync or async)
+        self._progress_manager = progress_manager  # progress manager for tqdm bars
+
+    async def _notify(self, data):
+        """Invoke the user callback (if any) and progress manager with *data*.
+
+        If the callback returns an awaitable we await it to preserve ordering;
+        otherwise we swallow any exceptions and keep listening."""
+        # Call user handler first
+        if self._handler is not None:
+            try:
+                res = self._handler(data)
+                if inspect.isawaitable(res):
+                    await res
+            except Exception as e:
+                debug(f"[Telemetry] handler error: {e}")
+
+        # Call progress manager if available
+        if self._progress_manager is not None:
+            try:
+                evt = data.get("event")
+                request_id = data.get("request_id") or data.get("rid")
+
+                if evt == "request_start" and request_id:
+                    model = data.get("model", "?")
+                    action = data.get("action", "?")
+                    n_items = data.get("n_items", 0)
+                    self._progress_manager.start_request(request_id, model, action, n_items)
+                elif evt == "call_submitted" and request_id:
+                    backend_items = data.get("backend_items", 0)
+                    self._progress_manager.submit_request(request_id, backend_items)
+                elif evt == "cache_hit" and request_id:
+                    self._progress_manager.cache_hit(request_id)
+                elif evt == "call_finished" and request_id:
+                    elapsed = data.get("elapsed", 0.0)
+                    try:
+                        elapsed = float(elapsed)
+                    except (ValueError, TypeError):
+                        elapsed = 0.0
+                    self._progress_manager.finish_request(request_id, elapsed)
+                elif evt == "error" and request_id:
+                    status_code = data.get("status_code", 400)
+                    self._progress_manager.error_request(request_id, status_code)
+                elif evt == "response_sent" and request_id:
+                    self._progress_manager.complete_request(request_id)
+            except Exception as e:
+                debug(f"[Telemetry] progress manager error: {e}")
+
+    async def listen(self):  # pragma: no cover – executed in asyncio task
+        if websockets is None:
+            return  # websockets library not present – noop
+        
+        # Convert headers dict to list of tuples for websockets
+        # Note: WebSocket connections need headers in tuple format
+        # Cookie headers work the same way as Authorization headers
+        extra_headers = [(k, v) for k, v in self.headers.items()] if self.headers else []
+        if extra_headers:
+            debug(f"[Telemetry] using auth headers: {[k for k, v in extra_headers]}")
+        
+        # Retry logic: up to 3 attempts (initial + 2 retries) with 15s timeout each
+        max_attempts = 3
+        ws_timeout = 15.0
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if attempt > 1:
+                    debug(f"[Telemetry] retry attempt {attempt - 1}/{max_attempts - 1}")
+                else:
+                    debug(f"[Telemetry] connecting to {self.ws_url}")
+                
+                # Use longer timeout (15s) since we may connect before request is made
+                async with websockets.connect(
+                    self.ws_url, 
+                    additional_headers=extra_headers,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    open_timeout=ws_timeout,
+                    compression="deflate",
+                ) as ws:  # type: ignore
+                    debug("[Telemetry] websocket connection established")
+                    self._connected.set()
+                    message_count = 0
+                    # Log that we're entering the message loop
+                    debug("[Telemetry] Entering message receive loop, waiting for messages...")
+                    async for raw in ws:
+                        message_count += 1
+                        if message_count == 1:
+                            debug(f"[Telemetry] received first message (total: {message_count})")
+                        elif message_count <= 5:
+                            debug(f"[Telemetry] received message #{message_count}")
+                        try:
+                            data = _json.loads(raw)
+                            debug(f"[Telemetry] event: {data.get('event', 'unknown')} for request {data.get('request_id', 'unknown')[:8]}")
+                        except Exception:
+                            data = raw
+                            debug(f"[Telemetry] received non-JSON message: {str(raw)[:100]}")
+                        self.events.append(data)
+                        await self._notify(data)
+
+                        # Pretty-print: include request id and basic event name
+                        rid_full = data.get("request_id") or data.get("rid") or "—"
+                        rid_short = str(rid_full)[:6]
+
+                        tag_prefix = rid_short
+                        if "model" in data and "action" in data:
+                            tag_prefix = f"{data['model']}.{data['action']}-{rid_short}"
+
+                        evt = data.get("event", "?")
+
+                        # Build a concise suffix depending on event type
+                        suffix = ""
+                        if evt == "cache_hit":
+                            suffix = f" {data.get('n_items', '?')} hit"
+                        elif evt == "request_start" and "n_items" in data:
+                            suffix = f" {data['n_items']} recvd"
+                        elif evt == "call_submitted":
+                            suffix = f" {data.get('backend_items', '?')} sent"
+                        elif evt == "error":
+                            suffix = f" {data.get('status_code', '?')}"
+                        elif evt == "call_finished" and "elapsed" in data:
+                            try:
+                                suffix = f" {float(data['elapsed']):.2f}s"
+                            except Exception:
+                                suffix = f" {data['elapsed']}"
+                        # No extra suffix for response_sent (model.action already
+                        # present in the tag_prefix)
+
+                        debug(f"[Telemetry-{tag_prefix}] {evt}{suffix}")
+                    
+                    # If we exit the loop normally, connection was closed by server
+                    break
+                    
+            except Exception as e:
+                if attempt < max_attempts:
+                    debug(f"[Telemetry] connection attempt {attempt} failed: {e}, retrying immediately...")
+                    # No delay between retries - continue immediately
+                    continue
+                else:
+                    # Last attempt failed
+                    debug(f"[Telemetry] Listener error after {max_attempts} attempts: {e}")
+                    break
+
+
+class ActivityListener:
+    """Listens to account-level activity updates via Activity WebSocket.
+    
+    Connects to /ws/activity/ endpoint and receives activity_update,
+    billing_update, and activity_hint events.
+    """
+
+    def __init__(self, ws_url: str, headers: Dict[str, str], handler: Optional[Callable[[Any], Any]] = None):
+        self.ws_url = ws_url
+        self.headers = headers
         self.events: List[Any] = []
         self._connected = asyncio.Event()
         self._handler = handler  # user-supplied callback (sync or async)
@@ -288,53 +450,96 @@ class TelemetryListener:
             if inspect.isawaitable(res):
                 await res
         except Exception as e:
-            debug(f"[Telemetry] handler error: {e}")
+            debug(f"[Activity] handler error: {e}")
 
     async def listen(self):  # pragma: no cover – executed in asyncio task
         if websockets is None:
             return  # websockets library not present – noop
-        try:
-            async with websockets.connect(self.ws_url) as ws:  # type: ignore
-                self._connected.set()
-                async for raw in ws:
-                    try:
-                        data = _json.loads(raw)
-                    except Exception:
-                        data = raw
-                    self.events.append(data)
-                    await self._notify(data)
-
-                    # Pretty-print: include request id and basic event name
-                    rid_full = data.get("request_id") or data.get("rid") or "—"
-                    rid_short = str(rid_full)[:6]
-
-                    tag_prefix = rid_short
-                    if "model" in data and "action" in data:
-                        tag_prefix = f"{data['model']}.{data['action']}-{rid_short}"
-
-                    evt = data.get("event", "?")
-
-                    # Build a concise suffix depending on event type
-                    suffix = ""
-                    if evt == "cache_hit":
-                        suffix = f" {data.get('n_items', '?')} hit"
-                    elif evt == "request_start" and "n_items" in data:
-                        suffix = f" {data['n_items']} recvd"
-                    elif evt == "call_submitted":
-                        suffix = f" {data.get('backend_items', '?')} sent"
-                    elif evt == "error":
-                        suffix = f" {data.get('status_code', '?')}"
-                    elif evt == "call_finished" and "elapsed" in data:
+        
+        # Convert headers dict to list of tuples for websockets
+        # Note: WebSocket connections need headers in tuple format
+        # Cookie headers work the same way as Authorization headers
+        extra_headers = [(k, v) for k, v in self.headers.items()]
+        if extra_headers:
+            debug(f"[Activity] using auth headers: {[k for k, v in extra_headers]}")
+        
+        # Retry logic: up to 3 attempts (initial + 2 retries) with 15s timeout each
+        max_attempts = 3
+        ws_timeout = 15.0
+        
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if attempt > 1:
+                    debug(f"[Activity] retry attempt {attempt - 1}/{max_attempts - 1}")
+                else:
+                    debug(f"[Activity] connecting to {self.ws_url}")
+                
+                # Use longer timeout (15s) for activity WebSocket
+                # Don't use context manager - keep connection open explicitly
+                ws = await websockets.connect(
+                    self.ws_url, 
+                    additional_headers=extra_headers,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    open_timeout=ws_timeout,
+                    compression="deflate",
+                )  # type: ignore
+                try:
+                    debug("[Activity] websocket connection established")
+                    self._connected.set()
+                    message_count = 0
+                    debug("[Activity] Entering message receive loop, waiting for messages...")
+                    async for raw in ws:
+                        message_count += 1
+                        if message_count == 1:
+                            debug(f"[Activity] received first message (total: {message_count})")
+                        elif message_count <= 10:
+                            debug(f"[Activity] received message #{message_count}")
                         try:
-                            suffix = f" {float(data['elapsed']):.2f}s"
-                        except Exception:
-                            suffix = f" {data['elapsed']}"
-                    # No extra suffix for response_sent (model.action already
-                    # present in the tag_prefix)
+                            data = _json.loads(raw)
+                            event_type = data.get('type', 'unknown')
+                            debug(f"[Activity] event type: {event_type}")
+                            # Log more details for activity_update events
+                            if event_type == "activity_update":
+                                activity_data = data.get("data", {})
+                                algorithms = activity_data.get("algorithms", {})
+                                totals = activity_data.get("totals", {})
+                                debug(f"[Activity] activity_update: {len(algorithms)} algorithms, totals: {totals}")
+                        except Exception as e:
+                            data = raw
+                            debug(f"[Activity] received non-JSON message: {str(raw)[:100]}, error: {e}")
+                        self.events.append(data)
+                        await self._notify(data)
+                    
+                    # If we exit the loop normally, connection was closed by server
+                    debug(f"[Activity] Exited message loop (received {message_count} total messages)")
+                    try:
+                        close_code = ws.close_code if hasattr(ws, 'close_code') else None
+                        close_reason = ws.close_reason if hasattr(ws, 'close_reason') else None
+                        debug(
+                            f"[Activity] websocket closed by server "
+                            f"(code={close_code}, reason={close_reason})"
+                        )
+                    except Exception:
+                        debug("[Activity] websocket closed by server (unable to get close details)")
+                finally:
+                    # Explicitly close the connection
+                    try:
+                        await ws.close()
+                    except Exception:
+                        pass
+                    break
+                    
+            except Exception as e:
+                if attempt < max_attempts:
+                    debug(f"[Activity] connection attempt {attempt} failed: {e}, retrying immediately...")
+                    # No delay between retries - continue immediately
+                    continue
+                else:
+                    # Last attempt failed
+                    debug(f"[Activity] Listener error after {max_attempts} attempts: {e}")
+                    break
 
-                    debug(f"[Telemetry-{tag_prefix}] {evt}{suffix}")
-        except Exception as e:
-            debug(f"[Telemetry] Listener error: {e}")
 
 class BioLMApiClient:
     def __init__(
@@ -351,6 +556,7 @@ class BioLMApiClient:
         *,
         telemetry: bool = False,
         telemetry_handler: Optional[Callable[[Any], Any]] = None,
+        progress: bool = True,
     ):
         self.model_name = model_name
         # Resolve base_url with precedence: explicit param > env vars > default
@@ -369,6 +575,7 @@ class BioLMApiClient:
         self.retry_error_batches = retry_error_batches
         self.telemetry_enabled = telemetry and websockets is not None
         self._telemetry_handler = telemetry_handler
+        self.progress_enabled = progress and (TelemetryProgressManager is not None)
 
         # -- Telemetry state -------------------------------------------------
         self._telemetry_channel: Optional[str] = None
@@ -377,6 +584,18 @@ class BioLMApiClient:
         self._telemetry_event_cursor: int = 0  # Index into events list
         # Stores events from the most-recent request (for tests / debugging)
         self._last_telemetry_events: List[Any] = []
+
+        # -- Progress manager ------------------------------------------------
+        self._progress_manager: Optional[Any] = None
+        if self.progress_enabled:
+            self._progress_manager = TelemetryProgressManager(enable=True)
+            # Enable telemetry automatically if progress is enabled
+            if not self.telemetry_enabled:
+                self.telemetry_enabled = websockets is not None
+
+        # -- Activity WebSocket state -----------------------------------------
+        self._activity_listener: Optional[ActivityListener] = None
+        self._activity_task: Optional[asyncio.Task] = None
 
         if self.telemetry_enabled:
             # Generate a single channel for the lifetime of this client
@@ -503,13 +722,72 @@ class BioLMApiClient:
             ws_scheme = "wss" if parsed.scheme == "https" else "ws"
             host = parsed.netloc
             ws_url = f"{ws_scheme}://{host}/ws/telemetry/{self._telemetry_channel}/"
-            self._telemetry_listener = TelemetryListener(ws_url, handler=self._telemetry_handler)
+            debug(f"[Telemetry] Setting up listener for channel: {self._telemetry_channel}")
+            debug(f"[Telemetry] WebSocket URL: {ws_url}")
+            debug(f"[Telemetry] Channel will be sent in header: X-Telemetry-Channel = {self._telemetry_channel}")
+            self._telemetry_listener = TelemetryListener(
+                ws_url,
+                handler=self._telemetry_handler,
+                progress_manager=self._progress_manager,
+                headers=self._headers,  # Pass authentication headers
+            )
             self._listener_task = asyncio.create_task(self._telemetry_listener.listen())
             # wait until websocket connected (avoid race)
+            # Use longer timeout (15s) since we may connect to channel before request is made
             try:
-                await asyncio.wait_for(self._telemetry_listener._connected.wait(), timeout=1.0)
+                await asyncio.wait_for(self._telemetry_listener._connected.wait(), timeout=15.0)
+                debug("[Telemetry] websocket connected successfully")
             except asyncio.TimeoutError:
-                debug("[Telemetry] websocket connection timeout")
+                debug("[Telemetry] websocket connection timeout (15s)")
+
+        # --------------------------- Activity listener -------------------------
+        if self.progress_enabled and self._activity_task is None:
+            parsed = urlparse(self.base_url)
+            ws_scheme = "wss" if parsed.scheme == "https" else "ws"
+            host = parsed.netloc
+            activity_ws_url = f"{ws_scheme}://{host}/ws/activity/"
+
+            async def activity_handler(data):
+                """Handle activity WebSocket events."""
+                debug(f"[Activity] handler called with event type: {data.get('type', 'unknown')}")
+                if self._progress_manager is None:
+                    debug("[Activity] handler: progress_manager is None, skipping")
+                    return
+                try:
+                    event_type = data.get("type")
+                    debug(f"[Activity] handler processing event type: {event_type}")
+                    if event_type == "activity_update":
+                        activity_data = data.get("data", {})
+                        algorithms = activity_data.get("algorithms", {})
+                        totals = activity_data.get("totals", {})
+                        debug(f"[Activity] handler: calling update_resources with {len(algorithms)} algorithms, totals: {totals}")
+                        self._progress_manager.update_resources(activity_data)
+                    elif event_type == "billing_update":
+                        billing_data = data.get("data", {})
+                        debug(f"[Activity] handler: calling update_billing")
+                        self._progress_manager.update_billing(billing_data)
+                    elif event_type == "activity_hint":
+                        hint_data = data.get("data", {})
+                        debug(f"[Activity] handler: calling update_hint")
+                        self._progress_manager.update_hint(hint_data)
+                    else:
+                        debug(f"[Activity] handler: unknown event type: {event_type}")
+                except Exception as e:
+                    debug(f"[Activity] handler error: {e}")
+
+            self._activity_listener = ActivityListener(
+                activity_ws_url,
+                headers=self._headers,
+                handler=activity_handler,
+            )
+            self._activity_task = asyncio.create_task(self._activity_listener.listen())
+            # wait until websocket connected (avoid race)
+            # Use longer timeout (15s) for activity WebSocket
+            try:
+                await asyncio.wait_for(self._activity_listener._connected.wait(), timeout=15.0)
+                debug("[Activity] websocket connected successfully")
+            except asyncio.TimeoutError:
+                debug("[Activity] websocket connection timeout (15s)")
 
         # --------------------------- Make HTTP call ---------------------------
         async with self._limit():
@@ -520,6 +798,12 @@ class BioLMApiClient:
             # ------------------------------------------------------------------
             request_id = uuid.uuid4().hex
             extra_headers = {"X-Request-Id": request_id}
+            
+            # Log the request ID for debugging
+            debug(f"[API] Making request with ID: {request_id[:8]} to {endpoint}")
+            if self.telemetry_enabled:
+                debug(f"[API] Request will include header: X-Request-Id = {request_id}")
+                debug(f"[API] Request will include header: X-Telemetry-Channel = {self._telemetry_channel}")
 
             resp = await self._http_client.post(endpoint, payload, extra_headers=extra_headers)
 
@@ -563,15 +847,67 @@ class BioLMApiClient:
         data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
 
         # ------------------------------------------------------------------
-        # Telemetry: give the background listener a tiny window to pick up
+        # Telemetry: give the background listener a window to pick up
         # the "response_sent" event then capture only the *new* events since
-        # the previous call.
+        # the previous call that match this request_id.
         # ------------------------------------------------------------------
         if self.telemetry_enabled and self._telemetry_listener is not None:
-            await asyncio.sleep(0.05)  # small delay – tune as needed
-            new_events = self._telemetry_listener.events[self._telemetry_event_cursor :]
-            self._last_telemetry_events = list(new_events)
+            # Wait for events to arrive, with polling to check if they've arrived
+            # This is especially important for sync wrappers where the event loop
+            # might close before events arrive. We poll up to 5 seconds for events.
+            max_wait_time = 5.0
+            poll_interval = 0.1
+            waited = 0.0
+            new_events = []
+            
+            while waited < max_wait_time:
+                await asyncio.sleep(poll_interval)
+                waited += poll_interval
+                
+                # Filter events by request_id to only get events for this specific request
+                # Events may use either "request_id" or "rid" field
+                all_new_events = self._telemetry_listener.events[self._telemetry_event_cursor :]
+                new_events = [
+                    e for e in all_new_events
+                    if isinstance(e, dict) and (
+                        e.get("request_id") == request_id or 
+                        e.get("rid") == request_id
+                    )
+                ]
+                
+                # If we got a response_sent event, we're done (request completed)
+                if any(e.get("event") == "response_sent" for e in new_events):
+                    break
+                
+                # If we got any events and waited at least 0.5s, break early
+                # (gives time for initial events to arrive)
+                if new_events and waited >= 0.5:
+                    break
+            
+            # Update cursor to mark all new events as processed (even if not for this request)
+            # This prevents re-processing events on subsequent calls
+            all_new_events = self._telemetry_listener.events[self._telemetry_event_cursor :]
             self._telemetry_event_cursor = len(self._telemetry_listener.events)
+            
+            # Store only events for this request
+            self._last_telemetry_events = list(new_events)
+            
+            # Check total events received (for debugging)
+            total_events = len(self._telemetry_listener.events)
+            debug(f"[API] Total telemetry events so far: {total_events}, new events for request {request_id[:8]}: {len(new_events)}")
+            
+            if new_events:
+                debug(f"[API] Received {len(new_events)} telemetry events for request {request_id[:8]}")
+                # Log event types received
+                event_types = [e.get("event", "unknown") if isinstance(e, dict) else "non-dict" for e in new_events]
+                debug(f"[API] Event types: {event_types}")
+            else:
+                # Log all new events (not filtered) for debugging
+                all_event_types = [e.get("event", "unknown") if isinstance(e, dict) else "non-dict" for e in all_new_events]
+                if all_new_events:
+                    debug(f"[API] No telemetry events received for request {request_id[:8]} (total events in listener: {total_events}, all new events: {len(all_new_events)}, event types: {all_event_types})")
+                else:
+                    debug(f"[API] No telemetry events received for request {request_id[:8]} (total events in listener: {total_events})")
 
         return (data, resp) if raw else data
 
@@ -582,8 +918,8 @@ class BioLMApiClient:
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")
         payload = {'items': items} if func != 'lookup' else {'query': items}
-        if params:
-            payload['params'] = params
+        # Always include params, even if empty, as API requires it
+        payload['params'] = params if params is not None else {}
         try:
             res = await self._api_call(endpoint, payload, raw=raw if func == 'lookup' else False)
         except Exception as e:
@@ -848,6 +1184,13 @@ class BioLMApiClient:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._listener_task
             self._listener_task = None
+        if self._activity_task is not None:
+            self._activity_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._activity_task
+            self._activity_task = None
+        if self._progress_manager is not None:
+            self._progress_manager.close_all()
 
     async def __aenter__(self):
         return self
@@ -870,6 +1213,8 @@ class BioLMApiClient:
         try:
             if self._listener_task and not self._listener_task.done():
                 self._listener_task.cancel()
+            if self._activity_task and not self._activity_task.done():
+                self._activity_task.cancel()
         except Exception:
             pass
 
@@ -905,14 +1250,20 @@ class BioLMApiClient:
         if self._telemetry_listener is not None:
             self._telemetry_listener._handler = handler
 
+    @property
+    def last_telemetry_events(self) -> List[Any]:
+        """Get the last telemetry events captured for the most recent request.
+        
+        Returns a list of telemetry events (dicts) from the most recent API call.
+        This is useful for testing and debugging. Events may be empty if:
+        - Telemetry is disabled
+        - No events were received yet
+        - The websocket connection hasn't been established
+        """
+        return self._last_telemetry_events
+
 # Synchronous wrapper for compatibility
 @_synchronizer.sync
 class BioLMApi(BioLMApiClient):
     pass
 
-async def _ensure_listener_connected(self):
-    if self._listener_task is None:
-        # start a connection and *wait* until it's ready
-        ws = await websockets.connect(ws_url, extra_headers=hdrs)
-        self._telemetry_listener = TelemetryListener.from_open_ws(ws)
-        self._listener_task = asyncio.create_task(self._telemetry_listener.run())
