@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import gzip
 import json
 import os
 import time
@@ -162,10 +163,19 @@ class CredentialsProvider:
 
 class HttpClient:
 
-    def __init__(self, base_url: str, headers: Dict[str, str], timeout: httpx.Timeout):
+    def __init__(
+        self, 
+        base_url: str, 
+        headers: Dict[str, str], 
+        timeout: httpx.Timeout,
+        compress_requests: bool = True,
+        compress_threshold: int = 1024
+    ):
         self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
         self._timeout = timeout
+        self._compress_requests = compress_requests
+        self._compress_threshold = compress_threshold
         self._async_client: Optional[httpx.AsyncClient] = None
         self._transport = None
         # Removed AsyncResolver, use default resolver
@@ -188,15 +198,39 @@ class HttpClient:
                 )
         return self._async_client
 
-    async def post(self, endpoint: str, payload: dict) -> httpx.Response:
+    async def post(self, endpoint: str, payload: dict, extra_headers: Optional[dict] = None) -> httpx.Response:
+        """POST with optional *extra_headers* added just for this request."""
         client = await self.get_async_client()
         # Remove leading slash, ensure trailing slash
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        if "Content-Type" not in client.headers:
-            client.headers["Content-Type"] = "application/json"
-        r = await client.post(endpoint, json=payload)
+
+        headers = None
+        if extra_headers:
+            headers = {**client.headers, **extra_headers}
+
+        if "Content-Type" not in (headers or client.headers):
+            # Ensure JSON content-type
+            (headers or client.headers)["Content-Type"] = "application/json"
+
+        # Check if we should compress
+        if self._compress_requests:
+            # Use the same JSON encoding as httpx to get accurate size
+            json_bytes = json_dumps(payload, ensure_ascii=False).encode("utf-8")
+            
+            if len(json_bytes) > self._compress_threshold:
+                compressed_body = gzip.compress(json_bytes)
+                if headers is None:
+                    headers = {**client.headers}
+                headers["Content-Encoding"] = "gzip"
+                headers["Content-Type"] = "application/json"
+                headers["Content-Length"] = str(len(compressed_body))
+                r = await client.post(endpoint, content=compressed_body, headers=headers)
+                return r
+        
+        # Default: send uncompressed JSON
+        r = await client.post(endpoint, json=payload, headers=headers)
         return r
 
     async def get(self, endpoint: str) -> httpx.Response:
@@ -251,7 +285,8 @@ class BioLMApiClient:
         semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = None,
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
-
+        compress_requests: bool = True,
+        compress_threshold: int = 1024,
     ):
         # Use base_url parameter if provided, otherwise use default from const
         final_base_url = base_url if base_url is not None else BIOLMAI_BASE_API_URL
@@ -262,7 +297,13 @@ class BioLMApiClient:
         self.raise_httpx = raise_httpx
         self.unwrap_single = unwrap_single
         self._headers = CredentialsProvider.get_auth_headers(api_key)
-        self._http_client = HttpClient(self.base_url, self._headers, self.timeout)
+        self._http_client = HttpClient(
+            self.base_url, 
+            self._headers, 
+            self.timeout,
+            compress_requests=compress_requests,
+            compress_threshold=compress_threshold
+        )
         self._semaphore = None
         self._rate_limiter = None
         self._rate_limit_lock = None
