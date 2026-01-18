@@ -159,7 +159,7 @@ class APIEndpoint:
     generate_input_classes = ()
     transform_input_classes = ()
 
-    def __init__(self, multiprocess_threads=None, compress_requests=True, compress_threshold=1024):
+    def __init__(self, multiprocess_threads=None, compress_requests=True, compress_threshold=256):
         # Check for instance-specific threads, otherwise read from env var
         if multiprocess_threads is not None:
             self.multiprocess_threads = multiprocess_threads

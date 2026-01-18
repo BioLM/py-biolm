@@ -169,7 +169,7 @@ class HttpClient:
         headers: Dict[str, str], 
         timeout: httpx.Timeout,
         compress_requests: bool = True,
-        compress_threshold: int = 1024
+        compress_threshold: int = 256
     ):
         self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
@@ -286,7 +286,7 @@ class BioLMApiClient:
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
         compress_requests: bool = True,
-        compress_threshold: int = 1024,
+        compress_threshold: int = 256,
     ):
         # Use base_url parameter if provided, otherwise use default from const
         final_base_url = base_url if base_url is not None else BIOLMAI_BASE_API_URL

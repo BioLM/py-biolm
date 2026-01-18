@@ -23,7 +23,7 @@ class BioLM:
         file_path (Optional[str]): Output file path if output='disk'.
         api_key (Optional[str]): API key for authentication.
         compress_requests (bool): Enable gzip compression for POST requests. Default: True.
-        compress_threshold (int): Minimum payload size in bytes to trigger compression. Default: 1024.
+        compress_threshold (int): Minimum payload size in bytes to trigger compression. Default: 256.
     """
     def __new__(
         cls,
