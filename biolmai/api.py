@@ -188,7 +188,9 @@ class APIEndpoint:
                 batch_res = pd.DataFrame({"api_resp": api_resps})
                 len_res = batch_res.shape[0]
             orig_request_rows = keep_batches.shape[0]
-            if len_res != orig_request_rows:
+            # For 'generate' actions, models may return multiple results per item
+            # (e.g., hyper-mpnn with batch_size > 1), so skip the 1:1 check
+            if action != "generate" and len_res != orig_request_rows:
                 err = "Response rows ({}) mismatch with input rows ({})"
                 err = err.format(len_res, orig_request_rows)
                 raise AssertionError(err)
