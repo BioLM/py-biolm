@@ -88,20 +88,42 @@ async def get_one_biolm(
     resp_json["batch"] = pload_batch
     expected_root_key = response_key
     to_ret = []
-    if status_code and status_code == 200:
-        list_of_individual_seq_results = resp_json[expected_root_key]
-    # elif local_err:
-    #     list_of_individual_seq_results = [{'error': resp_json}]
-    elif status_code and status_code != 200 and isinstance(resp_json, dict):
-        list_of_individual_seq_results = [resp_json] * pload_batch_size
+    
+    # Determine if this is an error response:
+    # - Non-200 status code, OR
+    # - Top-level "error" key (v3 can return validation errors with 200 status)
+    is_error = (not status_code or status_code != 200) or (isinstance(resp_json, dict) and "error" in resp_json)
+    
+    if is_error:
+        # Error response - normalize and apply to all items in batch
+        error_dict = resp_json.copy()
+        # Remove batch info from error dict
+        error_dict.pop("batch", None)
+        # Ensure we have an error key for consistency
+        if "error" not in error_dict and ("detail" in error_dict or "description" in error_dict):
+            # Promote detail/description to error key if error key doesn't exist
+            error_dict["error"] = error_dict.get("detail") or error_dict.get("description")
+        list_of_individual_seq_results = [error_dict] * pload_batch_size
+    elif status_code and status_code == 200:
+        # Success response - extract results
+        if expected_root_key in resp_json:
+            list_of_individual_seq_results = resp_json[expected_root_key]
+        else:
+            # Fallback if expected key not found
+            raise ValueError(f"Expected key '{expected_root_key}' not found in response: {resp_json}")
     else:
         raise ValueError("Unexpected response in parser")
+    
     for idx, item in enumerate(list_of_individual_seq_results):
         d = {"status_code": status_code, "batch_id": pload_batch, "batch_item": idx}
-        if not status_code or status_code != 200:
-            d.update(item)  # Put all resp keys at root there
+        if is_error:
+            # Error case - put all error keys at root level
+            if isinstance(item, dict):
+                d.update(item)
+            else:
+                d["error"] = item
         else:
-            # We just append one item, mimicking a single seq in POST req/resp
+            # Success case - wrap in expected_root_key structure
             d[expected_root_key] = []
             d[expected_root_key].append(item)
         to_ret.append(d)

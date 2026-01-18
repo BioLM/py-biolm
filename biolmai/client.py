@@ -434,12 +434,22 @@ class BioLMApiClient:
             resp_json = ''
 
         assert resp.status_code
-        if resp.status_code >= 400 or 'error' in resp_json:
+        # Check for errors: non-200 status OR top-level error/detail/description keys
+        has_error_key = isinstance(resp_json, dict) and ('error' in resp_json or 'detail' in resp_json or 'description' in resp_json)
+        is_error_status = resp.status_code >= 400
+        
+        if is_error_status or has_error_key:
             if 'application/json' in content_type:
                 try:
                     error_json = resp_json
-                    # If the API already returns a dict with "error" or similar, just return it
+                    # If the API already returns a dict with "error" or similar, normalize it
                     if isinstance(error_json, (dict, list)):
+                        # Normalize error keys - ensure "error" key exists
+                        if isinstance(error_json, dict) and 'error' not in error_json:
+                            if 'detail' in error_json:
+                                error_json['error'] = error_json['detail']
+                            elif 'description' in error_json:
+                                error_json['error'] = error_json['description']
                         DEFAULT_STATUS_CODE = 502
                         stat = error_json.get('status', DEFAULT_STATUS_CODE)
                         error_json['status_code'] = resp.status_code or error_json.get('status_code', stat)
