@@ -1,7 +1,9 @@
 import asyncio
+import gzip
+import json
 from asyncio import create_task, gather, run
 from itertools import zip_longest
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import aiohttp.resolver
 from aiohttp import ClientSession
@@ -28,6 +30,8 @@ async def get_one_biolm(
     pload: dict,
     headers: dict,
     response_key: str = None,
+    compress_requests: bool = True,
+    compress_threshold: int = 1024,
 ) -> None:
     print("Requesting", url)
     pload_batch = pload.pop("batch")
@@ -44,30 +48,64 @@ async def get_one_biolm(
         sock_read=None
         # Maximal number of seconds for reading a portion of data from a peer
     )
-    async with session.post(url, headers=headers, json=pload, timeout=t) as resp:
-        resp_json = await resp.json()
-        resp_json["batch"] = pload_batch
-        status_code = resp.status
-        expected_root_key = response_key
-        to_ret = []
-        if status_code and status_code == 200:
-            list_of_individual_seq_results = resp_json[expected_root_key]
-        # elif local_err:
-        #     list_of_individual_seq_results = [{'error': resp_json}]
-        elif status_code and status_code != 200 and isinstance(resp_json, dict):
-            list_of_individual_seq_results = [resp_json] * pload_batch_size
+    
+    # Check if we should compress
+    request_headers = dict(headers)
+    request_data = None
+    if compress_requests:
+        # Serialize JSON to check size
+        json_bytes = json.dumps(pload, ensure_ascii=False).encode("utf-8")
+        
+        if len(json_bytes) > compress_threshold:
+            # Compress the payload
+            compressed_body = gzip.compress(json_bytes)
+            request_headers["Content-Encoding"] = "gzip"
+            request_headers["Content-Type"] = "application/json"
+            request_headers["Content-Length"] = str(len(compressed_body))
+            request_data = compressed_body
         else:
-            raise ValueError("Unexpected response in parser")
-        for idx, item in enumerate(list_of_individual_seq_results):
-            d = {"status_code": status_code, "batch_id": pload_batch, "batch_item": idx}
-            if not status_code or status_code != 200:
-                d.update(item)  # Put all resp keys at root there
-            else:
-                # We just append one item, mimicking a single seq in POST req/resp
-                d[expected_root_key] = []
-                d[expected_root_key].append(item)
-            to_ret.append(d)
-        return to_ret
+            # Payload too small, send as JSON
+            request_data = pload
+    else:
+        # Compression disabled, send as JSON
+        request_data = pload
+    
+    # Send request with appropriate data format
+    resp_json = None
+    status_code = None
+    if isinstance(request_data, bytes):
+        # Compressed data - send as bytes
+        async with session.post(url, headers=request_headers, data=request_data, timeout=t) as resp:
+            resp_json = await resp.json()
+            status_code = resp.status
+    else:
+        # Uncompressed data - send as JSON
+        async with session.post(url, headers=request_headers, json=request_data, timeout=t) as resp:
+            resp_json = await resp.json()
+            status_code = resp.status
+    
+    # Process response (same for both compressed and uncompressed)
+    resp_json["batch"] = pload_batch
+    expected_root_key = response_key
+    to_ret = []
+    if status_code and status_code == 200:
+        list_of_individual_seq_results = resp_json[expected_root_key]
+    # elif local_err:
+    #     list_of_individual_seq_results = [{'error': resp_json}]
+    elif status_code and status_code != 200 and isinstance(resp_json, dict):
+        list_of_individual_seq_results = [resp_json] * pload_batch_size
+    else:
+        raise ValueError("Unexpected response in parser")
+    for idx, item in enumerate(list_of_individual_seq_results):
+        d = {"status_code": status_code, "batch_id": pload_batch, "batch_item": idx}
+        if not status_code or status_code != 200:
+            d.update(item)  # Put all resp keys at root there
+        else:
+            # We just append one item, mimicking a single seq in POST req/resp
+            d[expected_root_key] = []
+            d[expected_root_key].append(item)
+        to_ret.append(d)
+    return to_ret
 
         # text = await resp.text()
         # await sleep(2)  # for demo purposes
@@ -107,6 +145,8 @@ async def get_all_biolm(
     headers: dict,
     num_concurrent: int,
     response_key: str = None,
+    compress_requests: bool = True,
+    compress_threshold: int = 1024,
 ) -> list:
     ploads_iterator = iter(ploads)
     keep_going = True
@@ -134,7 +174,7 @@ async def get_all_biolm(
                     keep_going = False
                     break
                 new_task = create_task(
-                    get_one_biolm(session, url, pload, headers, response_key)
+                    get_one_biolm(session, url, pload, headers, response_key, compress_requests, compress_threshold)
                 )
                 tasks.append(new_task)
             res = await gather(*tasks)
@@ -146,7 +186,7 @@ async def async_main(urls, concurrency) -> list:
     return await get_all(urls, concurrency)
 
 
-async def async_api_calls(model_name, action, headers, payloads, response_key=None, api_version=2):
+async def async_api_calls(model_name, action, headers, payloads, response_key=None, api_version=2, compress_requests=True, compress_threshold=1024):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
     # but for simplicity sake will do one at at time right now
@@ -160,7 +200,7 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
         raise AssertionError(err.format(type(payloads)))
 
     concurrency = int(MULTIPROCESS_THREADS)
-    return await get_all_biolm(url, payloads, headers, concurrency, response_key)
+    return await get_all_biolm(url, payloads, headers, concurrency, response_key, compress_requests, compress_threshold)
 
     # payload = json.dumps(payload)
     # session = requests_retry_session()
@@ -183,7 +223,7 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
     # return response
 
 
-def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key, api_version=2, key="sequence", params=None):
+def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key, api_version=2, key="sequence", params=None, compress_requests=True, compress_threshold=1024):
     """Wrap API calls to assist with sequence validation as a pre-cursor to
     each API call.
     """
@@ -216,7 +256,7 @@ def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key
     #     "https://python.org",
     # ]
     # concurrency = 3
-    api_resp = run(async_api_calls(model_name, action, headers, ploads, response_key, api_version))
+    api_resp = run(async_api_calls(model_name, action, headers, ploads, response_key, api_version, compress_requests, compress_threshold))
     api_resp = [item for sublist in api_resp for item in sublist]
     api_resp = sorted(api_resp, key=lambda x: x["batch_id"])
     # print(api_resp)
