@@ -33,7 +33,7 @@ elif int(MULTIPROCESS_THREADS) <= 0:
     err = "Environment variable BIOLMAI_THREADS must be a positive integer."
     raise ValueError(err)
 BASE_API_URL_V1 = f"{BIOLMAI_BASE_DOMAIN}/api/v1"
-BASE_API_URL = f"{BIOLMAI_BASE_DOMAIN}/api/v2"
+BASE_API_URL = f"{BIOLMAI_BASE_DOMAIN}/api/v3"
 
 # Default base URL for new client classes (BioLMApiClient, BioLMApi, biolm)
 # Priority: BIOLMAI_BASE_API_URL env var > BIOLMAI_BASE_DOMAIN env var > default

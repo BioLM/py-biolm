@@ -148,7 +148,7 @@ class APIEndpoint:
     batch_size = 3
     params = None
     action_classes = ()
-    api_version = 2
+    api_version = 3
 
     predict_input_key = "sequence"
     encode_input_key = "sequence"

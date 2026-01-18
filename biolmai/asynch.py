@@ -186,7 +186,7 @@ async def async_main(urls, concurrency) -> list:
     return await get_all(urls, concurrency)
 
 
-async def async_api_calls(model_name, action, headers, payloads, response_key=None, api_version=2, compress_requests=True, compress_threshold=1024):
+async def async_api_calls(model_name, action, headers, payloads, response_key=None, api_version=3, compress_requests=True, compress_threshold=1024):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
     # but for simplicity sake will do one at at time right now
@@ -223,7 +223,7 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
     # return response
 
 
-def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key, api_version=2, key="sequence", params=None, compress_requests=True, compress_threshold=1024):
+def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key, api_version=3, key="sequence", params=None, compress_requests=True, compress_threshold=1024):
     """Wrap API calls to assist with sequence validation as a pre-cursor to
     each API call.
     """
