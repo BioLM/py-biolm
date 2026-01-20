@@ -1,4 +1,5 @@
 import asyncio
+import atexit
 import functools
 import gzip
 import json
@@ -90,6 +91,141 @@ HTTPX_EXCEPTION_MESSAGES = {
 }
 
 LookupResult = namedtuple("LookupResult", ["data", "raw"])
+
+
+class _SharedClientFactory:
+    """
+    Factory for creating and caching shared httpx.AsyncClient instances.
+    Clients are cached by configuration (base_url, headers, timeout, limits, http2, transport)
+    to enable connection pooling across multiple HttpClient instances.
+    """
+    
+    def __init__(self):
+        self._cache: Dict[Tuple, httpx.AsyncClient] = {}
+        self._lock = asyncio.Lock()
+    
+    def _make_cache_key(
+        self,
+        base_url: str,
+        headers: Dict[str, str],
+        timeout: httpx.Timeout,
+        limits: httpx.Limits,
+        http2: bool,
+        transport: Optional[AsyncHTTPTransport]
+    ) -> Tuple:
+        """Create a hashable key from client configuration."""
+        # Convert headers dict to sorted tuple for hashability
+        headers_key = tuple(sorted(headers.items()))
+        
+        # Extract timeout values
+        # httpx.Timeout has connect, read, write, and pool attributes
+        timeout_key = (
+            getattr(timeout, 'connect', None),
+            getattr(timeout, 'read', None),
+            getattr(timeout, 'write', None),
+            getattr(timeout, 'pool', None),
+        )
+        
+        # Extract limits values
+        limits_key = (
+            limits.max_connections,
+            limits.max_keepalive_connections,
+            limits.keepalive_expiry,
+        )
+        
+        # For transport, use http2 flag since transport is created with http2 parameter
+        # We don't need to include the transport object itself in the key
+        transport_key = http2
+        
+        return (base_url, headers_key, timeout_key, limits_key, transport_key)
+    
+    async def get_or_create_client(
+        self,
+        base_url: str,
+        headers: Dict[str, str],
+        timeout: httpx.Timeout,
+        limits: httpx.Limits,
+        http2: bool,
+        transport: Optional[AsyncHTTPTransport]
+    ) -> httpx.AsyncClient:
+        """Get or create a shared httpx.AsyncClient instance."""
+        cache_key = self._make_cache_key(base_url, headers, timeout, limits, http2, transport)
+        
+        async with self._lock:
+            # Check if client exists and is still open
+            if cache_key in self._cache:
+                client = self._cache[cache_key]
+                if not getattr(client, 'is_closed', False):
+                    return client
+                # Client is closed, remove from cache
+                del self._cache[cache_key]
+            
+            # Create new client
+            if transport:
+                client = httpx.AsyncClient(
+                    base_url=base_url,
+                    headers=headers,
+                    timeout=timeout,
+                    transport=transport,
+                    limits=limits,
+                )
+            else:
+                client = httpx.AsyncClient(
+                    base_url=base_url,
+                    headers=headers,
+                    timeout=timeout,
+                    limits=limits,
+                )
+            
+            self._cache[cache_key] = client
+            return client
+    
+    async def cleanup_all(self):
+        """Close all cached clients and clear the cache."""
+        async with self._lock:
+            for client in self._cache.values():
+                try:
+                    if not getattr(client, 'is_closed', False):
+                        await client.aclose()
+                except Exception:
+                    # Ignore errors during cleanup
+                    pass
+            self._cache.clear()
+
+
+# Global shared client factory instance
+_shared_client_factory = _SharedClientFactory()
+
+
+def _cleanup_shared_clients():
+    """Cleanup function registered with atexit to close all shared clients."""
+    try:
+        # Try to get existing event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # Loop is running, we can't easily schedule async cleanup from sync context
+            # In this case, we'll just skip cleanup (connections will close on process exit)
+            return
+        except RuntimeError:
+            # No running loop, try to get or create one
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    # Loop is closed, create a new one
+                    asyncio.run(_shared_client_factory.cleanup_all())
+                else:
+                    # Loop exists but not running, run cleanup
+                    loop.run_until_complete(_shared_client_factory.cleanup_all())
+            except RuntimeError:
+                # No event loop exists, create a new one
+                asyncio.run(_shared_client_factory.cleanup_all())
+    except Exception:
+        # Ignore all errors during cleanup - process is exiting anyway
+        pass
+
+
+# Register cleanup on process exit
+atexit.register(_cleanup_shared_clients)
 
 _synchronizer = Synchronizer()
 
@@ -206,7 +342,6 @@ class HttpClient:
         self._timeout = timeout
         self._compress_requests = compress_requests
         self._compress_threshold = compress_threshold
-        self._async_client: Optional[httpx.AsyncClient] = None
         self._limits = limits or DEFAULT_LIMITS
         self._http2 = http2
         self._transport = None
@@ -214,23 +349,15 @@ class HttpClient:
         self._transport = AsyncHTTPTransport(http2=http2)
 
     async def get_async_client(self) -> httpx.AsyncClient:
-        if self._async_client is None or getattr(self._async_client, 'is_closed', False):
-            if self._transport:
-                self._async_client = httpx.AsyncClient(
-                    base_url=self._base_url,
-                    headers=self._headers,
-                    timeout=self._timeout,
-                    transport=self._transport,
-                    limits=self._limits,
-                )
-            else:
-                self._async_client = httpx.AsyncClient(
-                    base_url=self._base_url,
-                    headers=self._headers,
-                    timeout=self._timeout,
-                    limits=self._limits,
-                )
-        return self._async_client
+        """Get or create a shared httpx.AsyncClient instance from the factory."""
+        return await _shared_client_factory.get_or_create_client(
+            base_url=self._base_url,
+            headers=self._headers,
+            timeout=self._timeout,
+            limits=self._limits,
+            http2=self._http2,
+            transport=self._transport
+        )
 
     async def _post_with_retry(
         self, 
@@ -338,9 +465,11 @@ class HttpClient:
         await self.close()
 
     async def close(self):
-        if self._async_client:
-            await self._async_client.aclose()
-            self._async_client = None
+        """Close method for backward compatibility. 
+        Shared clients are managed by _SharedClientFactory and cleaned up on process exit.
+        """
+        # No-op: shared clients are cleaned up by the factory
+        pass
 
 
 def is_list_of_lists(items, check_n=10):
