@@ -4,6 +4,7 @@ import functools
 import gzip
 import json
 import os
+import threading
 import time
 from collections import namedtuple, OrderedDict
 from contextlib import asynccontextmanager
@@ -103,7 +104,8 @@ class _SharedClientFactory:
     def __init__(self):
         # Nested dict: loop_id -> config_key -> client
         self._cache: Dict[int, Dict[Tuple, httpx.AsyncClient]] = {}
-        self._lock = asyncio.Lock()
+        self._async_lock = asyncio.Lock()  # For async operations within a loop
+        self._thread_lock = threading.Lock()  # For thread-safe cache access
     
     def _make_cache_key(
         self,
@@ -160,28 +162,29 @@ class _SharedClientFactory:
         
         cache_key = self._make_cache_key(base_url, headers, timeout, limits, http2, transport)
         
-        async with self._lock:
+        # Thread-safe cache check
+        with self._thread_lock:
             # Get or create loop-specific cache
             if loop_id not in self._cache:
                 self._cache[loop_id] = {}
             
             loop_cache = self._cache[loop_id]
             
-            # Check if client exists and is still open and bound to current loop
+            # Check if client exists and is still open
             if cache_key in loop_cache:
                 client = loop_cache[cache_key]
-                # Verify client is still valid (not closed and bound to current loop)
+                # Verify client is still valid (not closed)
                 if not getattr(client, 'is_closed', False):
-                    # Double-check the client's loop matches (if we can access it)
-                    try:
-                        client_loop = getattr(client, '_loop', None)
-                        if client_loop is None or id(client_loop) == loop_id:
-                            return client
-                    except (AttributeError, RuntimeError):
-                        # Can't verify loop, but client is not closed, so assume it's valid
-                        return client
-                # Client is closed or from different loop, remove from cache
+                    return client
+                # Client is closed, remove from cache
                 del loop_cache[cache_key]
+        
+        # Async-safe client creation
+        async with self._async_lock:
+            # Double-check after acquiring async lock
+            with self._thread_lock:
+                if loop_id in self._cache and cache_key in self._cache[loop_id]:
+                    return self._cache[loop_id][cache_key]
             
             # Create new client bound to current event loop
             if transport:
@@ -200,21 +203,32 @@ class _SharedClientFactory:
                     limits=limits,
                 )
             
-            loop_cache[cache_key] = client
+            # Thread-safe cache update
+            with self._thread_lock:
+                if loop_id not in self._cache:
+                    self._cache[loop_id] = {}
+                self._cache[loop_id][cache_key] = client
+            
             return client
     
     async def cleanup_all(self):
         """Close all cached clients and clear the cache."""
-        async with self._lock:
+        # Get all clients thread-safely
+        clients_to_close = []
+        with self._thread_lock:
             for loop_cache in self._cache.values():
-                for client in loop_cache.values():
-                    try:
-                        if not getattr(client, 'is_closed', False):
-                            await client.aclose()
-                    except Exception:
-                        # Ignore errors during cleanup
-                        pass
+                clients_to_close.extend(loop_cache.values())
             self._cache.clear()
+        
+        # Close clients async-safely
+        async with self._async_lock:
+            for client in clients_to_close:
+                try:
+                    if not getattr(client, 'is_closed', False):
+                        await client.aclose()
+                except Exception:
+                    # Ignore errors during cleanup
+                    pass
     
     async def cleanup_loop(self, loop_id: Optional[int] = None):
         """Clean up clients for a specific event loop (or current loop if None)."""
@@ -225,15 +239,21 @@ class _SharedClientFactory:
             except RuntimeError:
                 return
         
-        async with self._lock:
+        # Get clients to close thread-safely
+        clients_to_close = []
+        with self._thread_lock:
             if loop_id in self._cache:
-                for client in self._cache[loop_id].values():
-                    try:
-                        if not getattr(client, 'is_closed', False):
-                            await client.aclose()
-                    except Exception:
-                        pass
+                clients_to_close = list(self._cache[loop_id].values())
                 del self._cache[loop_id]
+        
+        # Close clients async-safely
+        async with self._async_lock:
+            for client in clients_to_close:
+                try:
+                    if not getattr(client, 'is_closed', False):
+                        await client.aclose()
+                except Exception:
+                    pass
 
 
 # Global shared client factory instance
