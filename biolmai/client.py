@@ -96,12 +96,13 @@ LookupResult = namedtuple("LookupResult", ["data", "raw"])
 class _SharedClientFactory:
     """
     Factory for creating and caching shared httpx.AsyncClient instances.
-    Clients are cached by configuration (base_url, headers, timeout, limits, http2, transport)
-    to enable connection pooling across multiple HttpClient instances.
+    Clients are cached by event loop ID and configuration (base_url, headers, timeout, limits, http2, transport)
+    to enable connection pooling across multiple HttpClient instances within the same event loop.
     """
     
     def __init__(self):
-        self._cache: Dict[Tuple, httpx.AsyncClient] = {}
+        # Nested dict: loop_id -> config_key -> client
+        self._cache: Dict[int, Dict[Tuple, httpx.AsyncClient]] = {}
         self._lock = asyncio.Lock()
     
     def _make_cache_key(
@@ -148,19 +149,41 @@ class _SharedClientFactory:
         http2: bool,
         transport: Optional[AsyncHTTPTransport]
     ) -> httpx.AsyncClient:
-        """Get or create a shared httpx.AsyncClient instance."""
+        """Get or create a shared httpx.AsyncClient instance for the current event loop."""
+        # Get current event loop ID to ensure clients are loop-specific
+        try:
+            loop = asyncio.get_running_loop()
+            loop_id = id(loop)
+        except RuntimeError:
+            # No running loop, use a sentinel value
+            loop_id = None
+        
         cache_key = self._make_cache_key(base_url, headers, timeout, limits, http2, transport)
         
         async with self._lock:
-            # Check if client exists and is still open
-            if cache_key in self._cache:
-                client = self._cache[cache_key]
-                if not getattr(client, 'is_closed', False):
-                    return client
-                # Client is closed, remove from cache
-                del self._cache[cache_key]
+            # Get or create loop-specific cache
+            if loop_id not in self._cache:
+                self._cache[loop_id] = {}
             
-            # Create new client
+            loop_cache = self._cache[loop_id]
+            
+            # Check if client exists and is still open and bound to current loop
+            if cache_key in loop_cache:
+                client = loop_cache[cache_key]
+                # Verify client is still valid (not closed and bound to current loop)
+                if not getattr(client, 'is_closed', False):
+                    # Double-check the client's loop matches (if we can access it)
+                    try:
+                        client_loop = getattr(client, '_loop', None)
+                        if client_loop is None or id(client_loop) == loop_id:
+                            return client
+                    except (AttributeError, RuntimeError):
+                        # Can't verify loop, but client is not closed, so assume it's valid
+                        return client
+                # Client is closed or from different loop, remove from cache
+                del loop_cache[cache_key]
+            
+            # Create new client bound to current event loop
             if transport:
                 client = httpx.AsyncClient(
                     base_url=base_url,
@@ -177,20 +200,40 @@ class _SharedClientFactory:
                     limits=limits,
                 )
             
-            self._cache[cache_key] = client
+            loop_cache[cache_key] = client
             return client
     
     async def cleanup_all(self):
         """Close all cached clients and clear the cache."""
         async with self._lock:
-            for client in self._cache.values():
-                try:
-                    if not getattr(client, 'is_closed', False):
-                        await client.aclose()
-                except Exception:
-                    # Ignore errors during cleanup
-                    pass
+            for loop_cache in self._cache.values():
+                for client in loop_cache.values():
+                    try:
+                        if not getattr(client, 'is_closed', False):
+                            await client.aclose()
+                    except Exception:
+                        # Ignore errors during cleanup
+                        pass
             self._cache.clear()
+    
+    async def cleanup_loop(self, loop_id: Optional[int] = None):
+        """Clean up clients for a specific event loop (or current loop if None)."""
+        if loop_id is None:
+            try:
+                loop = asyncio.get_running_loop()
+                loop_id = id(loop)
+            except RuntimeError:
+                return
+        
+        async with self._lock:
+            if loop_id in self._cache:
+                for client in self._cache[loop_id].values():
+                    try:
+                        if not getattr(client, 'is_closed', False):
+                            await client.aclose()
+                    except Exception:
+                        pass
+                del self._cache[loop_id]
 
 
 # Global shared client factory instance
