@@ -382,6 +382,9 @@ class HttpClient:
     ):
         self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
+        # Add Accept-Encoding: gzip to headers to support compressed responses
+        if 'Accept-Encoding' not in self._headers:
+            self._headers['Accept-Encoding'] = 'gzip, deflate'
         self._timeout = timeout
         self._compress_requests = compress_requests
         self._compress_threshold = compress_threshold
@@ -451,7 +454,18 @@ class HttpClient:
             json_bytes = json_dumps(payload, ensure_ascii=False).encode("utf-8")
             
             if len(json_bytes) > self._compress_threshold:
-                compressed_body = gzip.compress(json_bytes)
+                # Compress in a thread pool to avoid blocking the event loop
+                # Use compression level 6 (good balance between speed and compression ratio)
+                # Use asyncio.to_thread() for Python 3.9+, fallback to run_in_executor for older versions
+                try:
+                    compressed_body = await asyncio.to_thread(gzip.compress, json_bytes, compresslevel=6)
+                except AttributeError:
+                    # Python < 3.9: use run_in_executor
+                    loop = asyncio.get_event_loop()
+                    compressed_body = await loop.run_in_executor(
+                        None, functools.partial(gzip.compress, json_bytes, compresslevel=6)
+                    )
+                
                 if headers is None:
                     # Start with client's default headers but ensure we override Content-Type
                     headers = dict(client.headers)
@@ -698,11 +712,36 @@ class BioLMApiClient:
 
         # Read response content once and parse as JSON or use as text
         # Note: resp.json() and resp.text both consume the body stream, so we read text first, then parse
+        # httpx automatically decompresses responses with Content-Encoding: gzip if Accept-Encoding was set
+        # But we'll handle it explicitly to be safe
         resp_json = None
         resp_text = None
         try:
-            # Read as text first (this consumes the body, but we can parse it multiple times)
-            resp_text = resp.text
+            # Check if response is compressed
+            content_encoding = resp.headers.get('Content-Encoding', '').lower()
+            if content_encoding == 'gzip':
+                # Response is compressed - httpx should have decompressed it automatically,
+                # but if not, we'll handle it
+                try:
+                    # Try reading as text first (httpx should have decompressed)
+                    resp_text = resp.text
+                except Exception:
+                    # If that fails, read raw bytes and decompress manually
+                    try:
+                        raw_bytes = resp.content
+                        # Decompress in thread pool to avoid blocking
+                        try:
+                            decompressed = await asyncio.to_thread(gzip.decompress, raw_bytes)
+                        except AttributeError:
+                            loop = asyncio.get_event_loop()
+                            decompressed = await loop.run_in_executor(None, gzip.decompress, raw_bytes)
+                        resp_text = decompressed.decode('utf-8')
+                    except Exception:
+                        resp_text = ''
+            else:
+                # Not compressed, read normally
+                resp_text = resp.text
+            
             # Try to parse the text as JSON
             if resp_text:
                 try:
