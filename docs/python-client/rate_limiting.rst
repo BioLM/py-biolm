@@ -25,19 +25,21 @@ If both are set, a request must acquire the semaphore *and* pass the rate limite
 How to Configure
 ------------------------
 
-- **Default (API throttle):**
+- **Default (API throttle with cancellation protection):**
   - The client queries the API schema for the recommended throttle rate and uses it.
+  - By default, a semaphore with limit 2 is enabled to provide cancellation protection (limits in-flight requests to 2).
   - No need to set anything.
 
 - **Disable Throttling:**
-  - Pass `rate_limit=None` and `semaphore=None` (default for advanced users).
+  - Pass `rate_limit=None` and `semaphore=None` to disable all throttling (for advanced users).
 
 - **Custom Rate Limit:**
   - Pass `rate_limit="N/second"` or `rate_limit="N/minute"`.
   - Example: `rate_limit="1000/second"` or `rate_limit="60/minute"`.
 
 - **Custom Semaphore:**
-  - Pass `semaphore=asyncio.Semaphore(N)` to limit concurrency to N requests at a time.
+  - Pass `semaphore=N` (integer) or `semaphore=asyncio.Semaphore(N)` to limit concurrency to N requests at a time.
+  - Pass `semaphore=None` to disable the default semaphore (no concurrency limit).
 
 ------------------------
 Rate Limit String Parsing and Windowing
@@ -63,9 +65,15 @@ Rate Limit String Parsing and Windowing
     model = BioLMApi("esmfold", rate_limit="60/minute")
 
     # Custom concurrency limit: at most 5 requests at once
+    model = BioLMApiClient("esmfold", semaphore=5)
+    
+    # Or use your own semaphore
     import asyncio
     sem = asyncio.Semaphore(5)
     model = BioLMApiClient("esmfold", semaphore=sem)
+    
+    # Disable default semaphore (no concurrency limit)
+    model = BioLMApiClient("esmfold", semaphore=None)
 
     # Both: at most 5 concurrent, and at most 1000 per second
     model = BioLMApiClient("esmfold", semaphore=sem, rate_limit="1000/second")

@@ -659,7 +659,7 @@ class BioLMApiClient:
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
-        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = None,
+        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = 2,
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
         compress_requests: bool = True,
@@ -720,8 +720,10 @@ class BioLMApiClient:
     async def _limit(self):
         """
          Usage:
-            # No throttling: BioLMApiClient(...)
-            # Concurrency limit: BioLMApiClient(..., semaphore=5)
+            # Default: 2 concurrent requests (cancellation protection)
+            # BioLMApiClient(...)
+            # No throttling: BioLMApiClient(..., semaphore=None)
+            # Custom concurrency limit: BioLMApiClient(..., semaphore=5)
             # User's own semaphore: BioLMApiClient(..., semaphore=my_semaphore)
             # RPS limit: BioLMApiClient(..., rate_limit="1000/second")
             # Both: BioLMApiClient(..., semaphore=5, rate_limit="1000/second")
