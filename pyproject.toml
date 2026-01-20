@@ -92,6 +92,7 @@ dependencies = [
     "async-lru",
     "aiofiles",
     "cryptography",
+    "h2",
 ]
 scripts = { biolmai = "biolmai.cli:cli" }
 

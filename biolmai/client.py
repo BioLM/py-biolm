@@ -61,6 +61,34 @@ ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
 
+# Connection pool limits
+DEFAULT_LIMITS = httpx.Limits(
+    max_connections=100,              # Total concurrent connections
+    max_keepalive_connections=20,    # Idle connections to keep alive (default)
+    keepalive_expiry=30.0            # Keep idle connections for 30s
+)
+
+# Retry configuration for network errors
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 4.0  # Start with 1 second
+
+# Mapping of httpx exception types to user-friendly error messages
+HTTPX_EXCEPTION_MESSAGES = {
+    httpx.ReadError: "Connection read error: The server closed the connection unexpectedly or data could not be read",
+    httpx.ConnectError: "Connection error: Failed to establish a connection to the server",
+    httpx.NetworkError: "Network error: A network-related error occurred",
+    httpx.WriteError: "Connection write error: Failed to send data to the server",
+    httpx.CloseError: "Connection close error: Failed to close the connection properly",
+    httpx.TimeoutException: "Request timeout: The request took too long to complete",
+    httpx.ConnectTimeout: "Connection timeout: Failed to establish a connection within the timeout period",
+    httpx.ReadTimeout: "Read timeout: The server did not send data within the timeout period",
+    httpx.WriteTimeout: "Write timeout: Failed to send data within the timeout period",
+    httpx.PoolTimeout: "Connection pool timeout: No connections available in the pool",
+    httpx.HTTPStatusError: "HTTP error: The server returned an error status code",
+    httpx.RequestError: "Request error: An error occurred while making the request",
+    httpx.TransportError: "Transport error: An error occurred at the transport layer",
+}
+
 LookupResult = namedtuple("LookupResult", ["data", "raw"])
 
 _synchronizer = Synchronizer()
@@ -169,7 +197,9 @@ class HttpClient:
         headers: Dict[str, str], 
         timeout: httpx.Timeout,
         compress_requests: bool = True,
-        compress_threshold: int = 256
+        compress_threshold: int = 256,
+        limits: Optional[httpx.Limits] = None,
+        http2: bool = True
     ):
         self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
@@ -177,9 +207,11 @@ class HttpClient:
         self._compress_requests = compress_requests
         self._compress_threshold = compress_threshold
         self._async_client: Optional[httpx.AsyncClient] = None
+        self._limits = limits or DEFAULT_LIMITS
+        self._http2 = http2
         self._transport = None
-        # Removed AsyncResolver, use default resolver
-        self._transport = AsyncHTTPTransport()
+        # Create transport with HTTP/2 enabled
+        self._transport = AsyncHTTPTransport(http2=http2)
 
     async def get_async_client(self) -> httpx.AsyncClient:
         if self._async_client is None or getattr(self._async_client, 'is_closed', False):
@@ -189,14 +221,47 @@ class HttpClient:
                     headers=self._headers,
                     timeout=self._timeout,
                     transport=self._transport,
+                    limits=self._limits,
                 )
             else:
                 self._async_client = httpx.AsyncClient(
                     base_url=self._base_url,
                     headers=self._headers,
                     timeout=self._timeout,
+                    limits=self._limits,
                 )
         return self._async_client
+
+    async def _post_with_retry(
+        self, 
+        client: httpx.AsyncClient, 
+        endpoint: str, 
+        **request_kwargs
+    ) -> httpx.Response:
+        """POST with retry logic for network errors (ReadError, ConnectError, NetworkError)."""
+        last_exception = None
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                return await client.post(endpoint, **request_kwargs)
+            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
+                last_exception = e
+                # Don't retry on the last attempt
+                if attempt < MAX_RETRIES - 1:
+                    # Exponential backoff: 1s, 2s, 4s
+                    wait_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    await asyncio.sleep(wait_time)
+                    continue
+                # Last attempt failed, re-raise
+                raise
+            # Don't retry on HTTP status errors (4xx, 5xx) - these are not network errors
+            except httpx.HTTPStatusError:
+                raise
+        
+        # Should never reach here, but just in case
+        if last_exception:
+            raise last_exception
+        raise httpx.NetworkError("Failed to make request after retries")
 
     async def post(self, endpoint: str, payload: dict, extra_headers: Optional[dict] = None) -> httpx.Response:
         """POST with optional *extra_headers* added just for this request."""
@@ -231,20 +296,46 @@ class HttpClient:
                 headers["Content-Length"] = str(len(compressed_body))
                 # Use content= for raw bytes (httpx recommends this over data= for raw content)
                 # The headers we provide should override client defaults
-                r = await client.post(endpoint, content=compressed_body, headers=headers)
+                r = await self._post_with_retry(
+                    client, endpoint, content=compressed_body, headers=headers
+                )
                 return r
         
         # Default: send uncompressed JSON
-        r = await client.post(endpoint, json=payload, headers=headers)
+        r = await self._post_with_retry(client, endpoint, json=payload, headers=headers)
         return r
 
     async def get(self, endpoint: str) -> httpx.Response:
+        """GET with retry logic for network errors."""
         client = await self.get_async_client()
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        return await client.get(endpoint)
+        
+        last_exception = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                return await client.get(endpoint)
+            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    await asyncio.sleep(wait_time)
+                    continue
+                raise
+            except httpx.HTTPStatusError:
+                raise
+        
+        if last_exception:
+            raise last_exception
+        raise httpx.NetworkError("Failed to make request after retries")
 
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
 
     async def close(self):
         if self._async_client:
@@ -414,11 +505,11 @@ class BioLMApiClient:
         return None
         # Not implemented yet
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=30.0) as client:
-                resp = await client.get(f"/{self.model_name}/")
-                if resp.status_code == 200:
-                    meta = resp.json()
-                    return meta.get("rps_limit") or meta.get("max_rps") or meta.get("requests_per_second")
+            # Reuse existing http_client instead of creating a new client
+            resp = await self._http_client.get(f"/{self.model_name}/")
+            if resp.status_code == 200:
+                meta = resp.json()
+                return meta.get("rps_limit") or meta.get("max_rps") or meta.get("requests_per_second")
         except Exception:
             pass
         return None
@@ -433,10 +524,29 @@ class BioLMApiClient:
 
         assert hasattr(resp, 'status_code') or hasattr(resp, 'status') or 'status' in resp or 'status_code' in resp
 
+        # Read response content once and parse as JSON or use as text
+        # Note: resp.json() and resp.text both consume the body stream, so we read text first, then parse
+        resp_json = None
+        resp_text = None
         try:
-            resp_json = resp.json()
+            # Read as text first (this consumes the body, but we can parse it multiple times)
+            resp_text = resp.text
+            # Try to parse the text as JSON
+            if resp_text:
+                try:
+                    resp_json = json.loads(resp_text)
+                except (json.JSONDecodeError, ValueError):
+                    # Not valid JSON, use as text
+                    resp_json = resp_text
+            else:
+                resp_json = ''
         except Exception:
-            resp_json = ''
+            # If reading text fails, try json() as fallback (may also fail if body already consumed)
+            try:
+                resp_json = resp.json()
+            except Exception:
+                resp_text = ''
+                resp_json = ''
 
         assert resp.status_code
         # Check for errors: non-200 status OR top-level error/detail/description keys
@@ -464,29 +574,58 @@ class BioLMApiClient:
                                 error_json['error'] = error_json['detail']
                             elif 'description' in error_json:
                                 error_json['error'] = error_json['description']
+                        # Handle empty error strings - provide fallback message
+                        elif isinstance(error_json, dict) and 'error' in error_json:
+                            error_value = error_json.get('error')
+                            if not error_value or (isinstance(error_value, str) and not error_value.strip()):
+                                # Empty or whitespace-only error string - use fallback
+                                error_json['error'] = (
+                                    error_json.get('detail') or 
+                                    error_json.get('description') or 
+                                    f"API returned error status {resp.status_code}"
+                                )
                         DEFAULT_STATUS_CODE = 502
                         stat = error_json.get('status', DEFAULT_STATUS_CODE)
                         error_json['status_code'] = resp.status_code or error_json.get('status_code', stat)
                         if raw:
                             return (error_json, resp)
                         if self.raise_httpx:
-                            raise httpx.HTTPStatusError(message=resp.text, request=resp.request, response=resp)
+                            # Use stored resp_text if available, otherwise use error_json as string
+                            error_msg = resp_text if resp_text is not None else str(resp_json)
+                            raise httpx.HTTPStatusError(message=error_msg, request=resp.request, response=resp)
                         return error_json
                     else:
                         # If the JSON is not a dict or list, wrap it
                         error_info = {'error': error_json, 'status_code': resp.status_code}
                 except Exception:
-                    error_info = {'error': resp.text, 'status_code': resp.status_code}
+                    # Use stored resp_text if available, otherwise use fallback message
+                    error_text = resp_text if resp_text is not None else f"API returned error status {resp.status_code}"
+                    error_info = {'error': error_text, 'status_code': resp.status_code}
             else:
-                error_info = {'error': resp.text, 'status_code': resp.status_code}
+                # Use stored resp_text if available, otherwise use fallback message
+                error_text = resp_text if resp_text is not None else f"API returned error status {resp.status_code}"
+                error_info = {'error': error_text, 'status_code': resp.status_code}
             if raw:
                 return (error_info, resp)
             if self.raise_httpx:
-                raise httpx.HTTPStatusError(message=resp.text, request=resp.request, response=resp)
+                # Use stored resp_text if available, otherwise use error_info error as string
+                error_msg = resp_text if resp_text is not None else str(error_info.get('error', ''))
+                raise httpx.HTTPStatusError(message=error_msg, request=resp.request, response=resp)
             return error_info
 
         # Success response (200 status, no error keys)
-        data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
+        # Use the already-parsed resp_json instead of calling resp.json() again
+        if isinstance(resp_json, dict):
+            data = resp_json
+        elif 'application/json' in content_type:
+            # If resp_json is not a dict but content-type says JSON, something went wrong
+            # Use stored resp_text if available, otherwise use fallback message
+            error_msg = resp_text if resp_text is not None else f"Failed to parse JSON response (status {resp.status_code})"
+            data = {"error": error_msg, "status_code": resp.status_code}
+        else:
+            # Use stored resp_text if available, otherwise use fallback message
+            error_msg = resp_text if resp_text is not None else f"Failed to read response body (status {resp.status_code})"
+            data = {"error": error_msg, "status_code": resp.status_code}
         
         # If response has both error and results, it's a partial success scenario
         # Add status_code and return as-is so batch processing can handle item-level errors
@@ -807,7 +946,20 @@ class BioLMApiClient:
 
 
     def _format_exception(self, exc: Exception, index: int) -> dict:
-        return {"error": str(exc), "index": index}
+        """Format an exception as an error dict, with fallback for empty error messages."""
+        error_msg = str(exc)
+        
+        # Handle empty or whitespace-only error messages
+        if not error_msg or not error_msg.strip():
+            # Check if it's a known httpx exception type
+            exc_type = type(exc)
+            if exc_type in HTTPX_EXCEPTION_MESSAGES:
+                error_msg = HTTPX_EXCEPTION_MESSAGES[exc_type]
+            else:
+                # Fallback: use exception class name
+                error_msg = f"{exc_type.__name__}: Network or connection error occurred"
+        
+        return {"error": error_msg, "index": index}
 
     @staticmethod
     def _unwrap_single(result):

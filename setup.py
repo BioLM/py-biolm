@@ -15,6 +15,7 @@ requirements = [
     "requests",
     "httpx>=0.23.0",
     "httpcore",
+    "h2",  # Required for HTTP/2 support
     "synchronicity>=0.5.0; python_version >= '3.9'",
     "synchronicity<0.5.0; python_version < '3.9'",
     "typing_extensions; python_version < '3.9'",
