@@ -94,6 +94,77 @@ HTTPX_EXCEPTION_MESSAGES = {
 LookupResult = namedtuple("LookupResult", ["data", "raw"])
 
 
+def _detect_execution_context() -> str:
+    """
+    Detect the execution environment.
+    
+    Returns:
+        'jupyter_with_loop': Jupyter/IPython with active event loop
+        'jupyter_no_loop': Jupyter/IPython without active loop (rare)
+        'async_context': Async application (FastAPI, etc.) with active loop
+        'sync_script': Standard Python script (no active loop)
+        'unknown': Detection failed (fallback)
+    """
+    try:
+        # Check if we're in Jupyter/IPython
+        if 'IPython' in sys.modules:
+            from IPython import get_ipython
+            ipython = get_ipython()
+            if ipython is not None:
+                # Check if there's a running event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    return 'jupyter_with_loop'
+                except RuntimeError:
+                    return 'jupyter_no_loop'
+        
+        # Check if we're in an async context (but not Jupyter)
+        try:
+            loop = asyncio.get_running_loop()
+            return 'async_context'
+        except RuntimeError:
+            pass
+        
+        return 'sync_script'
+    except Exception:
+        return 'unknown'
+
+
+def _ensure_nest_asyncio_for_jupyter():
+    """
+    Automatically apply nest_asyncio if we're in Jupyter with an active event loop.
+    
+    This enables sync wrappers (BioLM, BioLMApi) to work in Jupyter without
+    requiring users to manually call nest_asyncio.apply().
+    
+    This function is idempotent - calling it multiple times is safe.
+    """
+    context = _detect_execution_context()
+    
+    if context == 'jupyter_with_loop':
+        try:
+            import nest_asyncio
+            # Check if already applied (nest_asyncio sets this flag)
+            if not getattr(nest_asyncio, '_applied', False):
+                nest_asyncio.apply()
+        except ImportError:
+            # nest_asyncio should be a dependency, but handle gracefully
+            import warnings
+            warnings.warn(
+                "nest_asyncio not available. Sync wrappers may not work in Jupyter. "
+                "Install nest_asyncio or use BioLMApiClient directly with await.",
+                UserWarning
+            )
+        except Exception as e:
+            # If nest_asyncio.apply() fails, log but don't crash
+            import warnings
+            warnings.warn(
+                f"Failed to apply nest_asyncio: {e}. "
+                "Sync wrappers may not work in Jupyter.",
+                UserWarning
+            )
+
+
 class _SharedClientFactory:
     """
     Factory for creating and caching shared httpx.AsyncClient instances.
@@ -299,6 +370,10 @@ if not hasattr(_synchronizer, "sync"):
         _synchronizer.sync = _synchronizer.create_blocking
     else:
         raise ImportError(f"Your version of 'synchronicity' ({version('synchronicity')}) is incompatible.")
+
+# Automatically apply nest_asyncio in Jupyter contexts
+# This must happen before BioLMApi wrapper is created
+_ensure_nest_asyncio_for_jupyter()
 
 def type_check(param_types: Dict[str, Any]):
     def decorator(func: Callable):
@@ -1300,7 +1375,14 @@ class BioLMApiClient:
     async def __aexit__(self, exc_type, exc, tb):
         await self.shutdown()
 
+# Log execution context for debugging (only if DEBUG env var is set)
+if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
+    context = _detect_execution_context()
+    debug(f"BioLMApi sync wrapper created in context: {context}")
+
 # Synchronous wrapper for compatibility
+# Note: nest_asyncio is automatically applied in Jupyter contexts
+# to enable this wrapper to work with Jupyter's event loop
 @_synchronizer.sync
 class BioLMApi(BioLMApiClient):
     pass

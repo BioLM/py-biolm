@@ -23,6 +23,21 @@ Async and Sync Usage
 
     asyncio.run(main())
 
+**In Jupyter notebooks (IPython 7.0+), you can use top-level await:**
+
+.. code-block:: python
+
+    from biolmai.client import BioLMApiClient
+
+    # Direct await works in Jupyter!
+    model = BioLMApiClient("esmfold")
+    result = await model.predict(items=[{"sequence": "MDNELE"}])
+    print(result)
+
+    # Sync wrappers also work automatically (nest_asyncio is applied internally)
+    from biolmai import biolm
+    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+
 
 ------------------------
 High-Level Summary
@@ -85,6 +100,7 @@ How It Works Internally
 - **BioLM** is a thin synchronous wrapper around the async client, using the `synchronicity` package to run async code in a blocking way.
 - **BioLMApi** is a synchronous wrapper for `BioLMApiClient` (async), for users who want a sync interface but more control than `BioLM`.
 - **BioLMApiClient** is the core async client.
+- **Jupyter Support**: The library automatically detects Jupyter environments and applies `nest_asyncio` internally, so sync wrappers (`BioLM`, `BioLMApi`) work seamlessly in Jupyter notebooks without requiring manual setup.
 
 ------------------------
 Choosing Between Sync and Async
@@ -139,6 +155,28 @@ Unpacking Single-Item Results
 - **BioLMApiClient**: Always returns a list, even for a single item (unless you set `unwrap_single=True`).
 
 ------------------------
+Jupyter Notebook Usage
+------------------------
+
+The library automatically detects Jupyter environments and handles async/sync compatibility:
+
+- **Automatic nest_asyncio**: No need to manually call `nest_asyncio.apply()` - the library handles this internally
+- **Sync wrappers work**: `BioLM()` and `BioLMApi()` work seamlessly in Jupyter
+- **Direct async recommended**: For best performance in Jupyter, use `BioLMApiClient` directly with top-level `await`:
+
+.. code-block:: python
+
+    from biolmai.client import BioLMApiClient
+
+    # Optimal: Direct async usage in Jupyter
+    client = BioLMApiClient("esmfold")
+    result = await client.predict(items=[{"sequence": "MDNELE"}])
+
+    # Also works: Sync wrapper (nest_asyncio applied automatically)
+    from biolmai import biolm
+    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+
+------------------------
 Best Practices
 ------------------------
 
@@ -146,6 +184,7 @@ Best Practices
 - For high-throughput or async apps, use `BioLMApiClient` and `await` your calls.
 - For batch jobs in scripts, `BioLMApi` gives you more control but stays synchronous.
 - Always use the async client in async code (e.g., FastAPI, aiohttp, etc).
+- In Jupyter: Use direct async (`await BioLMApiClient(...)`) for best performance, or sync wrappers for convenience.
 
 ------------------------
 See Also

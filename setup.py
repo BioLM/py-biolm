@@ -25,6 +25,7 @@ requirements = [
     "async-lru",
     "aiofiles",
     "cryptography",
+    "nest_asyncio",
 ]
 
 test_requirements = [
