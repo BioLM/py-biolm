@@ -1012,6 +1012,36 @@ class BioLMApiClient:
             "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
         )
 
+    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    async def search(
+        self,
+        *,
+        items: List[dict],
+        params: Optional[dict] = None,
+        stop_on_error: bool = False,
+        output: str = 'memory',
+        file_path: Optional[str] = None,
+        overwrite: bool = False,
+    ):
+        return await self._batch_call_autoschema_or_manual(
+            "search", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+        )
+
+    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    async def score(
+        self,
+        *,
+        items: List[dict],
+        params: Optional[dict] = None,
+        stop_on_error: bool = False,
+        output: str = 'memory',
+        file_path: Optional[str] = None,
+        overwrite: bool = False,
+    ):
+        return await self._batch_call_autoschema_or_manual(
+            "score", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+        )
+
     async def lookup(
         self,
         query: Union[dict, List[dict]],
