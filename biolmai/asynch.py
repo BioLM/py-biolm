@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import gzip
 import json
 from asyncio import create_task, gather, run
@@ -51,14 +52,22 @@ async def get_one_biolm(
     
     # Check if we should compress
     request_headers = dict(headers)
+    # Add Accept-Encoding: gzip to support compressed responses
+    if "Accept-Encoding" not in request_headers:
+        request_headers["Accept-Encoding"] = "gzip, deflate"
     request_data = None
     if compress_requests:
         # Serialize JSON to check size
         json_bytes = json.dumps(pload, ensure_ascii=False).encode("utf-8")
         
         if len(json_bytes) > compress_threshold:
-            # Compress the payload
-            compressed_body = gzip.compress(json_bytes)
+            # Compress the payload in a thread pool to avoid blocking the event loop
+            # Use compression level 6 (good balance between speed and compression ratio)
+            # aiohttp doesn't have built-in async compression, so we use run_in_executor
+            loop = asyncio.get_event_loop()
+            compressed_body = await loop.run_in_executor(
+                None, functools.partial(gzip.compress, json_bytes, compresslevel=6)
+            )
             request_headers["Content-Encoding"] = "gzip"
             request_headers["Content-Type"] = "application/json"
             request_headers["Content-Length"] = str(len(compressed_body))
@@ -76,13 +85,63 @@ async def get_one_biolm(
     if isinstance(request_data, bytes):
         # Compressed data - send as bytes
         async with session.post(url, headers=request_headers, data=request_data, timeout=t) as resp:
-            resp_json = await resp.json()
             status_code = resp.status
+            # Check if response is compressed
+            content_encoding = resp.headers.get('Content-Encoding', '').lower()
+            if content_encoding == 'gzip':
+                # Response is compressed - aiohttp should decompress automatically,
+                # but if not, handle it manually
+                try:
+                    # Try reading as JSON first (aiohttp should have decompressed)
+                    resp_json = await resp.json()
+                except Exception:
+                    # If that fails, read raw bytes and decompress manually
+                    try:
+                        raw_bytes = await resp.read()
+                        # Decompress in thread pool to avoid blocking
+                        loop = asyncio.get_event_loop()
+                        decompressed = await loop.run_in_executor(None, gzip.decompress, raw_bytes)
+                        resp_json = json.loads(decompressed.decode('utf-8'))
+                    except Exception:
+                        # Fallback: try text
+                        resp_text = await resp.text()
+                        try:
+                            resp_json = json.loads(resp_text)
+                        except Exception:
+                            resp_json = resp_text
+            else:
+                # Not compressed, read normally
+                resp_json = await resp.json()
     else:
         # Uncompressed data - send as JSON
         async with session.post(url, headers=request_headers, json=request_data, timeout=t) as resp:
-            resp_json = await resp.json()
             status_code = resp.status
+            # Check if response is compressed
+            content_encoding = resp.headers.get('Content-Encoding', '').lower()
+            if content_encoding == 'gzip':
+                # Response is compressed - aiohttp should decompress automatically,
+                # but if not, handle it manually
+                try:
+                    # Try reading as JSON first (aiohttp should have decompressed)
+                    resp_json = await resp.json()
+                except Exception:
+                    # If that fails, read raw bytes and decompress manually
+                    try:
+                        raw_bytes = await resp.read()
+                        # Decompress in thread pool to avoid blocking
+                        loop = asyncio.get_event_loop()
+                        decompressed = await loop.run_in_executor(None, gzip.decompress, raw_bytes)
+                        resp_json = json.loads(decompressed.decode('utf-8'))
+                    except Exception:
+                        # Fallback: try text
+                        resp_text = await resp.text()
+                        try:
+                            resp_json = json.loads(resp_text)
+                        except Exception:
+                            resp_json = resp_text
+            else:
+                # Not compressed, read normally
+                resp_json = await resp.json()
     
     # Process response (same for both compressed and uncompressed)
     resp_json["batch"] = pload_batch

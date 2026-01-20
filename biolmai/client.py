@@ -1,8 +1,10 @@
 import asyncio
+import atexit
 import functools
 import gzip
 import json
 import os
+import threading
 import time
 from collections import namedtuple, OrderedDict
 from contextlib import asynccontextmanager
@@ -63,9 +65,9 @@ DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
 
 # Connection pool limits
 DEFAULT_LIMITS = httpx.Limits(
-    max_connections=100,              # Total concurrent connections
+    max_connections=50,               # Total concurrent connections
     max_keepalive_connections=20,    # Idle connections to keep alive (default)
-    keepalive_expiry=30.0            # Keep idle connections for 30s
+    keepalive_expiry=65.0            # Keep idle connections for 65s
 )
 
 # Retry configuration for network errors
@@ -91,6 +93,274 @@ HTTPX_EXCEPTION_MESSAGES = {
 
 LookupResult = namedtuple("LookupResult", ["data", "raw"])
 
+
+def _detect_execution_context() -> str:
+    """
+    Detect the execution environment.
+    
+    Returns:
+        'jupyter_with_loop': Jupyter/IPython with active event loop
+        'jupyter_no_loop': Jupyter/IPython without active loop (rare)
+        'async_context': Async application (FastAPI, etc.) with active loop
+        'sync_script': Standard Python script (no active loop)
+        'unknown': Detection failed (fallback)
+    """
+    try:
+        # Check if we're in Jupyter/IPython
+        if 'IPython' in sys.modules:
+            from IPython import get_ipython
+            ipython = get_ipython()
+            if ipython is not None:
+                # Check if there's a running event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    return 'jupyter_with_loop'
+                except RuntimeError:
+                    return 'jupyter_no_loop'
+        
+        # Check if we're in an async context (but not Jupyter)
+        try:
+            loop = asyncio.get_running_loop()
+            return 'async_context'
+        except RuntimeError:
+            pass
+        
+        return 'sync_script'
+    except Exception:
+        return 'unknown'
+
+
+def _ensure_nest_asyncio_for_jupyter():
+    """
+    Automatically apply nest_asyncio if we're in Jupyter with an active event loop.
+    
+    This enables sync wrappers (BioLM, BioLMApi) to work in Jupyter without
+    requiring users to manually call nest_asyncio.apply().
+    
+    This function is idempotent - calling it multiple times is safe.
+    """
+    context = _detect_execution_context()
+    
+    if context == 'jupyter_with_loop':
+        try:
+            import nest_asyncio
+            # Check if already applied (nest_asyncio sets this flag)
+            if not getattr(nest_asyncio, '_applied', False):
+                nest_asyncio.apply()
+        except ImportError:
+            # nest_asyncio should be a dependency, but handle gracefully
+            import warnings
+            warnings.warn(
+                "nest_asyncio not available. Sync wrappers may not work in Jupyter. "
+                "Install nest_asyncio or use BioLMApiClient directly with await.",
+                UserWarning
+            )
+        except Exception as e:
+            # If nest_asyncio.apply() fails, log but don't crash
+            import warnings
+            warnings.warn(
+                f"Failed to apply nest_asyncio: {e}. "
+                "Sync wrappers may not work in Jupyter.",
+                UserWarning
+            )
+
+
+class _SharedClientFactory:
+    """
+    Factory for creating and caching shared httpx.AsyncClient instances.
+    Clients are cached by event loop ID and configuration (base_url, headers, timeout, limits, http2, transport)
+    to enable connection pooling across multiple HttpClient instances within the same event loop.
+    """
+    
+    def __init__(self):
+        # Nested dict: loop_id -> config_key -> client
+        self._cache: Dict[int, Dict[Tuple, httpx.AsyncClient]] = {}
+        self._async_lock = asyncio.Lock()  # For async operations within a loop
+        self._thread_lock = threading.Lock()  # For thread-safe cache access
+    
+    def _make_cache_key(
+        self,
+        base_url: str,
+        headers: Dict[str, str],
+        timeout: httpx.Timeout,
+        limits: httpx.Limits,
+        http2: bool,
+        transport: Optional[AsyncHTTPTransport]
+    ) -> Tuple:
+        """Create a hashable key from client configuration."""
+        # Convert headers dict to sorted tuple for hashability
+        headers_key = tuple(sorted(headers.items()))
+        
+        # Extract timeout values
+        # httpx.Timeout has connect, read, write, and pool attributes
+        timeout_key = (
+            getattr(timeout, 'connect', None),
+            getattr(timeout, 'read', None),
+            getattr(timeout, 'write', None),
+            getattr(timeout, 'pool', None),
+        )
+        
+        # Extract limits values
+        limits_key = (
+            limits.max_connections,
+            limits.max_keepalive_connections,
+            limits.keepalive_expiry,
+        )
+        
+        # For transport, use http2 flag since transport is created with http2 parameter
+        # We don't need to include the transport object itself in the key
+        transport_key = http2
+        
+        return (base_url, headers_key, timeout_key, limits_key, transport_key)
+    
+    async def get_or_create_client(
+        self,
+        base_url: str,
+        headers: Dict[str, str],
+        timeout: httpx.Timeout,
+        limits: httpx.Limits,
+        http2: bool,
+        transport: Optional[AsyncHTTPTransport]
+    ) -> httpx.AsyncClient:
+        """Get or create a shared httpx.AsyncClient instance for the current event loop."""
+        # Get current event loop ID to ensure clients are loop-specific
+        try:
+            loop = asyncio.get_running_loop()
+            loop_id = id(loop)
+        except RuntimeError:
+            # No running loop, use a sentinel value
+            loop_id = None
+        
+        cache_key = self._make_cache_key(base_url, headers, timeout, limits, http2, transport)
+        
+        # Thread-safe cache check
+        with self._thread_lock:
+            # Get or create loop-specific cache
+            if loop_id not in self._cache:
+                self._cache[loop_id] = {}
+            
+            loop_cache = self._cache[loop_id]
+            
+            # Check if client exists and is still open
+            if cache_key in loop_cache:
+                client = loop_cache[cache_key]
+                # Verify client is still valid (not closed)
+                if not getattr(client, 'is_closed', False):
+                    return client
+                # Client is closed, remove from cache
+                del loop_cache[cache_key]
+        
+        # Async-safe client creation
+        async with self._async_lock:
+            # Double-check after acquiring async lock
+            with self._thread_lock:
+                if loop_id in self._cache and cache_key in self._cache[loop_id]:
+                    return self._cache[loop_id][cache_key]
+            
+            # Create new client bound to current event loop
+            if transport:
+                client = httpx.AsyncClient(
+                    base_url=base_url,
+                    headers=headers,
+                    timeout=timeout,
+                    transport=transport,
+                    limits=limits,
+                )
+            else:
+                client = httpx.AsyncClient(
+                    base_url=base_url,
+                    headers=headers,
+                    timeout=timeout,
+                    limits=limits,
+                )
+            
+            # Thread-safe cache update
+            with self._thread_lock:
+                if loop_id not in self._cache:
+                    self._cache[loop_id] = {}
+                self._cache[loop_id][cache_key] = client
+            
+            return client
+    
+    async def cleanup_all(self):
+        """Close all cached clients and clear the cache."""
+        # Get all clients thread-safely
+        clients_to_close = []
+        with self._thread_lock:
+            for loop_cache in self._cache.values():
+                clients_to_close.extend(loop_cache.values())
+            self._cache.clear()
+        
+        # Close clients async-safely
+        async with self._async_lock:
+            for client in clients_to_close:
+                try:
+                    if not getattr(client, 'is_closed', False):
+                        await client.aclose()
+                except Exception:
+                    # Ignore errors during cleanup
+                    pass
+    
+    async def cleanup_loop(self, loop_id: Optional[int] = None):
+        """Clean up clients for a specific event loop (or current loop if None)."""
+        if loop_id is None:
+            try:
+                loop = asyncio.get_running_loop()
+                loop_id = id(loop)
+            except RuntimeError:
+                return
+        
+        # Get clients to close thread-safely
+        clients_to_close = []
+        with self._thread_lock:
+            if loop_id in self._cache:
+                clients_to_close = list(self._cache[loop_id].values())
+                del self._cache[loop_id]
+        
+        # Close clients async-safely
+        async with self._async_lock:
+            for client in clients_to_close:
+                try:
+                    if not getattr(client, 'is_closed', False):
+                        await client.aclose()
+                except Exception:
+                    pass
+
+
+# Global shared client factory instance
+_shared_client_factory = _SharedClientFactory()
+
+
+def _cleanup_shared_clients():
+    """Cleanup function registered with atexit to close all shared clients."""
+    try:
+        # Try to get existing event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # Loop is running, we can't easily schedule async cleanup from sync context
+            # In this case, we'll just skip cleanup (connections will close on process exit)
+            return
+        except RuntimeError:
+            # No running loop, try to get or create one
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    # Loop is closed, create a new one
+                    asyncio.run(_shared_client_factory.cleanup_all())
+                else:
+                    # Loop exists but not running, run cleanup
+                    loop.run_until_complete(_shared_client_factory.cleanup_all())
+            except RuntimeError:
+                # No event loop exists, create a new one
+                asyncio.run(_shared_client_factory.cleanup_all())
+    except Exception:
+        # Ignore all errors during cleanup - process is exiting anyway
+        pass
+
+
+# Register cleanup on process exit
+atexit.register(_cleanup_shared_clients)
+
 _synchronizer = Synchronizer()
 
 if not hasattr(_synchronizer, "sync"):
@@ -100,6 +370,10 @@ if not hasattr(_synchronizer, "sync"):
         _synchronizer.sync = _synchronizer.create_blocking
     else:
         raise ImportError(f"Your version of 'synchronicity' ({version('synchronicity')}) is incompatible.")
+
+# Automatically apply nest_asyncio in Jupyter contexts
+# This must happen before BioLMApi wrapper is created
+_ensure_nest_asyncio_for_jupyter()
 
 def type_check(param_types: Dict[str, Any]):
     def decorator(func: Callable):
@@ -203,10 +477,12 @@ class HttpClient:
     ):
         self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
+        # Add Accept-Encoding: gzip to headers to support compressed responses
+        if 'Accept-Encoding' not in self._headers:
+            self._headers['Accept-Encoding'] = 'gzip, deflate'
         self._timeout = timeout
         self._compress_requests = compress_requests
         self._compress_threshold = compress_threshold
-        self._async_client: Optional[httpx.AsyncClient] = None
         self._limits = limits or DEFAULT_LIMITS
         self._http2 = http2
         self._transport = None
@@ -214,23 +490,15 @@ class HttpClient:
         self._transport = AsyncHTTPTransport(http2=http2)
 
     async def get_async_client(self) -> httpx.AsyncClient:
-        if self._async_client is None or getattr(self._async_client, 'is_closed', False):
-            if self._transport:
-                self._async_client = httpx.AsyncClient(
-                    base_url=self._base_url,
-                    headers=self._headers,
-                    timeout=self._timeout,
-                    transport=self._transport,
-                    limits=self._limits,
-                )
-            else:
-                self._async_client = httpx.AsyncClient(
-                    base_url=self._base_url,
-                    headers=self._headers,
-                    timeout=self._timeout,
-                    limits=self._limits,
-                )
-        return self._async_client
+        """Get or create a shared httpx.AsyncClient instance from the factory."""
+        return await _shared_client_factory.get_or_create_client(
+            base_url=self._base_url,
+            headers=self._headers,
+            timeout=self._timeout,
+            limits=self._limits,
+            http2=self._http2,
+            transport=self._transport
+        )
 
     async def _post_with_retry(
         self, 
@@ -281,7 +549,18 @@ class HttpClient:
             json_bytes = json_dumps(payload, ensure_ascii=False).encode("utf-8")
             
             if len(json_bytes) > self._compress_threshold:
-                compressed_body = gzip.compress(json_bytes)
+                # Compress in a thread pool to avoid blocking the event loop
+                # Use compression level 6 (good balance between speed and compression ratio)
+                # Use asyncio.to_thread() for Python 3.9+, fallback to run_in_executor for older versions
+                try:
+                    compressed_body = await asyncio.to_thread(gzip.compress, json_bytes, compresslevel=6)
+                except AttributeError:
+                    # Python < 3.9: use run_in_executor
+                    loop = asyncio.get_event_loop()
+                    compressed_body = await loop.run_in_executor(
+                        None, functools.partial(gzip.compress, json_bytes, compresslevel=6)
+                    )
+                
                 if headers is None:
                     # Start with client's default headers but ensure we override Content-Type
                     headers = dict(client.headers)
@@ -338,9 +617,11 @@ class HttpClient:
         await self.close()
 
     async def close(self):
-        if self._async_client:
-            await self._async_client.aclose()
-            self._async_client = None
+        """Close method for backward compatibility. 
+        Shared clients are managed by _SharedClientFactory and cleaned up on process exit.
+        """
+        # No-op: shared clients are cleaned up by the factory
+        pass
 
 
 def is_list_of_lists(items, check_n=10):
@@ -526,11 +807,36 @@ class BioLMApiClient:
 
         # Read response content once and parse as JSON or use as text
         # Note: resp.json() and resp.text both consume the body stream, so we read text first, then parse
+        # httpx automatically decompresses responses with Content-Encoding: gzip if Accept-Encoding was set
+        # But we'll handle it explicitly to be safe
         resp_json = None
         resp_text = None
         try:
-            # Read as text first (this consumes the body, but we can parse it multiple times)
-            resp_text = resp.text
+            # Check if response is compressed
+            content_encoding = resp.headers.get('Content-Encoding', '').lower()
+            if content_encoding == 'gzip':
+                # Response is compressed - httpx should have decompressed it automatically,
+                # but if not, we'll handle it
+                try:
+                    # Try reading as text first (httpx should have decompressed)
+                    resp_text = resp.text
+                except Exception:
+                    # If that fails, read raw bytes and decompress manually
+                    try:
+                        raw_bytes = resp.content
+                        # Decompress in thread pool to avoid blocking
+                        try:
+                            decompressed = await asyncio.to_thread(gzip.decompress, raw_bytes)
+                        except AttributeError:
+                            loop = asyncio.get_event_loop()
+                            decompressed = await loop.run_in_executor(None, gzip.decompress, raw_bytes)
+                        resp_text = decompressed.decode('utf-8')
+                    except Exception:
+                        resp_text = ''
+            else:
+                # Not compressed, read normally
+                resp_text = resp.text
+            
             # Try to parse the text as JSON
             if resp_text:
                 try:
@@ -1069,7 +1375,14 @@ class BioLMApiClient:
     async def __aexit__(self, exc_type, exc, tb):
         await self.shutdown()
 
+# Log execution context for debugging (only if DEBUG env var is set)
+if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
+    context = _detect_execution_context()
+    debug(f"BioLMApi sync wrapper created in context: {context}")
+
 # Synchronous wrapper for compatibility
+# Note: nest_asyncio is automatically applied in Jupyter contexts
+# to enable this wrapper to work with Jupyter's event loop
 @_synchronizer.sync
 class BioLMApi(BioLMApiClient):
     pass
