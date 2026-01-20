@@ -11,6 +11,10 @@ class BioLM:
     """
     Universal client for BioLM API.
 
+    This is a convenience wrapper that creates a client, makes the request, and returns the result.
+    For long-running operations or when making multiple requests, consider using `BioLMApiClient` 
+    (async) or `BioLMApi` (sync) directly with proper cleanup via context managers or shutdown().
+
     Args:
         entity (str): The entity name (model, database, calculation, etc).
         action (str): The action to perform (e.g., 'generate', 'encode', 'predict', 'search', 'finetune').
@@ -116,7 +120,17 @@ class BioLM:
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
 
         # Call the method
-        result = method(**kwargs)
+        try:
+            result = method(**kwargs)
+        finally:
+            # Ensure cleanup of HTTP connections
+            # BioLMApi is a sync wrapper, so shutdown() should be available as sync method
+            try:
+                if hasattr(model, 'shutdown'):
+                    model.shutdown()
+            except Exception:
+                # Ignore cleanup errors - connection will be closed on garbage collection
+                pass
 
         return result
 
