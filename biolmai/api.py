@@ -148,7 +148,7 @@ class APIEndpoint:
     batch_size = 3
     params = None
     action_classes = ()
-    api_version = 2
+    api_version = 3
 
     predict_input_key = "sequence"
     encode_input_key = "sequence"
@@ -159,7 +159,7 @@ class APIEndpoint:
     generate_input_classes = ()
     transform_input_classes = ()
 
-    def __init__(self, multiprocess_threads=None):
+    def __init__(self, multiprocess_threads=None, compress_requests=True, compress_threshold=256):
         # Check for instance-specific threads, otherwise read from env var
         if multiprocess_threads is not None:
             self.multiprocess_threads = multiprocess_threads
@@ -170,6 +170,8 @@ class APIEndpoint:
         self.action_class_strings = tuple(
             [c.__name__.replace("Action", "").lower() for c in self.action_classes]
         )
+        self.compress_requests = compress_requests
+        self.compress_threshold = compress_threshold
 
     def post_batches(self, dat, slug, action, payload_maker, resp_key, key="sequence", params=None):
         keep_batches = dat.loc[~dat.batch.isnull(), ["text", "batch"]]
@@ -179,7 +181,7 @@ class APIEndpoint:
             # raise AssertionError(err)
         if keep_batches.shape[0] > 0:
             api_resps = async_api_call_wrapper(
-                keep_batches, slug, action, payload_maker, resp_key, api_version=self.api_version, key=key,  params=params,
+                keep_batches, slug, action, payload_maker, resp_key, api_version=self.api_version, key=key, params=params, compress_requests=self.compress_requests, compress_threshold=self.compress_threshold,
             )
             if isinstance(api_resps, pd.DataFrame):
                 batch_res = api_resps.explode("api_resp")  # Should be lists of results

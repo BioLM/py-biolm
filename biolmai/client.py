@@ -1,5 +1,6 @@
 import asyncio
 import functools
+import gzip
 import json
 import os
 import time
@@ -59,6 +60,34 @@ USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
+
+# Connection pool limits
+DEFAULT_LIMITS = httpx.Limits(
+    max_connections=100,              # Total concurrent connections
+    max_keepalive_connections=20,    # Idle connections to keep alive (default)
+    keepalive_expiry=30.0            # Keep idle connections for 30s
+)
+
+# Retry configuration for network errors
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 4.0  # Start with 1 second
+
+# Mapping of httpx exception types to user-friendly error messages
+HTTPX_EXCEPTION_MESSAGES = {
+    httpx.ReadError: "Connection read error: The server closed the connection unexpectedly or data could not be read",
+    httpx.ConnectError: "Connection error: Failed to establish a connection to the server",
+    httpx.NetworkError: "Network error: A network-related error occurred",
+    httpx.WriteError: "Connection write error: Failed to send data to the server",
+    httpx.CloseError: "Connection close error: Failed to close the connection properly",
+    httpx.TimeoutException: "Request timeout: The request took too long to complete",
+    httpx.ConnectTimeout: "Connection timeout: Failed to establish a connection within the timeout period",
+    httpx.ReadTimeout: "Read timeout: The server did not send data within the timeout period",
+    httpx.WriteTimeout: "Write timeout: Failed to send data within the timeout period",
+    httpx.PoolTimeout: "Connection pool timeout: No connections available in the pool",
+    httpx.HTTPStatusError: "HTTP error: The server returned an error status code",
+    httpx.RequestError: "Request error: An error occurred while making the request",
+    httpx.TransportError: "Transport error: An error occurred at the transport layer",
+}
 
 LookupResult = namedtuple("LookupResult", ["data", "raw"])
 
@@ -162,14 +191,27 @@ class CredentialsProvider:
 
 class HttpClient:
 
-    def __init__(self, base_url: str, headers: Dict[str, str], timeout: httpx.Timeout):
+    def __init__(
+        self, 
+        base_url: str, 
+        headers: Dict[str, str], 
+        timeout: httpx.Timeout,
+        compress_requests: bool = True,
+        compress_threshold: int = 256,
+        limits: Optional[httpx.Limits] = None,
+        http2: bool = True
+    ):
         self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
         self._timeout = timeout
+        self._compress_requests = compress_requests
+        self._compress_threshold = compress_threshold
         self._async_client: Optional[httpx.AsyncClient] = None
+        self._limits = limits or DEFAULT_LIMITS
+        self._http2 = http2
         self._transport = None
-        # Removed AsyncResolver, use default resolver
-        self._transport = AsyncHTTPTransport()
+        # Create transport with HTTP/2 enabled
+        self._transport = AsyncHTTPTransport(http2=http2)
 
     async def get_async_client(self) -> httpx.AsyncClient:
         if self._async_client is None or getattr(self._async_client, 'is_closed', False):
@@ -179,33 +221,121 @@ class HttpClient:
                     headers=self._headers,
                     timeout=self._timeout,
                     transport=self._transport,
+                    limits=self._limits,
                 )
             else:
                 self._async_client = httpx.AsyncClient(
                     base_url=self._base_url,
                     headers=self._headers,
                     timeout=self._timeout,
+                    limits=self._limits,
                 )
         return self._async_client
 
-    async def post(self, endpoint: str, payload: dict) -> httpx.Response:
+    async def _post_with_retry(
+        self, 
+        client: httpx.AsyncClient, 
+        endpoint: str, 
+        **request_kwargs
+    ) -> httpx.Response:
+        """POST with retry logic for network errors (ReadError, ConnectError, NetworkError)."""
+        last_exception = None
+        
+        for attempt in range(MAX_RETRIES):
+            try:
+                return await client.post(endpoint, **request_kwargs)
+            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
+                last_exception = e
+                # Don't retry on the last attempt
+                if attempt < MAX_RETRIES - 1:
+                    # Exponential backoff: 1s, 2s, 4s
+                    wait_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    await asyncio.sleep(wait_time)
+                    continue
+                # Last attempt failed, re-raise
+                raise
+            # Don't retry on HTTP status errors (4xx, 5xx) - these are not network errors
+            except httpx.HTTPStatusError:
+                raise
+        
+        # Should never reach here, but just in case
+        if last_exception:
+            raise last_exception
+        raise httpx.NetworkError("Failed to make request after retries")
+
+    async def post(self, endpoint: str, payload: dict, extra_headers: Optional[dict] = None) -> httpx.Response:
+        """POST with optional *extra_headers* added just for this request."""
         client = await self.get_async_client()
         # Remove leading slash, ensure trailing slash
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        if "Content-Type" not in client.headers:
-            client.headers["Content-Type"] = "application/json"
-        r = await client.post(endpoint, json=payload)
+
+        headers = None
+        if extra_headers:
+            headers = {**client.headers, **extra_headers}
+
+        # Check if we should compress
+        if self._compress_requests:
+            # Use the same JSON encoding as httpx to get accurate size
+            json_bytes = json_dumps(payload, ensure_ascii=False).encode("utf-8")
+            
+            if len(json_bytes) > self._compress_threshold:
+                compressed_body = gzip.compress(json_bytes)
+                if headers is None:
+                    # Start with client's default headers but ensure we override Content-Type
+                    headers = dict(client.headers)
+                else:
+                    # Merge extra_headers with client headers, then override for compression
+                    headers = {**client.headers, **headers}
+                # Set headers for compressed request - these must override any defaults
+                # When using content= (raw bytes), we need to explicitly set Content-Type
+                # Important: Set these headers explicitly to ensure they override any defaults
+                headers["Content-Type"] = "application/json"
+                headers["Content-Encoding"] = "gzip"
+                headers["Content-Length"] = str(len(compressed_body))
+                # Use content= for raw bytes (httpx recommends this over data= for raw content)
+                # The headers we provide should override client defaults
+                r = await self._post_with_retry(
+                    client, endpoint, content=compressed_body, headers=headers
+                )
+                return r
+        
+        # Default: send uncompressed JSON
+        r = await self._post_with_retry(client, endpoint, json=payload, headers=headers)
         return r
 
     async def get(self, endpoint: str) -> httpx.Response:
+        """GET with retry logic for network errors."""
         client = await self.get_async_client()
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        return await client.get(endpoint)
+        
+        last_exception = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                return await client.get(endpoint)
+            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
+                last_exception = e
+                if attempt < MAX_RETRIES - 1:
+                    wait_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    await asyncio.sleep(wait_time)
+                    continue
+                raise
+            except httpx.HTTPStatusError:
+                raise
+        
+        if last_exception:
+            raise last_exception
+        raise httpx.NetworkError("Failed to make request after retries")
 
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.close()
 
     async def close(self):
         if self._async_client:
@@ -251,7 +381,8 @@ class BioLMApiClient:
         semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = None,
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
-
+        compress_requests: bool = True,
+        compress_threshold: int = 256,
     ):
         # Use base_url parameter if provided, otherwise use default from const
         final_base_url = base_url if base_url is not None else BIOLMAI_BASE_API_URL
@@ -262,7 +393,13 @@ class BioLMApiClient:
         self.raise_httpx = raise_httpx
         self.unwrap_single = unwrap_single
         self._headers = CredentialsProvider.get_auth_headers(api_key)
-        self._http_client = HttpClient(self.base_url, self._headers, self.timeout)
+        self._http_client = HttpClient(
+            self.base_url, 
+            self._headers, 
+            self.timeout,
+            compress_requests=compress_requests,
+            compress_threshold=compress_threshold
+        )
         self._semaphore = None
         self._rate_limiter = None
         self._rate_limit_lock = None
@@ -368,11 +505,11 @@ class BioLMApiClient:
         return None
         # Not implemented yet
         try:
-            async with httpx.AsyncClient(base_url=self.base_url, headers=self._headers, timeout=30.0) as client:
-                resp = await client.get(f"/{self.model_name}/")
-                if resp.status_code == 200:
-                    meta = resp.json()
-                    return meta.get("rps_limit") or meta.get("max_rps") or meta.get("requests_per_second")
+            # Reuse existing http_client instead of creating a new client
+            resp = await self._http_client.get(f"/{self.model_name}/")
+            if resp.status_code == 200:
+                meta = resp.json()
+                return meta.get("rps_limit") or meta.get("max_rps") or meta.get("requests_per_second")
         except Exception:
             pass
         return None
@@ -387,40 +524,118 @@ class BioLMApiClient:
 
         assert hasattr(resp, 'status_code') or hasattr(resp, 'status') or 'status' in resp or 'status_code' in resp
 
+        # Read response content once and parse as JSON or use as text
+        # Note: resp.json() and resp.text both consume the body stream, so we read text first, then parse
+        resp_json = None
+        resp_text = None
         try:
-            resp_json = resp.json()
+            # Read as text first (this consumes the body, but we can parse it multiple times)
+            resp_text = resp.text
+            # Try to parse the text as JSON
+            if resp_text:
+                try:
+                    resp_json = json.loads(resp_text)
+                except (json.JSONDecodeError, ValueError):
+                    # Not valid JSON, use as text
+                    resp_json = resp_text
+            else:
+                resp_json = ''
         except Exception:
-            resp_json = ''
+            # If reading text fails, try json() as fallback (may also fail if body already consumed)
+            try:
+                resp_json = resp.json()
+            except Exception:
+                resp_text = ''
+                resp_json = ''
 
         assert resp.status_code
-        if resp.status_code >= 400 or 'error' in resp_json:
+        # Check for errors: non-200 status OR top-level error/detail/description keys
+        # Note: v3 can return validation errors (200 status) with item-specific errors
+        has_error_key = isinstance(resp_json, dict) and ('error' in resp_json or 'detail' in resp_json or 'description' in resp_json)
+        is_error_status = resp.status_code >= 400
+        
+        # Check if response has both error and results (partial success scenario)
+        # In this case, we return the response as-is so batch processing can handle item-level errors
+        has_results = isinstance(resp_json, dict) and 'results' in resp_json
+        
+        if is_error_status or (has_error_key and not has_results):
             if 'application/json' in content_type:
                 try:
-                    error_json = resp_json
-                    # If the API already returns a dict with "error" or similar, just return it
+                    # Copy to avoid mutating original response
+                    if isinstance(resp_json, dict):
+                        error_json = resp_json.copy()
+                    else:
+                        error_json = resp_json
+                    # If the API already returns a dict with "error" or similar, normalize it
                     if isinstance(error_json, (dict, list)):
+                        # Normalize error keys - ensure "error" key exists
+                        if isinstance(error_json, dict) and 'error' not in error_json:
+                            if 'detail' in error_json:
+                                error_json['error'] = error_json['detail']
+                            elif 'description' in error_json:
+                                error_json['error'] = error_json['description']
+                        # Handle empty error strings - provide fallback message
+                        elif isinstance(error_json, dict) and 'error' in error_json:
+                            error_value = error_json.get('error')
+                            if not error_value or (isinstance(error_value, str) and not error_value.strip()):
+                                # Empty or whitespace-only error string - use fallback
+                                error_json['error'] = (
+                                    error_json.get('detail') or 
+                                    error_json.get('description') or 
+                                    f"API returned error status {resp.status_code}"
+                                )
                         DEFAULT_STATUS_CODE = 502
                         stat = error_json.get('status', DEFAULT_STATUS_CODE)
                         error_json['status_code'] = resp.status_code or error_json.get('status_code', stat)
                         if raw:
                             return (error_json, resp)
                         if self.raise_httpx:
-                            raise httpx.HTTPStatusError(message=resp.text, request=resp.request, response=resp)
+                            # Use stored resp_text if available, otherwise use error_json as string
+                            error_msg = resp_text if resp_text is not None else str(resp_json)
+                            raise httpx.HTTPStatusError(message=error_msg, request=resp.request, response=resp)
                         return error_json
                     else:
                         # If the JSON is not a dict or list, wrap it
                         error_info = {'error': error_json, 'status_code': resp.status_code}
                 except Exception:
-                    error_info = {'error': resp.text, 'status_code': resp.status_code}
+                    # Use stored resp_text if available, otherwise use fallback message
+                    error_text = resp_text if resp_text is not None else f"API returned error status {resp.status_code}"
+                    error_info = {'error': error_text, 'status_code': resp.status_code}
             else:
-                error_info = {'error': resp.text, 'status_code': resp.status_code}
+                # Use stored resp_text if available, otherwise use fallback message
+                error_text = resp_text if resp_text is not None else f"API returned error status {resp.status_code}"
+                error_info = {'error': error_text, 'status_code': resp.status_code}
             if raw:
                 return (error_info, resp)
             if self.raise_httpx:
-                raise httpx.HTTPStatusError(message=resp.text, request=resp.request, response=resp)
+                # Use stored resp_text if available, otherwise use error_info error as string
+                error_msg = resp_text if resp_text is not None else str(error_info.get('error', ''))
+                raise httpx.HTTPStatusError(message=error_msg, request=resp.request, response=resp)
             return error_info
 
-        data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
+        # Success response (200 status, no error keys)
+        # Use the already-parsed resp_json instead of calling resp.json() again
+        if isinstance(resp_json, dict):
+            data = resp_json
+        elif 'application/json' in content_type:
+            # If resp_json is not a dict but content-type says JSON, something went wrong
+            # Use stored resp_text if available, otherwise use fallback message
+            error_msg = resp_text if resp_text is not None else f"Failed to parse JSON response (status {resp.status_code})"
+            data = {"error": error_msg, "status_code": resp.status_code}
+        else:
+            # Use stored resp_text if available, otherwise use fallback message
+            error_msg = resp_text if resp_text is not None else f"Failed to read response body (status {resp.status_code})"
+            data = {"error": error_msg, "status_code": resp.status_code}
+        
+        # If response has both error and results, it's a partial success scenario
+        # Add status_code and return as-is so batch processing can handle item-level errors
+        if isinstance(data, dict) and 'error' in data and 'results' in data:
+            # Partial success: some items have errors, some have results
+            if 'status_code' not in data:
+                data['status_code'] = resp.status_code
+            return (data, resp) if raw else data
+        
+        # Pure success response - return as-is (will be formatted by _format_result)
         return (data, resp) if raw else data
 
     async def call(self, func: str, items: List[dict], params: Optional[dict] = None, raw: bool = False):
@@ -484,6 +699,73 @@ class BioLMApiClient:
 
         results = []
 
+        def parse_validation_errors(batch_results, batch_size):
+            """Parse validation errors with items__N__sequence keys and distribute to specific items.
+            
+            Returns a list of results, one per item in the batch.
+            - Items with validation errors get item-specific error dicts
+            - Items without errors get the batch error dict (batch-level failure)
+            - If results array exists, valid items get their results
+            """
+            error_dict = batch_results.get('error', {})
+            status_code = batch_results.get('status_code', 0)
+            
+            # Check if this is a validation error with item-specific errors
+            is_validation_error = (
+                status_code == 200 and 
+                isinstance(error_dict, dict) and 
+                any(key.startswith('items__') and '__sequence' in key for key in error_dict.keys())
+            )
+            
+            if not is_validation_error:
+                # Batch-level error (4xx/5xx): apply to all items
+                return [batch_results] * batch_size
+            
+            # Parse which items have validation errors
+            import re
+            error_item_indices = set()
+            for key in error_dict.keys():
+                match = re.match(r'items__(\d+)__', key)
+                if match:
+                    error_item_indices.add(int(match.group(1)))
+            
+            # Check if response also has results (partial success scenario)
+            if 'results' in batch_results:
+                # Partial success: some items have errors, some have results
+                results_list = batch_results.get('results', [])
+                item_results = []
+                for idx in range(batch_size):
+                    if idx in error_item_indices:
+                        # Item has validation error
+                        item_error = {
+                            'error': {k: v for k, v in error_dict.items() if f'items__{idx}__' in k},
+                            'status_code': status_code
+                        }
+                        item_results.append(item_error)
+                    elif idx < len(results_list):
+                        # Item has successful result
+                        item_results.append(results_list[idx])
+                    else:
+                        # Item index out of range - apply batch error as fallback
+                        item_results.append(batch_results)
+                return item_results
+            else:
+                # Full batch validation error: all items get error, but preserve item-specific error info
+                item_results = []
+                for idx in range(batch_size):
+                    if idx in error_item_indices:
+                        # Item has specific validation error
+                        item_error = {
+                            'error': {k: v for k, v in error_dict.items() if f'items__{idx}__' in k},
+                            'status_code': status_code
+                        }
+                        item_results.append(item_error)
+                    else:
+                        # Item doesn't have specific error, but batch failed validation
+                        # Apply the full error dict (batch-level validation failure)
+                        item_results.append(batch_results)
+                return item_results
+
         async def retry_batch_individually(batch):
             out = []
             for item in batch:
@@ -519,8 +801,10 @@ class BioLMApiClient:
                             for res in batch_results:
                                 await file_handle.write(json.dumps(res) + '\n')
                         else:
-                            for _ in batch:
-                                await file_handle.write(json.dumps(batch_results) + '\n')
+                            # Parse validation errors to distribute to specific items
+                            item_results = parse_validation_errors(batch_results, len(batch))
+                            for res in item_results:
+                                await file_handle.write(json.dumps(res) + '\n')
                         await file_handle.flush()
 
                         if stop_on_error and (
@@ -539,7 +823,9 @@ class BioLMApiClient:
                     ):
                         batch_results = await retry_batch_individually(batch)
                     if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                        results.extend([batch_results] * len(batch))
+                        # Parse validation errors to distribute to specific items
+                        item_results = parse_validation_errors(batch_results, len(batch))
+                        results.extend(item_results)
                         if stop_on_error:
                             break
                     elif isinstance(batch_results, list):
@@ -606,7 +892,7 @@ class BioLMApiClient:
 
             return
         else:
-            for batch in batch_iterable(all_items, max_batch):
+            for batch_idx, batch in enumerate(batch_iterable(all_items, max_batch)):
                 batch_results = await self.call(func, batch, params=params, raw=raw)
 
                 if (
@@ -622,9 +908,14 @@ class BioLMApiClient:
 
 
                 if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                    results.extend([batch_results] * len(batch))
+                    # Parse validation errors to distribute to specific items
+                    item_results = parse_validation_errors(batch_results, len(batch))
+                    results.extend(item_results)
                     if stop_on_error:
                         break
+                elif isinstance(batch_results, list):
+                    # Successful batch - results is already a list
+                    results.extend(batch_results)
                 else:
                     if not isinstance(batch_results, list):
                         batch_results = [batch_results]
@@ -655,7 +946,20 @@ class BioLMApiClient:
 
 
     def _format_exception(self, exc: Exception, index: int) -> dict:
-        return {"error": str(exc), "index": index}
+        """Format an exception as an error dict, with fallback for empty error messages."""
+        error_msg = str(exc)
+        
+        # Handle empty or whitespace-only error messages
+        if not error_msg or not error_msg.strip():
+            # Check if it's a known httpx exception type
+            exc_type = type(exc)
+            if exc_type in HTTPX_EXCEPTION_MESSAGES:
+                error_msg = HTTPX_EXCEPTION_MESSAGES[exc_type]
+            else:
+                # Fallback: use exception class name
+                error_msg = f"{exc_type.__name__}: Network or connection error occurred"
+        
+        return {"error": error_msg, "index": index}
 
     @staticmethod
     def _unwrap_single(result):

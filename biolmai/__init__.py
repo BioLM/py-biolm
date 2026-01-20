@@ -1,7 +1,7 @@
 """Top-level package for BioLM AI."""
 __author__ = """Nikhil Haas"""
 __email__ = "nikhil@biolm.ai"
-__version__ = '0.2.10'
+__version__ = '0.2.13'
 
 from biolmai.client import BioLMApi, BioLMApiClient
 from biolmai.biolmai import BioLM
@@ -20,5 +20,8 @@ def biolm(
     api_key: Optional[str] = None,
     **kwargs
 ) -> Any:
-    """Top-level convenience function that wraps the BioLM class and returns the result."""
+    """Top-level convenience function that wraps the BioLM class and returns the result.
+    
+    Additional kwargs (e.g., compress_requests, compress_threshold) are passed through to BioLMApiClient.
+    """
     return BioLM(entity=entity, action=action, type=type, items=items, params=params, api_key=api_key, **kwargs)
