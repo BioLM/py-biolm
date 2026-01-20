@@ -102,7 +102,8 @@ class BioLM:
             'generate': model.generate,
             'predict': model.predict,
             'encode': model.encode,
-            'search': getattr(model, 'search', None),
+            'search': model.search,
+            'score': model.score,
             'finetune': getattr(model, 'finetune', None),
             'lookup': model.lookup,
         }
