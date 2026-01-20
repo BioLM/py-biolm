@@ -63,9 +63,9 @@ DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
 
 # Connection pool limits
 DEFAULT_LIMITS = httpx.Limits(
-    max_connections=100,              # Total concurrent connections
+    max_connections=50,               # Total concurrent connections
     max_keepalive_connections=20,    # Idle connections to keep alive (default)
-    keepalive_expiry=30.0            # Keep idle connections for 30s
+    keepalive_expiry=65.0            # Keep idle connections for 65s
 )
 
 # Retry configuration for network errors
