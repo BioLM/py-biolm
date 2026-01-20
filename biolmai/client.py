@@ -210,10 +210,6 @@ class HttpClient:
         if extra_headers:
             headers = {**client.headers, **extra_headers}
 
-        if "Content-Type" not in (headers or client.headers):
-            # Ensure JSON content-type
-            (headers or client.headers)["Content-Type"] = "application/json"
-
         # Check if we should compress
         if self._compress_requests:
             # Use the same JSON encoding as httpx to get accurate size
@@ -222,10 +218,19 @@ class HttpClient:
             if len(json_bytes) > self._compress_threshold:
                 compressed_body = gzip.compress(json_bytes)
                 if headers is None:
-                    headers = {**client.headers}
-                headers["Content-Encoding"] = "gzip"
+                    # Start with client's default headers but ensure we override Content-Type
+                    headers = dict(client.headers)
+                else:
+                    # Merge extra_headers with client headers, then override for compression
+                    headers = {**client.headers, **headers}
+                # Set headers for compressed request - these must override any defaults
+                # When using content= (raw bytes), we need to explicitly set Content-Type
+                # Important: Set these headers explicitly to ensure they override any defaults
                 headers["Content-Type"] = "application/json"
+                headers["Content-Encoding"] = "gzip"
                 headers["Content-Length"] = str(len(compressed_body))
+                # Use content= for raw bytes (httpx recommends this over data= for raw content)
+                # The headers we provide should override client defaults
                 r = await client.post(endpoint, content=compressed_body, headers=headers)
                 return r
         
@@ -435,13 +440,22 @@ class BioLMApiClient:
 
         assert resp.status_code
         # Check for errors: non-200 status OR top-level error/detail/description keys
+        # Note: v3 can return validation errors (200 status) with item-specific errors
         has_error_key = isinstance(resp_json, dict) and ('error' in resp_json or 'detail' in resp_json or 'description' in resp_json)
         is_error_status = resp.status_code >= 400
         
-        if is_error_status or has_error_key:
+        # Check if response has both error and results (partial success scenario)
+        # In this case, we return the response as-is so batch processing can handle item-level errors
+        has_results = isinstance(resp_json, dict) and 'results' in resp_json
+        
+        if is_error_status or (has_error_key and not has_results):
             if 'application/json' in content_type:
                 try:
-                    error_json = resp_json
+                    # Copy to avoid mutating original response
+                    if isinstance(resp_json, dict):
+                        error_json = resp_json.copy()
+                    else:
+                        error_json = resp_json
                     # If the API already returns a dict with "error" or similar, normalize it
                     if isinstance(error_json, (dict, list)):
                         # Normalize error keys - ensure "error" key exists
@@ -471,7 +485,18 @@ class BioLMApiClient:
                 raise httpx.HTTPStatusError(message=resp.text, request=resp.request, response=resp)
             return error_info
 
+        # Success response (200 status, no error keys)
         data = resp.json() if 'application/json' in content_type else {"error": resp.text, "status_code": resp.status_code}
+        
+        # If response has both error and results, it's a partial success scenario
+        # Add status_code and return as-is so batch processing can handle item-level errors
+        if isinstance(data, dict) and 'error' in data and 'results' in data:
+            # Partial success: some items have errors, some have results
+            if 'status_code' not in data:
+                data['status_code'] = resp.status_code
+            return (data, resp) if raw else data
+        
+        # Pure success response - return as-is (will be formatted by _format_result)
         return (data, resp) if raw else data
 
     async def call(self, func: str, items: List[dict], params: Optional[dict] = None, raw: bool = False):
@@ -535,6 +560,73 @@ class BioLMApiClient:
 
         results = []
 
+        def parse_validation_errors(batch_results, batch_size):
+            """Parse validation errors with items__N__sequence keys and distribute to specific items.
+            
+            Returns a list of results, one per item in the batch.
+            - Items with validation errors get item-specific error dicts
+            - Items without errors get the batch error dict (batch-level failure)
+            - If results array exists, valid items get their results
+            """
+            error_dict = batch_results.get('error', {})
+            status_code = batch_results.get('status_code', 0)
+            
+            # Check if this is a validation error with item-specific errors
+            is_validation_error = (
+                status_code == 200 and 
+                isinstance(error_dict, dict) and 
+                any(key.startswith('items__') and '__sequence' in key for key in error_dict.keys())
+            )
+            
+            if not is_validation_error:
+                # Batch-level error (4xx/5xx): apply to all items
+                return [batch_results] * batch_size
+            
+            # Parse which items have validation errors
+            import re
+            error_item_indices = set()
+            for key in error_dict.keys():
+                match = re.match(r'items__(\d+)__', key)
+                if match:
+                    error_item_indices.add(int(match.group(1)))
+            
+            # Check if response also has results (partial success scenario)
+            if 'results' in batch_results:
+                # Partial success: some items have errors, some have results
+                results_list = batch_results.get('results', [])
+                item_results = []
+                for idx in range(batch_size):
+                    if idx in error_item_indices:
+                        # Item has validation error
+                        item_error = {
+                            'error': {k: v for k, v in error_dict.items() if f'items__{idx}__' in k},
+                            'status_code': status_code
+                        }
+                        item_results.append(item_error)
+                    elif idx < len(results_list):
+                        # Item has successful result
+                        item_results.append(results_list[idx])
+                    else:
+                        # Item index out of range - apply batch error as fallback
+                        item_results.append(batch_results)
+                return item_results
+            else:
+                # Full batch validation error: all items get error, but preserve item-specific error info
+                item_results = []
+                for idx in range(batch_size):
+                    if idx in error_item_indices:
+                        # Item has specific validation error
+                        item_error = {
+                            'error': {k: v for k, v in error_dict.items() if f'items__{idx}__' in k},
+                            'status_code': status_code
+                        }
+                        item_results.append(item_error)
+                    else:
+                        # Item doesn't have specific error, but batch failed validation
+                        # Apply the full error dict (batch-level validation failure)
+                        item_results.append(batch_results)
+                return item_results
+
         async def retry_batch_individually(batch):
             out = []
             for item in batch:
@@ -570,8 +662,10 @@ class BioLMApiClient:
                             for res in batch_results:
                                 await file_handle.write(json.dumps(res) + '\n')
                         else:
-                            for _ in batch:
-                                await file_handle.write(json.dumps(batch_results) + '\n')
+                            # Parse validation errors to distribute to specific items
+                            item_results = parse_validation_errors(batch_results, len(batch))
+                            for res in item_results:
+                                await file_handle.write(json.dumps(res) + '\n')
                         await file_handle.flush()
 
                         if stop_on_error and (
@@ -590,7 +684,9 @@ class BioLMApiClient:
                     ):
                         batch_results = await retry_batch_individually(batch)
                     if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                        results.extend([batch_results] * len(batch))
+                        # Parse validation errors to distribute to specific items
+                        item_results = parse_validation_errors(batch_results, len(batch))
+                        results.extend(item_results)
                         if stop_on_error:
                             break
                     elif isinstance(batch_results, list):
@@ -657,7 +753,7 @@ class BioLMApiClient:
 
             return
         else:
-            for batch in batch_iterable(all_items, max_batch):
+            for batch_idx, batch in enumerate(batch_iterable(all_items, max_batch)):
                 batch_results = await self.call(func, batch, params=params, raw=raw)
 
                 if (
@@ -673,9 +769,14 @@ class BioLMApiClient:
 
 
                 if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                    results.extend([batch_results] * len(batch))
+                    # Parse validation errors to distribute to specific items
+                    item_results = parse_validation_errors(batch_results, len(batch))
+                    results.extend(item_results)
                     if stop_on_error:
                         break
+                elif isinstance(batch_results, list):
+                    # Successful batch - results is already a list
+                    results.extend(batch_results)
                 else:
                     if not isinstance(batch_results, list):
                         batch_results = [batch_results]
