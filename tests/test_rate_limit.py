@@ -158,6 +158,32 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(client._api_call("endpoint", {}), client._api_call("endpoint", {}))
         self.assertGreaterEqual(order[1] - order[0], 1.0)
 
+    async def test_limit_with_default_semaphore(self):
+        """Test that default semaphore (2) limits concurrency correctly."""
+        client = BioLMApiClient("model")  # Uses default semaphore=2
+        client._rate_limiter = None  # Disable rate limiter to test semaphore only
+
+        running = 0
+        max_running = 0
+
+        async def fake_post(endpoint, payload):
+            nonlocal running, max_running
+            running += 1
+            max_running = max(max_running, running)
+            await asyncio.sleep(0.05)
+            running -= 1
+            class FakeResp:
+                status_code = 200
+                headers = {"Content-Type": "application/json"}
+                def json(self): return {"ok": True}
+            return FakeResp()
+
+        client._http_client.post = fake_post
+
+        # Launch 4 concurrent calls, should be limited to 2 at a time
+        await asyncio.gather(*(client._api_call("endpoint", {}) for _ in range(4)))
+        self.assertEqual(max_running, 2, "Default semaphore should limit to 2 concurrent requests")
+
     async def test_limit_with_neither(self):
         client = BioLMApiClient("model")
         client._rate_limiter = None
