@@ -681,23 +681,29 @@ class BioLMApiClient:
             compress_threshold=compress_threshold
         )
         self._semaphore = None
+        self._semaphore_arg = semaphore  # Lazy-init: None, int, or asyncio.Semaphore
         self._rate_limiter = None
         self._rate_limit_lock = None
         self._rate_limit_initialized = False
         self.retry_error_batches = retry_error_batches
-
-
-        # Concurrency limit
-        if isinstance(semaphore, asyncio.Semaphore):
-            self._semaphore = semaphore
-        elif isinstance(semaphore, int):
-            self._semaphore = asyncio.Semaphore(semaphore)
 
         # RPS limit
         if rate_limit:
             max_calls, period = parse_rate_limit(rate_limit)
             self._rate_limiter = AsyncRateLimiter(max_calls, period)
             self._rate_limit_initialized = True
+
+    async def _get_semaphore(self):
+        """Lazy-init semaphore: create on first use to avoid event-loop issues."""
+        if self._semaphore is not None:
+            return self._semaphore
+        if self._semaphore_arg is None:
+            return None
+        if isinstance(self._semaphore_arg, asyncio.Semaphore):
+            self._semaphore = self._semaphore_arg
+        else:
+            self._semaphore = asyncio.Semaphore(self._semaphore_arg)
+        return self._semaphore
 
     async def _ensure_rate_limit(self):
             if self._rate_limit_lock is None:
@@ -727,8 +733,9 @@ class BioLMApiClient:
             # RPS limit: BioLMApiClient(..., rate_limit="1000/second")
             # Both: BioLMApiClient(..., semaphore=5, rate_limit="1000/second")
         """
-        if self._semaphore:
-            async with self._semaphore:
+        sem = await self._get_semaphore()
+        if sem:
+            async with sem:
                 if self._rate_limiter:
                     async with self._rate_limiter.limit():
                         yield
