@@ -458,7 +458,6 @@ class CredentialsProvider:
             refresh = creds.get("refresh")
             return {
                 "Cookie": f"access={access};refresh={refresh}",
-                "Content-Type": "application/json",
             }
         raise AssertionError("No credentials found. Set BIOLMAI_TOKEN or run `biolmai login`.")
 
