@@ -294,7 +294,6 @@ def get_user_auth_header():
         refresh = access_refresh_dict.get("refresh")
         headers = {
             "Cookie": f"access={access};refresh={refresh}",
-            "Content-Type": "application/json",
         }
     else:
         err = (
