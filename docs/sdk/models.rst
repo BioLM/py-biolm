@@ -37,9 +37,7 @@ Usage
 
 For more detailed information, see:
 
-- :doc:`usage/async-sync` - Synchronous and asynchronous usage
-- :doc:`usage/batching` - Batching and input formats
-- :doc:`usage/error-handling` - Error handling strategies
+- :doc:`../getting-started/concepts` - Core concepts: BioLM vs BioLMApi, sync/async, batching, error handling, disk output, rate limiting
 
 Generating Usage Examples
 -------------------------

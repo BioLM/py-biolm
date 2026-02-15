@@ -298,6 +298,36 @@ class TestLoadFunctions:
         assert len(loaded) == 2
         assert loaded[0]["score"] == 0.8
 
+    def test_load_results_from_gzip(self, tmp_path):
+        """Test loading results from gzipped JSONL file."""
+        import gzip
+
+        results_file = tmp_path / "results.jsonl.gz"
+        with gzip.open(results_file, "wt") as f:
+            f.write('{"score": 0.8}\n')
+            f.write('{"score": 0.6}\n')
+
+        loaded = load_results(str(results_file))
+        assert len(loaded) == 2
+        assert loaded[0]["score"] == 0.8
+
+    def test_load_results_from_zip(self, tmp_path):
+        """Test loading results from zip archive containing JSONL."""
+        import zipfile
+
+        jsonl_file = tmp_path / "results.jsonl"
+        with open(jsonl_file, "w") as f:
+            f.write('{"score": 0.8}\n')
+            f.write('{"score": 0.6}\n')
+
+        zip_file = tmp_path / "results.zip"
+        with zipfile.ZipFile(zip_file, "w") as zf:
+            zf.write(jsonl_file, "results.jsonl")
+
+        loaded = load_results(str(zip_file))
+        assert len(loaded) == 2
+        assert loaded[0]["score"] == 0.8
+
     def test_load_outputs_config_from_list(self):
         """Test loading outputs config from list."""
         config = [{"limit": 100, "log": {"metrics": {"score": "${{ score }}"}}}]
@@ -379,12 +409,14 @@ class TestMLflowIntegration:
         result = log_protocol_results(
             results=results,
             outputs_config=outputs_config,
-            experiment_name="test_exp",
+            account_name="test_account",
+            workspace_name="test_workspace",
+            protocol_name="test_exp",
             dry_run=True,
         )
 
         assert result["dry_run"] is True
-        assert result["experiment_name"] == "test_exp"
+        assert result["experiment_name"] == "test_account/test_workspace/test_exp"
         # Should not call MLflow
         mock_mlflow.start_run.assert_not_called()
 
@@ -398,7 +430,9 @@ class TestMLflowIntegration:
             log_protocol_results(
                 results=results,
                 outputs_config=outputs_config,
-                experiment_name="test_exp",
+                account_name="test_account",
+                workspace_name="test_workspace",
+                protocol_name="test_exp",
                 dry_run=False,
             )
 
@@ -440,7 +474,9 @@ class TestMLflowIntegration:
         result = log_protocol_results(
             results=results,
             outputs_config=outputs_config,
-            experiment_name="test_exp",
+            account_name="test_account",
+            workspace_name="test_workspace",
+            protocol_name="test_exp",
             dry_run=False,
         )
 
@@ -504,7 +540,11 @@ class TestCLICommand:
                 str(results_file),
                 "--outputs",
                 str(outputs_file),
-                "--experiment",
+                "--account",
+                "test_account",
+                "--workspace",
+                "test_workspace",
+                "--protocol",
                 "test_exp",
                 "--dry-run",
             ],
@@ -530,7 +570,11 @@ class TestCLICommand:
                 "protocol",
                 "log",
                 str(results_file),
-                "--experiment",
+                "--account",
+                "acme",
+                "--workspace",
+                "lab",
+                "--protocol",
                 "test_exp",
             ],
         )

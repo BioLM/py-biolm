@@ -62,5 +62,4 @@ Suppose you have 10 items, and item 5 is invalid. With a batch size of 8:
 
 **See also:**
 
-- :doc:`usage/error-handling`
-- :doc:`usage/batching`
+- :doc:`../getting-started/concepts` - Core concepts including error handling and batching

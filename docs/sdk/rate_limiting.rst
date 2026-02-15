@@ -92,6 +92,5 @@ Best Practices
 See Also
 ------------------------
 
-- :doc:`usage/error-handling`
-- :doc:`usage/batching`
+- :doc:`../getting-started/concepts` - Core concepts including error handling and batching
 - :doc:`faq`

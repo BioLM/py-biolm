@@ -27,15 +27,17 @@ This ensures that if any error occurs during preparation, no partial data is log
 Main Function
 -------------
 
-.. py:function:: log_protocol_results(results, outputs_config, experiment_name, protocol_metadata=None, mlflow_uri=None, dry_run=False, aggregate_over='selected')
+.. py:function:: log_protocol_results(results, outputs_config, account_name, workspace_name, protocol_name, protocol_metadata=None, mlflow_uri=None, dry_run=False, aggregate_over='selected')
 
-   Main entry point for logging protocol results to MLflow.
+   Main entry point for logging protocol results to MLflow. The MLflow experiment name is built as ``{account_name}/{workspace_name}/{protocol_name}``.
 
    **Parameters:**
 
    * **results** (*Union[List[dict], str]*) – List of result dictionaries or path to JSONL file
    * **outputs_config** (*Union[List[dict], str, dict]*) – Outputs configuration (list of output rules, protocol dict, or file path)
-   * **experiment_name** (*str*) – MLflow experiment name (e.g., ``"account/workspace/protocol_slug"``)
+   * **account_name** (*str*) – Account name for the experiment path
+   * **workspace_name** (*str*) – Workspace name for the experiment path
+   * **protocol_name** (*str*) – Protocol name/slug for the experiment path
    * **protocol_metadata** (*dict, optional*) – Protocol metadata dictionary with keys:
      * ``name``: Protocol name
      * ``version``: Protocol version
@@ -68,11 +70,13 @@ Main Function
 
       from biolmai.protocols_mlflow import log_protocol_results
 
-      # Log results from JSONL file
+      # Log results from JSONL file (experiment: account/workspace/protocol)
       result = log_protocol_results(
           results="results.jsonl",
           outputs_config="protocol.yaml",
-          experiment_name="biolm/workspace1/my_protocol",
+          account_name="biolm",
+          workspace_name="workspace1",
+          protocol_name="my_protocol",
           protocol_metadata={
               "name": "My Protocol",
               "version": "1.0",
@@ -83,16 +87,64 @@ Main Function
       print(f"Logged {result['num_selected']} results to MLflow")
       print(f"Parent run ID: {result['parent_run_id']}")
 
+Input Formats
+~~~~~~~~~~~~~
+
+Both ``results`` and ``outputs_config`` accept either file paths or in-memory data,
+giving you flexibility in how you pass data to ``log_protocol_results``.
+
+**results** – One of:
+
+* **File path** (str): Path to a JSONL file. Each line must be a single JSON object (one result record per line). Supports compressed formats:
+  * ``.jsonl`` – plain text
+  * ``.jsonl.gz`` – gzip compressed
+  * ``.zip`` – zip archive containing a ``.jsonl`` file (e.g. ``results_{id}.jsonl.zip``)
+* **List of dicts**: In-memory list of result dictionaries. Use this when you have results in memory (e.g. from a protocol run, loaded from a database, or built programmatically).
+
+**outputs_config** – One of:
+
+* **File path** (str): Path to a YAML file. Can be:
+  * A list of output rules (the ``outputs`` section content)
+  * A full protocol YAML (the ``outputs`` section will be extracted automatically)
+* **List of dicts**: In-memory list of output rule dictionaries.
+* **Dict**: A protocol dictionary with an ``outputs`` key (extracted automatically), or a single output rule.
+
+**Examples by format:**
+
+.. code-block:: python
+
+   # File paths (most common)
+   log_protocol_results(
+       results="results.jsonl",
+       outputs_config="protocol.yaml",
+       account_name="acme", workspace_name="lab", protocol_name="my_protocol"
+   )
+
+   # In-memory results, outputs from file
+   log_protocol_results(
+       results=[{"score": 0.8, "sequence": "ACDE..."}, ...],
+       outputs_config="protocol.yaml",
+       account_name="acme", workspace_name="lab", protocol_name="my_protocol"
+   )
+
+   # Both in-memory (no files needed)
+   log_protocol_results(
+       results=[{"score": 0.8}, {"score": 0.6}],
+       outputs_config=[{"log": {"metrics": {"score": "${{ score }}"}}}],
+       account_name="acme", workspace_name="lab", protocol_name="my_protocol"
+   )
+
 Helper Functions
 ----------------
 
 .. py:function:: load_results(results)
 
-   Load results from a list or JSONL file.
+   Load results from a list or JSONL file. Supports plain (``.jsonl``), gzip
+   (``.jsonl.gz``), and zip (``.zip`` with a ``.jsonl`` file inside) formats.
 
    **Parameters:**
 
-   * **results** (*Union[List[dict], str]*) – List of dicts or path to JSONL file
+   * **results** (*Union[List[dict], str]*) – List of dicts or path to JSONL file (optionally compressed)
 
    **Returns:**
 
@@ -154,11 +206,13 @@ Basic Logging
 
    from biolmai.protocols_mlflow import log_protocol_results
 
-   # Simple logging with protocol file
+   # Simple logging with protocol file (experiment: account/workspace/protocol)
    result = log_protocol_results(
        results="results.jsonl",
        outputs_config="protocol.yaml",
-       experiment_name="my_experiment"
+       account_name="my_account",
+       workspace_name="my_workspace",
+       protocol_name="my_protocol"
    )
 
 Dry Run
@@ -170,7 +224,9 @@ Dry Run
    result = log_protocol_results(
        results="results.jsonl",
        outputs_config="protocol.yaml",
-       experiment_name="my_experiment",
+       account_name="my_account",
+       workspace_name="my_workspace",
+       protocol_name="my_protocol",
        dry_run=True
    )
 
@@ -185,7 +241,9 @@ Custom MLflow URI
    result = log_protocol_results(
        results="results.jsonl",
        outputs_config="protocol.yaml",
-       experiment_name="my_experiment",
+       account_name="my_account",
+       workspace_name="my_workspace",
+       protocol_name="my_protocol",
        mlflow_uri="http://localhost:5000"
    )
 
@@ -214,7 +272,9 @@ Programmatic Results
    result = log_protocol_results(
        results=results,
        outputs_config=outputs_config,
-       experiment_name="my_experiment"
+       account_name="my_account",
+       workspace_name="my_workspace",
+       protocol_name="my_protocol"
    )
 
 Error Handling
@@ -245,7 +305,7 @@ The logging system creates a hierarchical run structure:
 
 * **Parent Run**: One per protocol execution
   * Tag: ``type: protocol``
-  * Contains: Protocol metadata, aggregate metrics
+  * Contains: Protocol metadata, aggregate metrics, ``results.jsonl`` artifact (full results)
   * Name: Based on experiment name
 
 * **Child Runs**: One per selected result
@@ -256,7 +316,9 @@ The logging system creates a hierarchical run structure:
 Artifacts
 ---------
 
-The system automatically generates ``sequence.json`` artifacts in seqparse format for results that contain a ``sequence`` field. Additional artifacts can be specified in the outputs configuration.
+**Parent run:** The full results table is always logged as ``results.jsonl`` (one JSON object per line) to the parent (protocol) run. This provides a complete record of all protocol execution results.
+
+**Child runs:** The system automatically generates ``sequence.json`` artifacts in seqparse format for results that contain a ``sequence`` field. Additional artifacts can be specified in the outputs configuration.
 
 Sequence Format (seqparse)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

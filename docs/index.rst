@@ -20,6 +20,7 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    getting-started/installation
    getting-started/authentication
    getting-started/quickstart
+   getting-started/concepts
 
 .. toctree::
    :maxdepth: 1

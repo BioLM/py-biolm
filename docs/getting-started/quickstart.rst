@@ -25,4 +25,4 @@ Basic usage:
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
 
-For advanced usage, see :doc:`../sdk/models`.
+For core concepts (sync/async, batching, error handling, etc.), see :doc:`concepts`. For SDK usage and examples, see :doc:`../sdk/models`.

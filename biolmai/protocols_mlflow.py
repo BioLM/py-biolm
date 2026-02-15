@@ -4,8 +4,10 @@ This module provides functionality to log protocol results to MLflow based on
 the protocol's outputs configuration. It handles result selection, template
 expression evaluation, and MLflow run creation.
 """
+import gzip
 import json
 import statistics
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -44,27 +46,48 @@ def _check_mlflow_available():
 
 def load_results(results: Union[List[Dict], str]) -> List[Dict]:
     """Load results from a list or JSONL file.
-    
+
+    Supports plain JSONL and compressed formats:
+    * .jsonl - plain text
+    * .jsonl.gz - gzip compressed
+    * .zip - zip archive containing a .jsonl file (e.g. results_{id}.jsonl.zip)
+
     Args:
-        results: Either a list of dicts or a path to a JSONL file
-        
+        results: Either a list of dicts or a path to a JSONL file (optionally compressed)
+
     Returns:
         List of result dictionaries
     """
     if isinstance(results, list):
         return results
     elif isinstance(results, str):
-        # Load from JSONL file
         path = Path(results)
         if not path.exists():
             raise FileNotFoundError(f"Results file not found: {results}")
-        
+
+        suffix = path.suffix.lower()
+        if suffix == ".gz" or path.name.endswith(".jsonl.gz"):
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                lines = f.readlines()
+        elif suffix == ".zip":
+            with zipfile.ZipFile(path, "r") as zf:
+                jsonl_names = [n for n in zf.namelist() if n.endswith(".jsonl")]
+                if not jsonl_names:
+                    raise ValueError(
+                        f"No .jsonl file found in zip archive: {path}. "
+                        "Expected at least one JSONL file in the archive."
+                    )
+                with zf.open(jsonl_names[0], "r") as f:
+                    lines = f.read().decode("utf-8").splitlines()
+        else:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
         results_list = []
-        with open(path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    results_list.append(json.loads(line))
+        for line in lines:
+            line = line.strip()
+            if line:
+                results_list.append(json.loads(line))
         return results_list
     else:
         raise TypeError(f"results must be a list or file path, got {type(results)}")
@@ -566,6 +589,7 @@ def prepare_logging_data(
         "parent_tags": {"type": "protocol"},
         "child_runs": child_runs,
         "aggregate_metrics": aggregate_metrics,
+        "results": results,
     }
 
 
@@ -652,9 +676,29 @@ def log_to_mlflow(
                 else:
                     mlflow.set_tag(key, str(value))
         
-        # Log aggregate metrics to parent run
+        # Log aggregate metrics to parent run (skip None/NaN/Inf - MLflow rejects them)
         for metric_name, metric_value in prepared_data["aggregate_metrics"].items():
+            if metric_value is None:
+                continue
+            if isinstance(metric_value, float) and (
+                metric_value != metric_value or abs(metric_value) == float("inf")
+            ):
+                continue
             mlflow.log_metric(metric_name, metric_value)
+        
+        # Log full results as JSONL artifact to parent run
+        results_list = prepared_data.get("results", [])
+        if results_list:
+            import os
+            import tempfile
+            results_content = "\n".join(
+                json.dumps(row, default=str) for row in results_list
+            )
+            with tempfile.TemporaryDirectory() as temp_dir:
+                results_path = os.path.join(temp_dir, "results.jsonl")
+                with open(results_path, "w") as f:
+                    f.write(results_content)
+                mlflow.log_artifact(results_path)
         
         # Create child runs
         child_run_ids = []
@@ -683,12 +727,20 @@ def log_to_mlflow(
                 child_tags["type"] = "model"
                 mlflow.set_tags(child_tags)
                 
-                # Log parameters
+                # Log parameters (skip None - MLflow rejects them)
                 for param_name, param_value in child_data["params"].items():
-                    mlflow.log_param(param_name, param_value)
+                    if param_value is not None:
+                        mlflow.log_param(param_name, param_value)
                 
-                # Log metrics
+                # Log metrics (skip None/NaN/Inf - MLflow rejects them)
                 for metric_name, metric_value in child_data["metrics"].items():
+                    if metric_value is None:
+                        continue
+                    if isinstance(metric_value, float) and (
+                        metric_value != metric_value
+                        or abs(metric_value) == float("inf")
+                    ):
+                        continue
                     mlflow.log_metric(metric_name, metric_value)
                 
                 # Log artifacts
@@ -721,7 +773,9 @@ def log_to_mlflow(
 def log_protocol_results(
     results: Union[List[Dict], str],
     outputs_config: Union[List[Dict], str, Dict],
-    experiment_name: str,
+    account_name: str,
+    workspace_name: str,
+    protocol_name: str,
     protocol_metadata: Optional[Dict] = None,
     mlflow_uri: Optional[str] = None,
     dry_run: bool = False,
@@ -729,18 +783,24 @@ def log_protocol_results(
 ) -> Dict[str, Any]:
     """Main entry point for logging protocol results to MLflow.
     
+    The MLflow experiment name is built as "{account_name}/{workspace_name}/{protocol_name}".
+    
     Args:
         results: List of result dicts or path to JSONL file
         outputs_config: Outputs config (list, dict, or file path)
-        experiment_name: MLflow experiment name
+        account_name: Account name for the experiment path
+        workspace_name: Workspace name for the experiment path
+        protocol_name: Protocol name (slug) for the experiment path
         protocol_metadata: Optional protocol metadata (name, version, inputs, etc.)
         mlflow_uri: Optional MLflow tracking URI (default: https://mlflow.biolm.ai/)
         dry_run: If True, prepare data but don't log to MLflow
         aggregate_over: "selected" or "all" for aggregate computation
         
     Returns:
-        Dictionary with logging results
+        Dictionary with logging results (includes experiment_name)
     """
+    experiment_name = f"{account_name}/{workspace_name}/{protocol_name}"
+    
     # Stage 1: Prepare all data (no MLflow interaction)
     results_list = load_results(results)
     outputs_list = load_outputs_config(outputs_config)

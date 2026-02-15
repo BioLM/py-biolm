@@ -56,6 +56,21 @@ brand_theme = Theme({
 
 console = Console(theme=brand_theme)
 
+# Common argument descriptions for better help text
+ARGUMENT_DESCRIPTIONS = {
+    'filename': 'Protocol file name (default: protocol.yaml)',
+    'model_name': 'Name of the model',
+    'action': 'Action to perform (encode, predict, generate, lookup)',
+    'workspace_id': 'Workspace identifier',
+    'name': 'Name for the resource',
+    'protocol_source': 'Protocol file path or protocol ID',
+    'protocol_file': 'Path to protocol YAML file',
+    'output_path': 'Output directory path',
+    'results': 'Path to results file',
+    'dataset_id': 'Dataset identifier',
+    'file_path': 'Path to file',
+}
+
 
 class RichHelpFormatter(click.HelpFormatter):
     """Custom help formatter using Rich for Modal-style output."""
@@ -104,11 +119,61 @@ class RichCommand(click.Command):
             
             # Write additional description lines if present
             if len(desc_lines) > 1:
-                additional_lines = [line.strip() for line in desc_lines[1:] if line.strip()]
-                if additional_lines:
-                    for line in additional_lines:
-                        console.print(f"[text]{line}[/text]")
-                    console.print()
+                # Preserve blank lines to maintain spacing in Examples section
+                for line in desc_lines[1:]:
+                    stripped = line.strip()
+                    if stripped:
+                        # Style comments (starting with #) with muted color
+                        if stripped.startswith('#'):
+                            console.print(f"[text.muted]{stripped}[/text.muted]")
+                        # Style command examples (starting with biolm) with brand color
+                        elif stripped.startswith('biolm'):
+                            console.print(f"[brand.bright]{stripped}[/brand.bright]")
+                        else:
+                            # Regular text for descriptions
+                            console.print(f"[text]{stripped}[/text]")
+                    else:
+                        # Preserve blank lines for better example spacing
+                        console.print()
+                console.print()
+        
+        # Write Arguments section if present (before Options)
+        args = []
+        for param in self.get_params(ctx):
+            if isinstance(param, click.Argument):
+                rv = param.get_help_record(ctx)
+                if rv:
+                    # Has help record from Click
+                    args.append(rv)
+                else:
+                    # No help record, but still show the argument
+                    # Get argument name and description from param
+                    arg_name = param.name.upper()
+                    # Try to get help from param attribute, or use our mapping
+                    arg_help = getattr(param, 'help', None) or ARGUMENT_DESCRIPTIONS.get(param.name, '')
+                    args.append((arg_name, arg_help))
+        if args:
+            # Create box content
+            box_content = []
+            for arg_name, arg_help in args:
+                # Format argument name in brand color, description in text
+                arg_padding = " " * max(0, 25 - len(arg_name))
+                if arg_help:
+                    line = f"[brand.bright]{arg_name}[/brand.bright]{arg_padding}  [text]{arg_help}[/text]"
+                else:
+                    line = f"[brand.bright]{arg_name}[/brand.bright]"
+                box_content.append(line)
+            
+            # Create panel with box style
+            panel = Panel(
+                "\n".join(box_content),
+                title="[bold]Arguments[/bold]",
+                border_style="text.muted",
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+            console.print(panel)
+            console.print()
         
         # Write Options section with box
         opts = []
@@ -133,36 +198,6 @@ class RichCommand(click.Command):
             panel = Panel(
                 "\n".join(box_content),
                 title="[bold]Options[/bold]",
-                border_style="text.muted",
-                box=box.ROUNDED,
-                padding=(0, 1),
-            )
-            console.print(panel)
-            console.print()
-        
-        # Write Arguments section if present
-        args = []
-        for param in self.get_params(ctx):
-            if isinstance(param, click.Argument):
-                rv = param.get_help_record(ctx)
-                if rv:
-                    args.append(rv)
-        if args:
-            # Create box content
-            box_content = []
-            for arg_name, arg_help in args:
-                # Format argument name in brand color, description in text
-                arg_padding = " " * max(0, 25 - len(arg_name))
-                if arg_help:
-                    line = f"[brand.bright]{arg_name}[/brand.bright]{arg_padding}  [text]{arg_help}[/text]"
-                else:
-                    line = f"[brand.bright]{arg_name}[/brand.bright]"
-                box_content.append(line)
-            
-            # Create panel with box style
-            panel = Panel(
-                "\n".join(box_content),
-                title="[bold]Arguments[/bold]",
                 border_style="text.muted",
                 box=box.ROUNDED,
                 padding=(0, 1),
@@ -2452,30 +2487,31 @@ def init(filename, output, example, list_examples, force, interactive):
 @protocol.command()
 @click.argument('results', type=click.Path(exists=True))
 @click.option('--outputs', type=click.Path(exists=True), help='Outputs config YAML or protocol YAML file')
-@click.option('--experiment', required=True, help='MLflow experiment name')
+@click.option('--account', required=True, help='Account name (experiment path: account/workspace/protocol)')
+@click.option('--workspace', required=True, help='Workspace name (experiment path: account/workspace/protocol)')
+@click.option('--protocol', 'protocol_slug', required=True, help='Protocol name/slug (experiment path: account/workspace/protocol)')
 @click.option('--dry-run', is_flag=True, help='Prepare data without logging to MLflow')
 @click.option('--mlflow-uri', default='https://mlflow.biolm.ai/', help='MLflow tracking URI')
-@click.option('--aggregate-over', type=click.Choice(['selected', 'all']), default='selected', 
+@click.option('--aggregate-over', type=click.Choice(['selected', 'all']), default='selected',
               help='Compute aggregates over selected rows or all rows')
-@click.option('--protocol-name', help='Protocol name for metadata')
+@click.option('--protocol-name', help='Protocol display name for metadata (default: from protocol YAML)')
 @click.option('--protocol-version', help='Protocol version for metadata')
-def log(results, outputs, experiment, dry_run, mlflow_uri, aggregate_over, protocol_name, protocol_version):
+def log(results, outputs, account, workspace, protocol_slug, dry_run, mlflow_uri, aggregate_over, protocol_name, protocol_version):
     """Log protocol results to MLflow.
     
     Log protocol execution results to MLflow based on the protocol's outputs
-    configuration. This command processes results, applies output rules (filtering,
-    ordering, limiting), and logs to MLflow with parent/child run structure.
+    configuration. The MLflow experiment is created as account/workspace/protocol.
     
     Examples:
     
         # Log results with outputs config from protocol file
-        biolm protocol log results.jsonl --outputs protocol.yaml --experiment my_experiment
+        biolm protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody
         
         # Dry run to see what would be logged
-        biolm protocol log results.jsonl --outputs protocol.yaml --experiment my_experiment --dry-run
+        biolm protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody --dry-run
         
         # Use custom MLflow URI
-        biolm protocol log results.jsonl --outputs protocol.yaml --experiment my_experiment --mlflow-uri http://localhost:5000
+        biolm protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody --mlflow-uri http://localhost:5001
     """
     try:
         from biolmai.protocols_mlflow import (
@@ -2540,7 +2576,9 @@ def log(results, outputs, experiment, dry_run, mlflow_uri, aggregate_over, proto
             result = log_protocol_results(
                 results=results,
                 outputs_config=outputs,
-                experiment_name=experiment,
+                account_name=account,
+                workspace_name=workspace,
+                protocol_name=protocol_slug,
                 protocol_metadata=protocol_metadata if protocol_metadata else None,
                 mlflow_uri=mlflow_uri,
                 dry_run=dry_run,
