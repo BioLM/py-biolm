@@ -20,6 +20,14 @@ from biolmai.io import (
     load_json,
     to_json,
 )
+
+# Pipeline system (optional dependency)
+try:
+    from biolmai import pipeline
+except ImportError:
+    # Pipeline dependencies might not be installed
+    pass
+
 from typing import Optional, Union, List, Any
 
 __all__ = [
@@ -49,6 +57,8 @@ __all__ = [
     'to_pdb',
     'load_json',
     'to_json',
+    # Pipeline (optional)
+    'pipeline',
 ]
 
 

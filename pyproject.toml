@@ -1,98 +1,46 @@
-[tool.black]
-target-version = ["py37", "py38", "py39", "py310", "py311"]  # all versions of python we support
-line-length = 88
-quiet = true
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | _build
-  | buck-out
-  | build
-  | dist
-)/
-'''
-
-[tool.ruff]
-target-version = "py37"  # the lowest version of python we support
-select = [
-    "B", # flake8-bugbear
-    "C", # flake8-comprehensions
-    "C90", # mccabe
-    "E", # pycodestyle errors
-    "F", # pyflakes
-    "I", # isort
-    "UP", # pyupgrade
-    "W", # pycode warnings
-]
-extend-ignore = [
-    "E501", # Let black handle line length
-    "F821", # For need of global names
-]
-fix = true
-exclude = [
-    ".venv",
-    # any other directories or files to exclude
-]
-
-[tool.flake8]
-max-line-length = 88
-exclude = ".venv"
-
-[build-system]
-requires = [
-    "setuptools>=68",
-    "wheel",
-    "pip>=23.3"
-]
-build-backend = "setuptools.build_meta"
-
-[tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "function"
-
 [project]
 name = "biolmai"
 version = "0.3.0"
 description = "BioLM Python client"
 authors = [
-    { name="BioLM", email="support@biolm.ai" }
+    {name = "BioLM", email = "support@biolm.ai"},
 ]
-requires-python = ">=3.7"
 readme = "README.rst"
-license = { text = "Apache Software License 2.0" }
-keywords = ["biolmai"]
+requires-python = ">=3.9,<4.0"
+license = {text = "Apache Software License 2.0"}
+keywords = [
+    "biolmai", "biolm", "bioai", "bio-ai", "bio-lm", "bio-llm",
+    "bio-language-model", "bio-language-models-api", "python-client",
+    "pipeline", "bioinformatics"
+]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13"
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
+
 dependencies = [
+    # Core BioLM client dependencies
+    "click>=6.0",
+    "requests>=2.25.0",
     "httpx>=0.23.0",
     "httpcore",
-    "Click>=6.0",
-    "requests",
-    "aiodns",
+    "h2",  # Required for HTTP/2 support
     "synchronicity>=0.5.0; python_version >= '3.9'",
-    "synchronicity<0.5.0; python_version < '3.9'",
-    "typing_extensions; python_version < '3.9'",
-    "aiohttp<=3.8.6; python_version < '3.12'",
+    "aiodns",
     "aiohttp>=3.9.0; python_version >= '3.12'",
+    "aiohttp<=3.8.6; python_version < '3.12'",
     "async-lru",
     "aiofiles",
     "cryptography",
-    "h2",
     "nest_asyncio",
     "rich>=13.0.0",
     "pyyaml>=5.0",
@@ -102,3 +50,152 @@ scripts = { biolmai = "biolmai.cli_entry:cli" }
 
 [project.entry-points."mlflow.request_header_provider"]
 unused = "biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider"
+
+[project.optional-dependencies]
+# Pipeline extras
+pipeline = [
+    "pandas>=1.3.0",
+    "numpy<2.0",
+    "tqdm>=4.60.0",
+    "matplotlib>=3.3.0",
+    "seaborn>=0.11.0",
+    "scikit-learn>=0.24.0",
+    "umap-learn>=0.5.0",
+    "biotite>=0.34.0",
+    "biopython>=1.78",
+    "scipy>=1.7.0",
+]
+
+# Development dependencies
+dev = [
+    "black>=24.10.0",
+    "ruff>=0.6.9",
+    "mypy>=1.5.1",
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "pre-commit>=3.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/BioLM/py-biolm"
+Documentation = "https://docs.biolm.ai"
+Repository = "https://github.com/BioLM/py-biolm"
+"Bug Tracker" = "https://github.com/BioLM/py-biolm/issues"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["biolmai*"]
+exclude = ["tests*", "*.tests*", "docs*", "pipeline_ex*"]
+
+[tool.setuptools.package-data]
+biolmai = ["py.typed"]
+
+[tool.black]
+target-version = ["py39", "py310", "py311", "py312"]
+line-length = 88
+exclude = '''
+/(
+    \.direnv
+    | \.venv
+    | \.git
+    | \.mypy_cache
+    | \.pytest_cache
+    | \.tox
+    | build
+    | dist
+    | __pycache__
+    | pipeline_ex
+)/
+'''
+
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+fix = true
+exclude = [
+    ".direnv",
+    ".venv",
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "pipeline_ex",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # Line too long (handled by black)
+    "B008",  # Do not perform function call in argument defaults
+    "C901",  # Too complex
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["biolmai"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    ".direnv",
+    ".venv",
+    "build",
+    "dist",
+    "pipeline_ex",
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = """
+    -ra
+    --strict-markers
+    --cov=biolmai
+    --cov-report=html
+    --cov-report=term-missing:skip-covered
+    --cov-report=xml
+"""
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["biolmai"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    ".direnv/*",
+    ".venv/*",
+    "pipeline_ex/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 70
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

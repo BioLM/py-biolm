@@ -1,35 +1,200 @@
-.PHONY: clean clean-build clean-pyc clean-test coverage dist docs docs-iframe help install lint lint/flake8
+.PHONY: install install-dev install-all clean clean-build clean-pyc clean-test coverage dist docs docs-iframe help lint lint/flake8 style check format mypy test test-pipeline test-unit
+
 .DEFAULT_GOAL := help
 
-define BROWSER_PYSCRIPT
-import os, webbrowser, sys
+# Install core dependencies using uv
+install:
+	@echo "🔍 Checking for uv..."
+	@if ! command -v uv &> /dev/null; then \
+		echo "📥 Installing uv..."; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		echo "✅ uv installed. You may need to restart your shell or run: source ~/.bashrc"; \
+	else \
+		echo "✅ uv is already installed"; \
+	fi
+	@echo ""
+	@echo "🚀 Creating virtual environment with Python $(shell cat .python-version)..."
+	uv venv --python $(shell cat .python-version)
+	@echo ""
+	@echo "📦 Installing core dependencies..."
+	uv pip install -e .
+	@echo ""
+	@echo "✅ Installation complete!"
+	@echo ""
+	@echo "🔧 To activate the environment, run one of:"
+	@echo "   • direnv allow           (if you have direnv)"
+	@echo "   • source .venv/bin/activate"
+	@echo ""
+	@echo "💡 For development mode with all extras, run: make install-all"
 
-from urllib.request import pathname2url
+# Install with pipeline extras
+install-pipeline:
+	@echo "📦 Installing with pipeline extras..."
+	uv pip install -e ".[pipeline]"
+	@echo "✅ Pipeline extras installed!"
 
-webbrowser.open("file://" + pathname2url(os.path.abspath(sys.argv[1])))
-endef
-export BROWSER_PYSCRIPT
+# Install development dependencies
+install-dev:
+	@echo "📦 Installing development dependencies..."
+	uv pip install -e ".[dev]"
+	@echo ""
+	@echo "🔧 Setting up pre-commit hooks..."
+	@if [ -d .venv ]; then \
+		.venv/bin/pre-commit install --install-hooks 2>/dev/null || echo "⚠️  pre-commit install skipped (not available)"; \
+	fi
+	@echo "✅ Development dependencies installed!"
 
-define PRINT_HELP_PYSCRIPT
-import re, sys
+# Install everything (all extras + dev)
+install-all: install
+	@echo ""
+	@echo "📦 Installing all extras..."
+	uv pip install -e ".[all,dev]"
+	@echo ""
+	@echo "🔧 Setting up pre-commit hooks..."
+	@if [ -d .venv ]; then \
+		.venv/bin/pre-commit install --install-hooks 2>/dev/null || echo "⚠️  pre-commit install skipped (not available)"; \
+	fi
+	@echo ""
+	@echo "✅ Full installation complete!"
+	@echo ""
+	@echo "🎉 Ready to use!"
+	@echo "   • BioLM client is installed"
+	@echo "   • Pipeline system is available"
+	@echo "   • Development tools are ready"
 
-for line in sys.stdin:
-	match = re.match(r'^([a-zA-Z_-]+):.*?## (.*)$$', line)
-	if match:
-		target, help = match.groups()
-		print("%-20s %s" % (target, help))
-endef
-export PRINT_HELP_PYSCRIPT
+# Update dependencies
+update:
+	@echo "🔄 Updating dependencies..."
+	uv pip install --upgrade -e ".[all,dev]"
+	@echo "✅ Dependencies updated!"
 
-BROWSER := python -c "$$BROWSER_PYSCRIPT"
+# Run code formatting with black
+format:
+	@echo "🎨 Formatting code with black..."
+	@if [ -d .venv ]; then \
+		.venv/bin/black biolmai tests examples; \
+	else \
+		black biolmai tests examples; \
+	fi
 
-RS ?= 12345
+# Run linting with ruff
+lint:
+	@echo "🔍 Linting code with ruff..."
+	@if [ -d .venv ]; then \
+		.venv/bin/ruff check biolmai tests examples; \
+	else \
+		ruff check biolmai tests examples; \
+	fi
 
-k ?= 
-x ?= 8
+# Run type checking with mypy
+mypy:
+	@echo "🔬 Type checking with mypy..."
+	@if [ -d .venv ]; then \
+		.venv/bin/mypy biolmai; \
+	else \
+		mypy biolmai; \
+	fi
 
+# Run all code quality checks
+style: format lint
+
+# Run all checks (style + type checking)
+check: style mypy
+
+# Run unit tests
+test-unit:
+	@echo "🧪 Running unit tests..."
+	@if [ -d .venv ]; then \
+		.venv/bin/python tests/run_tests.py; \
+	else \
+		python tests/run_tests.py; \
+	fi
+
+# Run pipeline tests specifically
+test-pipeline:
+	@echo "🔬 Running pipeline tests..."
+	@if [ -d .venv ]; then \
+		.venv/bin/python -m unittest discover tests -p "test_*.py" -v; \
+	else \
+		python -m unittest discover tests -p "test_*.py" -v; \
+	fi
+
+# Run all tests (unit only, no API)
+test: test-unit
+
+# Run integration tests (requires API key)
+test-integration:
+	@echo "🔬 Running integration tests (requires BIOLMAI_TOKEN or BIOLM_API_KEY)..."
+	@if [ -z "$$BIOLMAI_TOKEN" ] && [ -z "$$BIOLM_API_KEY" ]; then \
+		echo "❌ Error: BIOLMAI_TOKEN or BIOLM_API_KEY environment variable not set"; \
+		echo "   Set it with: export BIOLMAI_TOKEN='your-token-here'"; \
+		exit 1; \
+	fi
+	@if [ -d .venv ]; then \
+		.venv/bin/python -m unittest tests.test_integration -v; \
+	else \
+		python -m unittest tests.test_integration -v; \
+	fi
+
+# Run all tests (unit + integration)
+test-all: test test-integration
+
+# Run tests with pytest (if available)
+test-pytest:
+	@echo "🧪 Running tests with pytest..."
+	@if [ -d .venv ]; then \
+		.venv/bin/pytest tests/ -v; \
+	else \
+		pytest tests/ -v; \
+	fi
+
+# Clean build artifacts
+clean:
+	@echo "🧹 Cleaning build artifacts..."
+	rm -rf build/
+	rm -rf dist/
+	rm -rf *.egg-info
+	rm -rf .pytest_cache
+	rm -rf .mypy_cache
+	rm -rf .ruff_cache
+	rm -rf htmlcov/
+	rm -rf .coverage
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete
+	@echo "✅ Cleaned!"
+
+# Clean everything including venv
+clean-all: clean
+	@echo "🧹 Removing virtual environment..."
+	rm -rf .venv/
+	@echo "✅ Everything cleaned!"
+
+# Run examples
+example-simple:
+	@echo "🚀 Running simple pipeline example..."
+	@if [ -d .venv ]; then \
+		.venv/bin/python examples/simple_pipeline_example.py; \
+	else \
+		python examples/simple_pipeline_example.py; \
+	fi
+
+example-advanced:
+	@echo "🚀 Running advanced pipeline example..."
+	@if [ -d .venv ]; then \
+		.venv/bin/python examples/advanced_pipeline_example.py; \
+	else \
+		python examples/advanced_pipeline_example.py; \
+	fi
+
+# Show help
 help:
 	@python -c "$$PRINT_HELP_PYSCRIPT" < $(MAKEFILE_LIST)
+	@echo ""
+	@echo "📦 Modern Setup (uv):"
+	@echo "  make install          - Install with uv (fast)"
+	@echo "  make install-pipeline - Install with pipeline extras"
+	@echo "  make install-dev      - Install development dependencies"
+	@echo "  make install-all      - Install everything"
 
 clean: clean-build clean-pyc clean-test clean-ruff ## remove all build, test, coverage and Python artifacts
 
@@ -126,3 +291,40 @@ dist: clean ## builds source and wheel package
 
 install: clean ## install the package to the active Python's site-packages
 	pip install -e .
+	@echo "BioLM Pipeline - Makefile Commands"
+	@echo ""
+	@echo "📦 Installation:"
+	@echo "  make install          - Install core dependencies with uv"
+	@echo "  make install-pipeline - Install with pipeline extras"
+	@echo "  make install-dev      - Install development dependencies"
+	@echo "  make install-all      - Install everything (recommended for dev)"
+	@echo "  make update           - Update all dependencies"
+	@echo ""
+	@echo "🔍 Code Quality:"
+	@echo "  make format           - Format code with black"
+	@echo "  make lint             - Lint code with ruff"
+	@echo "  make mypy             - Type check with mypy"
+	@echo "  make style            - Run format + lint"
+	@echo "  make check            - Run all checks (style + mypy)"
+	@echo ""
+	@echo "🧪 Testing:"
+	@echo "  make test             - Run all unit tests (no API)"
+	@echo "  make test-unit        - Run unit tests"
+	@echo "  make test-pipeline    - Run pipeline tests specifically"
+	@echo "  make test-pytest      - Run tests with pytest"
+	@echo "  make test-integration - Run integration tests (requires API key)"
+	@echo "  make test-all         - Run unit + integration tests"
+	@echo ""
+	@echo "🚀 Examples:"
+	@echo "  make example-simple   - Run simple pipeline example"
+	@echo "  make example-advanced - Run advanced pipeline example"
+	@echo ""
+	@echo "🧹 Cleanup:"
+	@echo "  make clean            - Remove build artifacts"
+	@echo "  make clean-all        - Remove everything including .venv"
+	@echo ""
+	@echo "💡 Quick Start:"
+	@echo "  1. make install-all   - Install everything"
+	@echo "  2. direnv allow       - Activate environment (if using direnv)"
+	@echo "  3. make test          - Run tests"
+	@echo "  4. make example-simple - Try an example"
