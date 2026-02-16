@@ -1,1 +1,1 @@
-"""Unit test package for biolmai."""
+"""Test suite for BioLM Pipeline."""
