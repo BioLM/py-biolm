@@ -27,7 +27,7 @@ How to Configure
 
 - **Default (API throttle with cancellation protection):**
   - The client queries the API schema for the recommended throttle rate and uses it.
-  - By default, a semaphore with limit 2 is enabled to provide cancellation protection (limits in-flight requests to 2).
+  - By default, a semaphore with limit 16 is enabled to provide cancellation protection (limits in-flight requests to 16).
   - No need to set anything.
 
 - **Disable Throttling:**

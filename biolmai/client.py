@@ -658,15 +658,16 @@ class BioLMApiClient:
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
-        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = 2,
+        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = 16,
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
         compress_requests: bool = True,
         compress_threshold: int = 256,
+        concurrent_batches: bool = True,  # When True and stop_on_error=False, process batches in parallel (up to semaphore limit)
     ):
         # Use base_url parameter if provided, otherwise use default from const
         final_base_url = base_url if base_url is not None else BIOLMAI_BASE_API_URL
-        
+
         self.model_name = model_name
         self.base_url = final_base_url.rstrip("/") + "/"  # Ensure trailing slash
         self.timeout = timeout
@@ -686,6 +687,7 @@ class BioLMApiClient:
         self._rate_limit_lock = None
         self._rate_limit_initialized = False
         self.retry_error_batches = retry_error_batches
+        self._concurrent_batches = concurrent_batches
 
         # RPS limit
         if rate_limit:
@@ -789,6 +791,36 @@ class BioLMApiClient:
         if schema:
             return self.extract_max_items(schema)
         return None
+
+    async def _retry_batch_individually(
+        self, func: str, batch: List[dict], params: Optional[dict], raw: bool
+    ) -> list:
+        """Retry a failed batch by calling the API once per item. Returns list of results."""
+        out = []
+        for item in batch:
+            single_result = await self.call(func, [item], params=params, raw=raw)
+            if isinstance(single_result, list) and len(single_result) == 1:
+                out.append(single_result[0])
+            else:
+                out.append(single_result)
+        return out
+
+    async def _process_single_batch(
+        self,
+        func: str,
+        batch: List[dict],
+        params: Optional[dict],
+        raw: bool,
+    ):
+        """Process one batch: call API, optionally retry individually on error. Returns batch-level results."""
+        batch_results = await self.call(func, batch, params=params, raw=raw)
+        if (
+            self.retry_error_batches
+            and isinstance(batch_results, dict)
+            and ('error' in batch_results or 'status_code' in batch_results)
+        ):
+            batch_results = await self._retry_batch_individually(func, batch, params, raw)
+        return batch_results
 
     async def _fetch_rps_limit_async(self) -> Optional[int]:
         return None
@@ -1080,62 +1112,99 @@ class BioLMApiClient:
                         item_results.append(batch_results)
                 return item_results
 
-        async def retry_batch_individually(batch):
-            out = []
-            for item in batch:
-                single_result = await self.call(func, [item], params=params, raw=raw)
-                if isinstance(single_result, list) and len(single_result) == 1:
-                    out.append(single_result[0])
-                else:
-                    out.append(single_result)
-            return out
-
         if is_lol:
-            all_batches = chain(first_n, rest_iter)
+            all_batches_iter = chain(first_n, rest_iter)
+            batches_list = list(all_batches_iter)
             if output == 'disk':
                 path = file_path or f"{self.model_name}_{func}_output.jsonl"
-                async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
-                    for batch in all_batches:
-                        batch_results = await self.call(func, batch, params=params, raw=raw)
-                        if (
-                            self.retry_error_batches and
-                            isinstance(batch_results, dict) and
-                            ('error' in batch_results or 'status_code' in batch_results)
-                        ):
-                            batch_results = await retry_batch_individually(batch)
+                use_concurrent_lol_disk = self._concurrent_batches and not stop_on_error
+                if use_concurrent_lol_disk:
+                    async def process_batch_lol_disk(batch_idx: int, batch: list):
+                        br = await self._process_single_batch(func, batch, params, raw)
+                        return (batch_idx, batch, br)
 
-                        if isinstance(batch_results, list):
-                            # For 'generate' actions, models may return multiple results per item
-                            # (e.g., hyper-mpnn with batch_size > 1), so skip the 1:1 check
+                    gathered = await asyncio.gather(*[process_batch_lol_disk(i, b) for i, b in enumerate(batches_list)])
+                    gathered.sort(key=lambda x: x[0])
+                    async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                        for _batch_idx, batch, batch_results in gathered:
+                            if isinstance(batch_results, list):
+                                if func != "generate":
+                                    assert len(batch_results) == len(batch), (
+                                        f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                                        "This is a contract violation."
+                                    )
+                                for res in batch_results:
+                                    await file_handle.write(json.dumps(res) + '\n')
+                            else:
+                                item_results = parse_validation_errors(batch_results, len(batch))
+                                for res in item_results:
+                                    await file_handle.write(json.dumps(res) + '\n')
+                            await file_handle.flush()
+                else:
+                    async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                        for batch in batches_list:
+                            batch_results = await self.call(func, batch, params=params, raw=raw)
+                            if (
+                                self.retry_error_batches and
+                                isinstance(batch_results, dict) and
+                                ('error' in batch_results or 'status_code' in batch_results)
+                            ):
+                                batch_results = await self._retry_batch_individually(func, batch, params, raw)
+
+                            if isinstance(batch_results, list):
+                                # For 'generate' actions, models may return multiple results per item
+                                # (e.g., hyper-mpnn with batch_size > 1), so skip the 1:1 check
+                                if func != "generate":
+                                    assert len(batch_results) == len(batch), (
+                                        f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                                        "This is a contract violation."
+                                    )
+                                for res in batch_results:
+                                    await file_handle.write(json.dumps(res) + '\n')
+                            else:
+                                # Parse validation errors to distribute to specific items
+                                item_results = parse_validation_errors(batch_results, len(batch))
+                                for res in item_results:
+                                    await file_handle.write(json.dumps(res) + '\n')
+                            await file_handle.flush()
+
+                            if stop_on_error and (
+                                (isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results)) or
+                                (isinstance(batch_results, list) and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results))
+                            ):
+                                break
+                return
+            else:
+                use_concurrent_lol_mem = self._concurrent_batches and not stop_on_error
+                if use_concurrent_lol_mem:
+                    async def process_batch_lol_mem(batch_idx: int, batch: list):
+                        br = await self._process_single_batch(func, batch, params, raw)
+                        return (batch_idx, batch, br)
+
+                    gathered = await asyncio.gather(*[process_batch_lol_mem(i, b) for i, b in enumerate(batches_list)])
+                    gathered.sort(key=lambda x: x[0])
+                    for _batch_idx, batch, batch_results in gathered:
+                        if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                            item_results = parse_validation_errors(batch_results, len(batch))
+                            results.extend(item_results)
+                        elif isinstance(batch_results, list):
                             if func != "generate":
                                 assert len(batch_results) == len(batch), (
                                     f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
                                     "This is a contract violation."
                                 )
-                            for res in batch_results:
-                                await file_handle.write(json.dumps(res) + '\n')
+                            results.extend(batch_results)
                         else:
-                            # Parse validation errors to distribute to specific items
-                            item_results = parse_validation_errors(batch_results, len(batch))
-                            for res in item_results:
-                                await file_handle.write(json.dumps(res) + '\n')
-                        await file_handle.flush()
-
-                        if stop_on_error and (
-                            (isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results)) or
-                            (isinstance(batch_results, list) and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results))
-                        ):
-                            break
-                return
-            else:
-                for batch in all_batches:
+                            results.append(batch_results)
+                    return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+                for batch in batches_list:
                     batch_results = await self.call(func, batch, params=params, raw=raw)
                     if (
                         self.retry_error_batches and
                         isinstance(batch_results, dict) and
                         ('error' in batch_results or 'status_code' in batch_results)
                     ):
-                        batch_results = await retry_batch_individually(batch)
+                        batch_results = await self._retry_batch_individually(func, batch, params, raw)
                     if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
                         # Parse validation errors to distribute to specific items
                         item_results = parse_validation_errors(batch_results, len(batch))
@@ -1162,50 +1231,107 @@ class BioLMApiClient:
 
         if output == 'disk':
             path = file_path or f"{self.model_name}_{func}_output.jsonl"
-            async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
-                for batch in batch_iterable(all_items, max_batch):
-                    batch_results = await self.call(func, batch, params=params, raw=raw)
+            use_concurrent_disk = self._concurrent_batches and not stop_on_error
+            if use_concurrent_disk:
+                batches = list(batch_iterable(all_items, max_batch))
 
-                    if (
-                        self.retry_error_batches and
-                        isinstance(batch_results, dict) and
-                        ('error' in batch_results or 'status_code' in batch_results)
-                    ):
-                        batch_results = await retry_batch_individually(batch)
-                        # After retry, always treat as list
-                        for res in batch_results:
-                            to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                            await file_handle.write(json.dumps(to_dump) + '\n')
+                async def process_batch_disk(batch_idx: int, batch: list):
+                    br = await self._process_single_batch(func, batch, params, raw)
+                    return (batch_idx, batch, br)
+
+                gathered = await asyncio.gather(*[process_batch_disk(i, b) for i, b in enumerate(batches)])
+                gathered.sort(key=lambda x: x[0])
+                async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                    for _batch_idx, batch, batch_results in gathered:
+                        if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                            item_results = parse_validation_errors(batch_results, len(batch))
+                            for res in item_results:
+                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
+                                await file_handle.write(json.dumps(to_dump) + '\n')
+                        else:
+                            if not isinstance(batch_results, list):
+                                batch_results = [batch_results]
+                            if func != "generate":
+                                assert len(batch_results) == len(batch), (
+                                    f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                                    "This is a contract violation."
+                                )
+                            for res in batch_results:
+                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
+                                await file_handle.write(json.dumps(to_dump) + '\n')
                         await file_handle.flush()
-                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
-                            break
-                        continue  # move to next batch
+            else:
+                async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                    for batch in batch_iterable(all_items, max_batch):
+                        batch_results = await self.call(func, batch, params=params, raw=raw)
 
+                        if (
+                            self.retry_error_batches and
+                            isinstance(batch_results, dict) and
+                            ('error' in batch_results or 'status_code' in batch_results)
+                        ):
+                            batch_results = await self._retry_batch_individually(func, batch, params, raw)
+                            # After retry, always treat as list
+                            for res in batch_results:
+                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
+                                await file_handle.write(json.dumps(to_dump) + '\n')
+                            await file_handle.flush()
+                            if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                                break
+                            continue  # move to next batch
+
+                        if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                            for _ in batch:
+                                await file_handle.write(json.dumps(batch_results) + '\n')
+                            await file_handle.flush()
+                            if stop_on_error:
+                                break
+                        else:
+                            if not isinstance(batch_results, list):
+                                batch_results = [batch_results]
+                            # For 'generate' actions, models may return multiple results per item
+                            # (e.g., hyper-mpnn with batch_size > 1), so skip the 1:1 check
+                            if func != "generate":
+                                assert len(batch_results) == len(batch), (
+                                    f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
+                                    "This is a contract violation."
+                                )
+                            for res in batch_results:
+                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
+                                await file_handle.write(json.dumps(to_dump) + '\n')
+                            await file_handle.flush()
+                            if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                                break
+
+            return
+        else:
+            use_concurrent = self._concurrent_batches and not stop_on_error
+            if use_concurrent:
+                batches = list(batch_iterable(all_items, max_batch))
+
+                async def process_batch(batch_idx: int, batch: list):
+                    br = await self._process_single_batch(func, batch, params, raw)
+                    return (batch_idx, batch, br)
+
+                gathered = await asyncio.gather(*[process_batch(i, b) for i, b in enumerate(batches)])
+                gathered.sort(key=lambda x: x[0])
+                for _batch_idx, batch, batch_results in gathered:
                     if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                        for _ in batch:
-                            await file_handle.write(json.dumps(batch_results) + '\n')
-                        await file_handle.flush()
-                        if stop_on_error:
-                            break
+                        item_results = parse_validation_errors(batch_results, len(batch))
+                        results.extend(item_results)
+                    elif isinstance(batch_results, list):
+                        results.extend(batch_results)
                     else:
                         if not isinstance(batch_results, list):
                             batch_results = [batch_results]
-                        # For 'generate' actions, models may return multiple results per item
-                        # (e.g., hyper-mpnn with batch_size > 1), so skip the 1:1 check
                         if func != "generate":
                             assert len(batch_results) == len(batch), (
                                 f"API returned {len(batch_results)} results for a batch of {len(batch)} items. "
                                 "This is a contract violation."
                             )
-                        for res in batch_results:
-                            to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                            await file_handle.write(json.dumps(to_dump) + '\n')
-                        await file_handle.flush()
-                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
-                            break
+                        results.extend(batch_results)
+                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
 
-            return
-        else:
             for batch_idx, batch in enumerate(batch_iterable(all_items, max_batch)):
                 batch_results = await self.call(func, batch, params=params, raw=raw)
 
@@ -1214,7 +1340,7 @@ class BioLMApiClient:
                     isinstance(batch_results, dict) and
                     ('error' in batch_results or 'status_code' in batch_results)
                 ):
-                    batch_results = await retry_batch_individually(batch)
+                    batch_results = await self._retry_batch_individually(func, batch, params, raw)
                     results.extend(batch_results)
                     if stop_on_error and any(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
                         break
