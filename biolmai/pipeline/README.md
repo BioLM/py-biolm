@@ -373,6 +373,165 @@ results = pipeline.run()
 df = pipeline.get_final_data()
 ```
 
+## 🔮 Future Features (Planned)
+
+The following features are planned for future releases. Contributions welcome!
+
+### Hyperparameter Sweep & Grid Search
+
+Automatically sweep generation parameters to find optimal configurations:
+
+```python
+pipeline.add_grid_search(
+    model='esm2-650m',
+    params={
+        'temperature': [0.5, 1.0, 1.5],
+        'top_p': [0.9, 0.95],
+        'num_iterations': [5, 10]
+    },
+    objective='maximize',
+    metric_column='melting_temperature'
+)
+```
+
+**Status**: Planned for v0.3.0  
+**Use Case**: Optimize generation parameters for specific protein design tasks  
+**Benefit**: Reduce trial-and-error in finding best model settings
+
+---
+
+### Active Learning Loop
+
+Iterative improvement using top-performing sequences as seeds for next round:
+
+```python
+pipeline.add_active_learning_stage(
+    cycles=5,
+    select_top_n=10,
+    model='protgpt2',
+    objective_filter=ThresholdFilter('stability', min_value=0.8)
+)
+```
+
+**Status**: Planned for v0.3.0  
+**Use Case**: Directed evolution with continuous refinement  
+**Benefit**: Converge faster on optimal sequences by learning from each iteration
+
+**Algorithm**:
+1. Generate initial sequences
+2. Evaluate with predictors
+3. Select top N performers
+4. Use as seeds for next generation
+5. Repeat for specified cycles
+
+---
+
+### Ensemble Predictions
+
+Combine predictions from multiple models for improved reliability:
+
+```python
+pipeline.add_ensemble_prediction(
+    models=['esm2stabp', 'prostt5', 'thermonet'],
+    aggregation='weighted',
+    weights=[0.5, 0.3, 0.2],
+    stage_name='tm_consensus'
+)
+```
+
+**Status**: Under consideration  
+**Use Case**: Reduce prediction variance, improve accuracy  
+**Benefit**: More robust predictions by leveraging model diversity
+
+**Aggregation Methods**:
+- `vote`: Majority voting (classification)
+- `mean`: Average predictions
+- `weighted`: Weighted average
+- `max`/`min`: Conservative estimates
+
+---
+
+### Structure Analysis Suite
+
+Comprehensive structure comparison and quality metrics:
+
+```python
+pipeline.add_structure_analysis(
+    reference_pdb='wildtype.pdb',
+    metrics=['rmsd', 'tm_score', 'secondary_structure', 'contact_density']
+)
+```
+
+**Status**: Under consideration  
+**Use Case**: Post-processing ESMFold/Boltz predictions  
+**Benefit**: Understand structural differences and quality
+
+**Metrics**:
+- RMSD to reference structure
+- TM-score for fold similarity
+- Secondary structure composition
+- Contact map comparison
+- Buried surface area
+- Binding site analysis
+
+---
+
+### Gradient-Based Sequence Optimization
+
+Use model gradients to optimize sequences (for differentiable models):
+
+```python
+pipeline.add_gradient_optimization(
+    model='esm2-650m',
+    objective='maximize_binding_affinity',
+    steps=100,
+    learning_rate=0.01
+)
+```
+
+**Status**: Research phase  
+**Use Case**: Local optimization in sequence space  
+**Benefit**: More efficient than random search for fine-tuning
+
+---
+
+### Database Integration
+
+Pull sequences from biological databases:
+
+```python
+pipeline.add_database_lookup(
+    database='uniprot',
+    query='organism:human AND reviewed:true',
+    fields=['sequence', 'function', 'go_terms'],
+    limit=1000
+)
+```
+
+**Status**: Under consideration  
+**Databases**: UniProt, PDB, Pfam, InterPro  
+**Benefit**: Leverage existing biological knowledge
+
+---
+
+### Distributed Execution
+
+Scale to compute clusters:
+
+```python
+pipeline.run(
+    backend='ray',  # or 'dask', 'kubernetes'
+    num_workers=10,
+    resources_per_worker={'cpu': 4, 'gpu': 1}
+)
+```
+
+**Status**: Under consideration  
+**Use Case**: Process millions of sequences  
+**Benefit**: Horizontal scaling for large experiments
+
+---
+
 ## Contributing
 
 See CONTRIBUTING.md for development guidelines.

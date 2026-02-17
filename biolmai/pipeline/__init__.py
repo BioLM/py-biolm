@@ -22,6 +22,13 @@ from biolmai.pipeline.mlm_remasking import (
     MODERATE_CONFIG,
     AGGRESSIVE_CONFIG,
 )
+from biolmai.pipeline.clustering import (
+    SequenceClusterer,
+    DiversityAnalyzer,
+    ClusteringResult,
+    cluster_sequences,
+    analyze_diversity,
+)
 
 __all__ = [
     'DataStore',
@@ -44,4 +51,9 @@ __all__ = [
     'CONSERVATIVE_CONFIG',
     'MODERATE_CONFIG',
     'AGGRESSIVE_CONFIG',
+    'SequenceClusterer',
+    'DiversityAnalyzer',
+    'ClusteringResult',
+    'cluster_sequences',
+    'analyze_diversity',
 ]

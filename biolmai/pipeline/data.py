@@ -289,6 +289,117 @@ class FilterStage(Stage):
         )
 
 
+class ClusteringStage(Stage):
+    """
+    Sequence clustering stage.
+    
+    Args:
+        name: Stage name
+        method: Clustering algorithm ('kmeans', 'dbscan', 'hierarchical')
+        n_clusters: Number of clusters (for kmeans/hierarchical)
+        similarity_metric: How to measure similarity ('hamming', 'embedding')
+        embedding_model: Model to use for embeddings (if similarity_metric='embedding')
+    """
+    
+    def __init__(
+        self,
+        name: str,
+        method: str = 'kmeans',
+        n_clusters: Optional[int] = None,
+        similarity_metric: str = 'hamming',
+        embedding_model: Optional[str] = None,
+        **kwargs
+    ):
+        super().__init__(name=name, **kwargs)
+        self.method = method
+        self.n_clusters = n_clusters
+        self.similarity_metric = similarity_metric
+        self.embedding_model = embedding_model
+        self.cluster_kwargs = kwargs
+    
+    async def process(
+        self,
+        df: pd.DataFrame,
+        datastore: DataStore,
+        **kwargs
+    ) -> StageResult:
+        """Cluster sequences and add cluster assignments to DataFrame."""
+        from biolmai.pipeline.clustering import SequenceClusterer
+        
+        start_count = len(df)
+        
+        print(f"  Clustering {start_count} sequences using {self.method}...")
+        
+        sequences = df['sequence'].tolist()
+        
+        # Get embeddings if needed
+        embeddings = None
+        if self.similarity_metric == 'embedding':
+            if self.embedding_model is None:
+                raise ValueError("embedding_model required when similarity_metric='embedding'")
+            
+            print(f"  Loading embeddings from {self.embedding_model}...")
+            embeddings_list = []
+            for seq in sequences:
+                emb_list = datastore.get_embeddings_by_sequence(
+                    seq,
+                    model_name=self.embedding_model,
+                    load_data=True
+                )
+                if emb_list:
+                    _, embedding = emb_list[0]
+                    embeddings_list.append(embedding)
+                else:
+                    raise ValueError(f"No embedding found for sequence: {seq[:20]}...")
+            
+            embeddings = np.stack(embeddings_list)
+        
+        # Perform clustering
+        clusterer = SequenceClusterer(
+            method=self.method,
+            n_clusters=self.n_clusters,
+            similarity_metric=self.similarity_metric,
+            **self.cluster_kwargs
+        )
+        
+        result = clusterer.cluster(sequences, embeddings)
+        
+        # Add cluster assignments to DataFrame
+        df['cluster_id'] = result.cluster_ids
+        df['is_centroid'] = False
+        df.loc[result.centroid_indices, 'is_centroid'] = True
+        
+        print(f"  Found {result.n_clusters} clusters")
+        if result.silhouette_score is not None:
+            print(f"  Silhouette score: {result.silhouette_score:.3f}")
+        if result.davies_bouldin_score is not None:
+            print(f"  Davies-Bouldin score: {result.davies_bouldin_score:.3f}")
+        
+        # Store clustering metadata
+        metadata = {
+            'method': self.method,
+            'n_clusters': result.n_clusters,
+            'silhouette_score': result.silhouette_score,
+            'davies_bouldin_score': result.davies_bouldin_score,
+            'cluster_sizes': result.cluster_sizes
+        }
+        
+        # Store in datastore (as JSON metadata)
+        import json
+        datastore.conn.execute(
+            "INSERT OR REPLACE INTO pipeline_metadata (key, value) VALUES (?, ?)",
+            (f"clustering_{self.name}", json.dumps(metadata))
+        )
+        datastore.conn.commit()
+        
+        return StageResult(
+            stage_name=self.name,
+            input_count=start_count,
+            output_count=start_count,
+            computed_count=start_count
+        )
+
+
 class DataPipeline(BasePipeline):
     """
     Pipeline for processing existing sequences from files or lists.
@@ -491,6 +602,60 @@ class DataPipeline(BasePipeline):
         stage = FilterStage(
             name=stage_name,
             filter_func=filter_func,
+            depends_on=depends_on or [],
+            **kwargs
+        )
+        
+        self.add_stage(stage)
+        return self
+    
+    def add_clustering(
+        self,
+        method: str = 'kmeans',
+        n_clusters: Optional[int] = None,
+        similarity_metric: str = 'hamming',
+        embedding_model: Optional[str] = None,
+        stage_name: Optional[str] = None,
+        depends_on: Optional[List[str]] = None,
+        **kwargs
+    ):
+        """
+        Add a sequence clustering stage.
+        
+        Clusters sequences by similarity and adds cluster_id column to DataFrame.
+        
+        Args:
+            method: Clustering algorithm ('kmeans', 'dbscan', 'hierarchical')
+            n_clusters: Number of clusters (required for kmeans/hierarchical)
+            similarity_metric: 'hamming' or 'embedding'
+            embedding_model: Model name if using embedding similarity
+            stage_name: Optional custom stage name
+            depends_on: Optional list of stage names this stage depends on
+            **kwargs: Additional arguments for clustering (eps, min_samples, etc.)
+        
+        Example:
+            >>> # Cluster by sequence similarity
+            >>> pipeline.add_clustering(method='kmeans', n_clusters=10)
+            >>> 
+            >>> # Cluster by embeddings
+            >>> pipeline.add_prediction('esm2-650m', action='encode', stage_name='embed')
+            >>> pipeline.add_clustering(
+            ...     method='kmeans',
+            ...     n_clusters=5,
+            ...     similarity_metric='embedding',
+            ...     embedding_model='esm2-650m',
+            ...     depends_on=['embed']
+            ... )
+        """
+        if stage_name is None:
+            stage_name = f"cluster_{method}"
+        
+        stage = ClusteringStage(
+            name=stage_name,
+            method=method,
+            n_clusters=n_clusters,
+            similarity_metric=similarity_metric,
+            embedding_model=embedding_model,
             depends_on=depends_on or [],
             **kwargs
         )
