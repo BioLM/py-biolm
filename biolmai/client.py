@@ -658,7 +658,7 @@ class BioLMApiClient:
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
-        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = 2,
+        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = 16,
         rate_limit: 'Optional[str]' = None,
         retry_error_batches: bool = False,
         compress_requests: bool = True,
