@@ -12,11 +12,20 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
+import os
+
+# Build option: iframe mode (hides header for embedding)
+# Set via environment variable: IFRAME_MODE=1 make html
+iframe_mode = os.environ.get('IFRAME_MODE', '0') == '1'
+
 # If extensions (or modules to document with autodoc) are in another
 # directory, add these directories to sys.path here. If the directory is
 # relative to the documentation root, use os.path.abspath to make it
 # absolute, like shown here.
 #
+# Add parent directory to sys.path so Sphinx can import biolmai
+import sys
+sys.path.insert(0, os.path.abspath('..'))
 
 # -- General configuration ---------------------------------------------
 
@@ -37,6 +46,8 @@ extensions = [
     "myst_parser",
     "sphinx_new_tab_link",
     "sphinx_reredirects",
+    "sphinx-jsonschema",
+    "sphinx_click",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -45,8 +56,7 @@ templates_path = ["_templates"]
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 #
-# source_suffix = ['.rst', '.md']
-source_suffix = ".rst"
+source_suffix = ['.rst', '.md']
 
 # The master toctree document.
 master_doc = "index"
@@ -101,8 +111,8 @@ html_theme = "furo"
 html_theme_options = {
     "top_of_page_button": None,
     "sidebar_hide_name": True,
-    "light_logo": "biolm_logo_light.svg",
-    "dark_logo": "biolm_logo_dark.svg",
+    "light_logo": None if iframe_mode else "biolm_logo_light.svg",
+    "dark_logo": None if iframe_mode else "biolm_logo_dark.svg",
     
     # Custom CSS variables for branding
     "light_css_variables": {
@@ -123,9 +133,9 @@ html_theme_options = {
         "color-header-background": "#ffffff",
         "color-header-text": "#1f2937",
         
-        # Code blocks
+        # Code blocks (darker text for readability in light theme)
         "color-code-background": "#f1f5f9",
-        "color-code-foreground": "#334155",
+        "color-code-foreground": "#1e293b",
         
         # Font families to match your website exactly
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
@@ -142,12 +152,16 @@ html_theme_options = {
         "color-sidebar-background-border": "#334155",
         "color-sidebar-brand-text": "#f1f5f9",
         
-        # Dark mode code blocks
+        # Dark mode code blocks (brighter text for readability)
         "color-code-background": "#1e293b",
-        "color-code-foreground": "#e2e8f0",
+        "color-code-foreground": "#f1f5f9",
         
         # Additional dark mode styling
         "color-highlight-on-target": "#374151",
+        # Admonitions (note, tip, etc.) - dark background, light title text
+        "color-admonition-title-background--note": "#1e3a5f",
+        "color-admonition-title--note": "#93c5fd",
+        "color-admonition-background": "#1e293b",
         
         # Font families to match your website exactly (same as light mode)
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
@@ -164,6 +178,8 @@ html_static_path = ["_static"]
 html_css_files = [
     'custom.css',
 ]
+if iframe_mode:
+    html_css_files.append('iframe-mode.css')
 
 # Add Google Fonts (Inter and Roboto Mono to match website)
 html_css_files.extend([
@@ -262,6 +278,18 @@ texinfo_documents = [
         "Miscellaneous",
     ),
 ]
+
+# sphinx-click: render envvar descriptions as normal text instead of block quotes
+def _envvar_description_as_paragraph(app, ctx, lines):
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("Provide a default for ") and ":option:" in stripped:
+            lines[i] = stripped
+
+
+def setup(app):
+    app.connect("sphinx-click-process-envvars", _envvar_description_as_paragraph)
+
 
 # Redirects
 redirects = {

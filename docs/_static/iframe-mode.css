@@ -1,0 +1,130 @@
+/* iframe-mode.css - Hide header for iframe embedding */
+
+/* Hide all header elements - absolutely everything */
+.header,
+.mobile-header,
+.header-wrapper,
+.header-left,
+.header-center,
+.header-right,
+.sidebar-brand,
+.sidebar-brand-text,
+.sidebar-logo {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Hide logo in sidebar */
+.sidebar-brand img,
+.sidebar-logo img {
+    display: none !important;
+}
+
+/* Remove top padding/margin that was for header */
+.page {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+
+.content {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+
+/* Ensure sidebar starts at top with no branding */
+.sidebar,
+.sidebar-drawer {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+
+.sidebar-search-container {
+    padding-top: 1rem !important;
+    margin-top: 0 !important;
+}
+
+/* Adjust content area for iframe - add top padding */
+.furo-content {
+    padding-top: 3rem !important;
+}
+
+.content {
+    padding-top: 1rem !important;
+}
+
+/* Remove any top spacing from body */
+body {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+/* Ensure no gap at top of page */
+html {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+/* Hide any title elements that might show */
+.document-title,
+h1.document-title,
+.title {
+    display: none !important;
+}
+
+/* Hide footer in iframe mode - comprehensive selectors with maximum specificity */
+footer,
+.footer,
+.furo-footer,
+.bottom-of-page,
+.related-pages,
+.content > footer,
+.content > div > footer,
+article + footer,
+div > footer,
+.content footer,
+main footer,
+.page footer,
+.article-container + footer,
+div.content footer,
+.main .content footer,
+.main .content > div > footer,
+div.main div.content footer {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    position: absolute !important;
+    left: -9999px !important;
+    width: 0 !important;
+    opacity: 0 !important;
+    font-size: 0 !important;
+    line-height: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Also hide all footer children and content */
+footer *,
+.bottom-of-page *,
+.related-pages *,
+footer div,
+footer a,
+footer svg,
+footer .copyright,
+footer .left-details,
+footer .right-details,
+footer .icons {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    opacity: 0 !important;
+    font-size: 0 !important;
+}

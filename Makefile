@@ -1,4 +1,4 @@
-.PHONY: clean clean-build clean-pyc clean-test coverage dist docs help install lint lint/flake8
+.PHONY: clean clean-build clean-pyc clean-test coverage dist docs docs-iframe help install lint lint/flake8
 .DEFAULT_GOAL := help
 
 define BROWSER_PYSCRIPT
@@ -38,7 +38,7 @@ clean-build: ## remove build artifacts
 	rm -fr dist/
 	rm -fr .eggs/
 	find . -name '*.egg-info' -exec rm -fr {} +
-	find . -name '*.egg' -exec rm -f {} +
+	find . -name '*.egg' -exec rm -rf {} +
 
 clean-pyc: ## remove Python file artifacts
 	find . -name '*.pyc' -exec rm -f {} +
@@ -96,13 +96,19 @@ coverage: ## check code coverage quickly with the default Python
 	$(BROWSER) htmlcov/index.html
 
 docs: ## generate Sphinx HTML documentation, including API docs
-	mkdir -p docs/_static
-	rm -f docs/biolmai.rst
-	rm -f docs/modules.rst
-	sphinx-apidoc -o docs/ biolmai
+	mkdir -p docs/_static docs/api-reference
+	rm -f docs/api-reference/modules.rst docs/api-reference/biolmai.rst docs/api-reference/biolmai.*.rst
+	sphinx-apidoc -o docs/api-reference biolmai
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	$(BROWSER) docs/_build/html/index.html
+
+docs-iframe: ## generate docs in iframe mode (no header, for embedding)
+	mkdir -p docs/_static docs/api-reference
+	rm -f docs/api-reference/modules.rst docs/api-reference/biolmai.rst docs/api-reference/biolmai.*.rst
+	sphinx-apidoc -o docs/api-reference biolmai
+	$(MAKE) -C docs clean
+	IFRAME_MODE=1 $(MAKE) -C docs html
 
 servedocs: docs ## compile the docs watching for changes
 	watchmedo shell-command -p '*.rst' -c '$(MAKE) -C docs html' -R -D .

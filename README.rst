@@ -43,7 +43,7 @@ Asynchronous usage:
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
     import asyncio
 
     async def main():

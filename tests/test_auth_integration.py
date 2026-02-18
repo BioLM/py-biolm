@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
-from biolmai.auth import generate_access_token
+from biolmai.core.auth import generate_access_token
 
 
 def _has_credential_env() -> bool:
@@ -43,7 +43,7 @@ async def test_api_request_with_access_refresh_tokens():
             "Set these in CI secrets or skip this test locally."
         )
 
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
 
     # 1. Obtain access/refresh tokens via username/password
     token_response = generate_access_token(
@@ -70,8 +70,8 @@ async def test_api_request_with_access_refresh_tokens():
         old_biomai_token = os.environ.pop("BIOLMAI_TOKEN", None)
         old_biom_token = os.environ.pop("BIOLM_TOKEN", None)
         try:
-            # 4. Patch client to use our temp credentials path
-            with patch("biolmai.client.ACCESS_TOK_PATH", str(cred_path)):
+            # 4. Patch client to use our temp credentials path (patch where it's used: http)
+            with patch("biolmai.core.http.ACCESS_TOK_PATH", str(cred_path)):
                 client = BioLMApiClient(
                     "nanobert",
                     raise_httpx=False,
@@ -117,8 +117,8 @@ def test_credentials_file_auth_headers():
         old_biomai_token = os.environ.pop("BIOLMAI_TOKEN", None)
         old_biom_token = os.environ.pop("BIOLM_TOKEN", None)
         try:
-            with patch("biolmai.client.ACCESS_TOK_PATH", str(cred_path)):
-                from biolmai.client import CredentialsProvider
+            with patch("biolmai.core.http.ACCESS_TOK_PATH", str(cred_path)):
+                from biolmai.core.http import CredentialsProvider
 
                 headers = CredentialsProvider.get_auth_headers(api_key=None)
                 # Client uses Cookie for credentials file (legacy and OAuth alike)

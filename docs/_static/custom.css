@@ -1,6 +1,14 @@
 /* Custom CSS for BioLM Documentation */
 /* Fonts and colors matching your website exactly - Inter + Roboto Mono */
 
+/* sphinx-click envvar: show "Provide a default for ..." as normal text, not block quote */
+dl.envvar dd blockquote {
+    border-left: none !important;
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    background: none !important;
+}
+
 /* Logo sizing for better visibility */
 .sidebar-brand img {
     width: 100% !important;
@@ -117,16 +125,96 @@ input[type="submit"]:hover {
     border-left: 4px solid var(--biolm-error);
 }
 
+/* Dark / auto: admonitions (Note, Tip, etc.) - dark block and readable title */
+body[data-theme="dark"] .admonition,
+[data-theme="dark"] .admonition {
+    background-color: #1e293b !important;
+    border-left-color: #60a5fa;
+    color: #e2e8f0 !important;
+}
+
+body[data-theme="dark"] .admonition.note,
+[data-theme="dark"] .admonition.note {
+    border-left-color: #60a5fa;
+}
+
+body[data-theme="dark"] .admonition .admonition-title,
+[data-theme="dark"] .admonition .admonition-title,
+body[data-theme="dark"] .admonition p.admonition-title,
+[data-theme="dark"] .admonition p.admonition-title {
+    background-color: #1e3a5f !important;
+    color: #f1f5f9 !important;
+}
+
+body[data-theme="dark"] .admonition.note .admonition-title,
+body[data-theme="dark"] .admonition.note p.admonition-title,
+[data-theme="dark"] .admonition.note .admonition-title,
+[data-theme="dark"] .admonition.note p.admonition-title {
+    background-color: #1e3a5f !important;
+    color: #93c5fd !important;
+}
+
+body[data-theme="dark"] .admonition .admonition-title::before,
+body[data-theme="dark"] .admonition p.admonition-title::before,
+[data-theme="dark"] .admonition .admonition-title::before,
+[data-theme="dark"] .admonition p.admonition-title::before {
+    filter: brightness(0) invert(1);
+}
+
+body[data-theme="dark"] .admonition p,
+[data-theme="dark"] .admonition p {
+    color: #e2e8f0 !important;
+}
+
 /* Custom table styling */
 table.docutils {
     border-collapse: collapse;
     border: 1px solid #e2e8f0;
 }
 
+table.docutils th,
+table.docutils td {
+    border: 1px solid #e2e8f0;
+    padding: 0.5rem 0.75rem;
+}
+
 table.docutils th {
     background-color: var(--biolm-bg-secondary);
     color: var(--biolm-text-primary);
     font-weight: 600;
+}
+
+/* Dark/auto: tables readable with clear borders and header contrast */
+body[data-theme="dark"] table.docutils,
+[data-theme="dark"] table.docutils {
+    border-color: #475569 !important;
+}
+body[data-theme="dark"] table.docutils th,
+body[data-theme="dark"] table.docutils td,
+[data-theme="dark"] table.docutils th,
+[data-theme="dark"] table.docutils td {
+    border-color: #475569 !important;
+}
+body[data-theme="dark"] table.docutils th,
+[data-theme="dark"] table.docutils th {
+    background-color: #334155 !important;
+    color: #f1f5f9 !important;
+}
+body[data-theme="dark"] table.docutils th code.literal,
+body[data-theme="dark"] table.docutils th .literal,
+[data-theme="dark"] table.docutils th code.literal,
+[data-theme="dark"] table.docutils th .literal {
+    color: #f1f5f9 !important;
+    background-color: transparent !important;
+}
+body[data-theme="dark"] table.docutils td,
+[data-theme="dark"] table.docutils td {
+    background-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+body[data-theme="dark"] table.docutils caption .caption-text,
+[data-theme="dark"] table.docutils caption .caption-text {
+    color: #e2e8f0 !important;
 }
 
 /* Custom code block styling to match Tailwind CSS */
@@ -141,6 +229,28 @@ pre {
     overflow-x: auto;
 }
 
+/* Wider word spacing for shell/console, YAML, and JSON (not Python) so commands and protocol/schema blocks read clearly */
+.highlight-bash pre,
+.highlight-console pre,
+.highlight-shell pre,
+.highlight-text pre,
+.highlight-yaml pre,
+.highlight-json pre {
+    word-spacing: 0.35em;
+}
+
+/* Pygments wraps spaces in <span class="w"> </span>; give them visible width so word boundaries are clear */
+pre .w,
+.highlight pre .w,
+.highlight .w,
+.highlight-bash .w,
+.highlight-console .w,
+.highlight-text .w,
+div[class*="highlight"] .w {
+    display: inline-block;
+    min-width: 0.5em;
+}
+
 /* Inline code styling */
 code:not(pre code) {
     background-color: #f1f5f9;
@@ -149,79 +259,177 @@ code:not(pre code) {
     border-radius: 0.25rem; /* Tailwind's rounded */
     font-family: var(--biolm-font-mono) !important;
     font-size: 0.875em;
+    word-spacing: 0.2em; /* Slightly wider spaces so e.g. "biolmai login" is easier to read */
 }
 
-/* Dark mode code block styling */
+/* --- Light theme: ensure code blocks and headers are readable (moon/sun/hybrid) --- */
+body[data-theme="light"] pre,
+body[data-theme="light"] .highlight,
+[data-theme="light"] pre,
+[data-theme="light"] .highlight {
+    background-color: #f1f5f9 !important;
+    color: #1e293b !important;
+    border-color: #cbd5e1 !important;
+}
+
+body[data-theme="light"] .highlight pre,
+[data-theme="light"] .highlight pre {
+    color: #1e293b !important;
+}
+
+body[data-theme="light"] code:not(pre code),
+[data-theme="light"] code:not(pre code) {
+    background-color: #e2e8f0 !important;
+    color: #1e293b !important;
+}
+
+body[data-theme="light"] h1,
+body[data-theme="light"] h2,
+body[data-theme="light"] h3,
+body[data-theme="light"] h4,
+body[data-theme="light"] h5,
+body[data-theme="light"] h6,
+[data-theme="light"] h1,
+[data-theme="light"] h2,
+[data-theme="light"] h3,
+[data-theme="light"] h4,
+[data-theme="light"] h5,
+[data-theme="light"] h6,
+[data-theme="light"] .furo-content h1,
+[data-theme="light"] .furo-content h2,
+[data-theme="light"] .furo-content h3,
+[data-theme="light"] .furo-content h4,
+[data-theme="light"] .furo-content h5,
+[data-theme="light"] .furo-content h6 {
+    color: #0f172a !important;
+}
+
+/* Light theme: Pygments tokens in code blocks - darker for readability */
+body[data-theme="light"] .highlight .k,
+body[data-theme="light"] .highlight .kn,
+body[data-theme="light"] .highlight .kd,
+[data-theme="light"] .highlight .k,
+[data-theme="light"] .highlight .kn,
+[data-theme="light"] .highlight .kd { color: #7c3aed !important; }
+body[data-theme="light"] .highlight .s,
+body[data-theme="light"] .highlight .s1,
+body[data-theme="light"] .highlight .s2,
+[data-theme="light"] .highlight .s,
+[data-theme="light"] .highlight .s1,
+[data-theme="light"] .highlight .s2 { color: #059669 !important; }
+body[data-theme="light"] .highlight .c1,
+body[data-theme="light"] .highlight .cm,
+[data-theme="light"] .highlight .c1,
+[data-theme="light"] .highlight .cm { color: #64748b !important; }
+body[data-theme="light"] .highlight .n,
+body[data-theme="light"] .highlight .nn,
+[data-theme="light"] .highlight .n,
+[data-theme="light"] .highlight .nn { color: #1e293b !important; }
+body[data-theme="light"] .highlight .nb,
+[data-theme="light"] .highlight .nb {
+    color: #b45309 !important;
+}
+body[data-theme="light"] .highlight .o,
+body[data-theme="light"] .highlight .p,
+[data-theme="light"] .highlight .o,
+[data-theme="light"] .highlight .p { color: #1e293b !important; }
+body[data-theme="light"] .highlight .mi,
+body[data-theme="light"] .highlight .mf,
+[data-theme="light"] .highlight .mi,
+[data-theme="light"] .highlight .mf { color: #c2410c !important; }
+
+/* Dark mode code block styling (Furo sets data-theme on body, not html) */
+body[data-theme="dark"] pre,
+body[data-theme="dark"] .highlight,
 [data-theme="dark"] pre,
 [data-theme="dark"] .highlight {
     background-color: #1e293b !important;
-    border-color: #334155 !important;
-    color: #e2e8f0 !important;
+    border-color: #475569 !important;
+    color: #f1f5f9 !important;
 }
 
+body[data-theme="dark"] .highlight-python .highlight,
+body[data-theme="dark"] .highlight pre,
 [data-theme="dark"] .highlight-python .highlight,
 [data-theme="dark"] .highlight pre {
     background-color: #1e293b !important;
-    color: #e2e8f0 !important;
+    color: #f1f5f9 !important;
 }
 
-/* Dark mode inline code */
+body[data-theme="dark"] code:not(pre code),
 [data-theme="dark"] code:not(pre code) {
     background-color: #334155 !important;
-    color: #e2e8f0 !important;
+    color: #f1f5f9 !important;
 }
 
 /* Dark mode syntax highlighting */
+body[data-theme="dark"] .highlight .k,
+body[data-theme="dark"] .highlight .kn,
+body[data-theme="dark"] .highlight .kd,
 [data-theme="dark"] .highlight .k,
 [data-theme="dark"] .highlight .kn,
 [data-theme="dark"] .highlight .kd {
     color: #c792ea !important; /* Keywords - purple */
 }
 
+body[data-theme="dark"] .highlight .s,
+body[data-theme="dark"] .highlight .s1,
+body[data-theme="dark"] .highlight .s2,
 [data-theme="dark"] .highlight .s,
 [data-theme="dark"] .highlight .s1,
 [data-theme="dark"] .highlight .s2 {
     color: #c3e88d !important; /* Strings - green */
 }
 
+body[data-theme="dark"] .highlight .c1,
+body[data-theme="dark"] .highlight .cm,
 [data-theme="dark"] .highlight .c1,
 [data-theme="dark"] .highlight .cm {
-    color: #676e95 !important; /* Comments - gray */
+    color: #94a3b8 !important; /* Comments - lighter gray for readability */
     font-style: italic;
 }
 
+body[data-theme="dark"] .highlight .n,
+body[data-theme="dark"] .highlight .nn,
 [data-theme="dark"] .highlight .n,
 [data-theme="dark"] .highlight .nn {
-    color: #82b1ff !important; /* Names - blue */
+    color: #93c5fd !important; /* Names - blue */
 }
 
+body[data-theme="dark"] .highlight .nb,
 [data-theme="dark"] .highlight .nb {
-    color: #ffcb6b !important; /* Built-ins - yellow */
+    color: #fcd34d !important; /* Built-ins - yellow */
 }
 
-[data-theme="dark"] .highlight .o {
-    color: #89ddff !important; /* Operators - cyan */
-}
-
+body[data-theme="dark"] .highlight .o,
+body[data-theme="dark"] .highlight .p,
+[data-theme="dark"] .highlight .o,
 [data-theme="dark"] .highlight .p {
-    color: #e2e8f0 !important; /* Punctuation - light gray */
+    color: #f1f5f9 !important; /* Operators / punctuation */
 }
 
 /* Copy button styling for dark mode */
+body[data-theme="dark"] .copybtn,
 [data-theme="dark"] .copybtn {
     background-color: #334155 !important;
     border-color: #475569 !important;
 }
 
+body[data-theme="dark"] .copybtn:hover,
 [data-theme="dark"] .copybtn:hover {
     background-color: #475569 !important;
 }
 
+body[data-theme="dark"] .copybtn svg,
 [data-theme="dark"] .copybtn svg {
-    stroke: #e2e8f0 !important;
+    stroke: #f1f5f9 !important;
 }
 
 /* Code block container styling */
+body[data-theme="dark"] .highlight-python,
+body[data-theme="dark"] .highlight-bash,
+body[data-theme="dark"] .highlight-json,
+body[data-theme="dark"] .highlight-yaml,
 [data-theme="dark"] .highlight-python,
 [data-theme="dark"] .highlight-bash,
 [data-theme="dark"] .highlight-json,
@@ -231,26 +439,219 @@ code:not(pre code) {
 }
 
 /* Ensure all code containers have proper dark styling */
+body[data-theme="dark"] div[class*="highlight"],
 [data-theme="dark"] div[class*="highlight"] {
     background-color: #1e293b !important;
 }
 
 /* Additional Pygments token styling for dark mode */
+body[data-theme="dark"] .highlight .mi,
+body[data-theme="dark"] .highlight .mf,
 [data-theme="dark"] .highlight .mi,
 [data-theme="dark"] .highlight .mf {
-    color: #f78c6c !important; /* Numbers - orange */
+    color: #fb923c !important; /* Numbers - orange */
 }
 
+body[data-theme="dark"] .highlight .bp,
 [data-theme="dark"] .highlight .bp {
-    color: #82b1ff !important; /* Built-in pseudo - blue */
+    color: #93c5fd !important; /* Built-in pseudo - blue */
 }
 
+body[data-theme="dark"] .highlight .ow,
 [data-theme="dark"] .highlight .ow {
     color: #c792ea !important; /* Operator words - purple */
 }
 
+body[data-theme="dark"] .highlight .nx,
 [data-theme="dark"] .highlight .nx {
-    color: #82b1ff !important; /* Other names - blue */
+    color: #93c5fd !important; /* Other names - blue */
+}
+
+/* Name function, class, variable (identifiers like biolm, biolmai) - often pale by default */
+body[data-theme="dark"] .highlight .nf,
+body[data-theme="dark"] .highlight .nc,
+body[data-theme="dark"] .highlight .nv,
+[data-theme="dark"] .highlight .nf,
+[data-theme="dark"] .highlight .nc,
+[data-theme="dark"] .highlight .nv {
+    color: #f1f5f9 !important;
+}
+
+/* Shell/console blocks (e.g. pip install) - force bright text; no Pygments tokens */
+body[data-theme="dark"] .highlight-bash pre,
+body[data-theme="dark"] .highlight-bash .highlight,
+body[data-theme="dark"] .highlight-console pre,
+body[data-theme="dark"] .highlight-console .highlight,
+[data-theme="dark"] .highlight-bash pre,
+[data-theme="dark"] .highlight-bash .highlight,
+[data-theme="dark"] .highlight-console pre,
+[data-theme="dark"] .highlight-console .highlight {
+    color: #f1f5f9 !important;
+}
+
+body[data-theme="dark"] .highlight-bash .highlight span,
+body[data-theme="dark"] .highlight-console .highlight span,
+[data-theme="dark"] .highlight-bash .highlight span,
+[data-theme="dark"] .highlight-console .highlight span {
+    color: #f1f5f9 !important;
+}
+
+/* ========== Auto / system dark: Furo uses body:not([data-theme="light"]) when system prefers dark ========== */
+@media (prefers-color-scheme: dark) {
+    /* When theme is "auto" (body has data-theme="auto") */
+    body[data-theme="auto"] pre,
+    body[data-theme="auto"] .highlight,
+    body[data-theme="auto"] .highlight pre {
+        background-color: #1e293b !important;
+        border-color: #475569 !important;
+        color: #f1f5f9 !important;
+    }
+    body[data-theme="auto"] code:not(pre code) {
+        background-color: #334155 !important;
+        color: #f1f5f9 !important;
+    }
+    body[data-theme="auto"] .highlight-bash pre,
+    body[data-theme="auto"] .highlight-bash .highlight,
+    body[data-theme="auto"] .highlight-console pre,
+    body[data-theme="auto"] .highlight-console .highlight {
+        color: #f1f5f9 !important;
+    }
+    body[data-theme="auto"] .highlight .k, body[data-theme="auto"] .highlight .kn, body[data-theme="auto"] .highlight .kd { color: #c792ea !important; }
+    body[data-theme="auto"] .highlight .s, body[data-theme="auto"] .highlight .s1, body[data-theme="auto"] .highlight .s2 { color: #c3e88d !important; }
+    body[data-theme="auto"] .highlight .c1, body[data-theme="auto"] .highlight .cm { color: #94a3b8 !important; }
+    body[data-theme="auto"] .highlight .n, body[data-theme="auto"] .highlight .nn, body[data-theme="auto"] .highlight .nf,
+    body[data-theme="auto"] .highlight .nc, body[data-theme="auto"] .highlight .nv, body[data-theme="auto"] .highlight .nx { color: #f1f5f9 !important; }
+    body[data-theme="auto"] .highlight .nb, body[data-theme="auto"] .highlight .bp { color: #fcd34d !important; }
+    body[data-theme="auto"] .highlight .o, body[data-theme="auto"] .highlight .p { color: #f1f5f9 !important; }
+    body[data-theme="auto"] .highlight .mi, body[data-theme="auto"] .highlight .mf { color: #fb923c !important; }
+    body[data-theme="auto"] .highlight .ow { color: #c792ea !important; }
+    body[data-theme="auto"] div[class*="highlight"] { background-color: #1e293b !important; }
+    body[data-theme="auto"] h1, body[data-theme="auto"] h2, body[data-theme="auto"] h3,
+    body[data-theme="auto"] h4, body[data-theme="auto"] h5, body[data-theme="auto"] h6,
+    body[data-theme="auto"] .furo-content h1, body[data-theme="auto"] .furo-content h2, body[data-theme="auto"] .furo-content h3,
+    body[data-theme="auto"] .furo-content h4, body[data-theme="auto"] .furo-content h5, body[data-theme="auto"] .furo-content h6 {
+        color: #f8fafc !important;
+    }
+    /* When theme is not explicitly "light" (covers auto + dark system; Furo uses this selector) */
+    body:not([data-theme="light"]) pre,
+    body:not([data-theme="light"]) .highlight,
+    body:not([data-theme="light"]) .highlight pre {
+        background-color: #1e293b !important;
+        border-color: #475569 !important;
+        color: #f1f5f9 !important;
+    }
+    body:not([data-theme="light"]) code:not(pre code) {
+        background-color: #334155 !important;
+        color: #f1f5f9 !important;
+    }
+    body:not([data-theme="light"]) .highlight-bash pre,
+    body:not([data-theme="light"]) .highlight-bash .highlight,
+    body:not([data-theme="light"]) .highlight-console pre,
+    body:not([data-theme="light"]) .highlight-console .highlight {
+        color: #f1f5f9 !important;
+    }
+    body:not([data-theme="light"]) .highlight .kn,
+    body:not([data-theme="light"]) .highlight .k,
+    body:not([data-theme="light"]) .highlight .kd { color: #c792ea !important; }
+    body:not([data-theme="light"]) .highlight .s,
+    body:not([data-theme="light"]) .highlight .s1,
+    body:not([data-theme="light"]) .highlight .s2 { color: #c3e88d !important; }
+    body:not([data-theme="light"]) .highlight .c1,
+    body:not([data-theme="light"]) .highlight .cm { color: #94a3b8 !important; }
+    body:not([data-theme="light"]) .highlight .n,
+    body:not([data-theme="light"]) .highlight .nn,
+    body:not([data-theme="light"]) .highlight .nf,
+    body:not([data-theme="light"]) .highlight .nc,
+    body:not([data-theme="light"]) .highlight .nv,
+    body:not([data-theme="light"]) .highlight .nx { color: #f1f5f9 !important; }
+    body:not([data-theme="light"]) .highlight .nb,
+    body:not([data-theme="light"]) .highlight .bp { color: #fcd34d !important; }
+    body:not([data-theme="light"]) .highlight .o,
+    body:not([data-theme="light"]) .highlight .p { color: #f1f5f9 !important; }
+    body:not([data-theme="light"]) .highlight .mi,
+    body:not([data-theme="light"]) .highlight .mf { color: #fb923c !important; }
+    body:not([data-theme="light"]) .highlight .ow { color: #c792ea !important; }
+    body:not([data-theme="light"]) div[class*="highlight"] {
+        background-color: #1e293b !important;
+    }
+    body:not([data-theme="light"]) h1,
+    body:not([data-theme="light"]) h2,
+    body:not([data-theme="light"]) h3,
+    body:not([data-theme="light"]) h4,
+    body:not([data-theme="light"]) h5,
+    body:not([data-theme="light"]) h6,
+    body:not([data-theme="light"]) .furo-content h1,
+    body:not([data-theme="light"]) .furo-content h2,
+    body:not([data-theme="light"]) .furo-content h3,
+    body:not([data-theme="light"]) .furo-content h4,
+    body:not([data-theme="light"]) .furo-content h5,
+    body:not([data-theme="light"]) .furo-content h6 {
+        color: #f8fafc !important;
+    }
+    /* Admonitions (Note, Tip, etc.) in auto/dark */
+    body:not([data-theme="light"]) .admonition {
+        background-color: #1e293b !important;
+        border-left-color: #60a5fa;
+        color: #e2e8f0 !important;
+    }
+    body:not([data-theme="light"]) .admonition .admonition-title,
+    body:not([data-theme="light"]) .admonition p.admonition-title {
+        background-color: #1e3a5f !important;
+        color: #93c5fd !important;
+    }
+    body:not([data-theme="light"]) .admonition .admonition-title::before,
+    body:not([data-theme="light"]) .admonition p.admonition-title::before {
+        filter: brightness(0) invert(1);
+    }
+    body:not([data-theme="light"]) .admonition p {
+        color: #e2e8f0 !important;
+    }
+    /* Blockquotes (e.g. CLI "Examples") readable in auto/dark */
+    body[data-theme="auto"] blockquote,
+    body:not([data-theme="light"]) blockquote {
+        background-color: #1e293b !important;
+        border-left-color: #60a5fa !important;
+        color: #f1f5f9 !important;
+    }
+    body[data-theme="auto"] blockquote p,
+    body[data-theme="auto"] blockquote div,
+    body:not([data-theme="light"]) blockquote p,
+    body:not([data-theme="light"]) blockquote div {
+        color: #f1f5f9 !important;
+        font-family: var(--biolm-font-mono), monospace !important;
+    }
+    /* Tables: clear borders and header contrast in auto/dark */
+    body[data-theme="auto"] table.docutils,
+    body:not([data-theme="light"]) table.docutils {
+        border-color: #475569 !important;
+    }
+    body[data-theme="auto"] table.docutils th,
+    body[data-theme="auto"] table.docutils td,
+    body:not([data-theme="light"]) table.docutils th,
+    body:not([data-theme="light"]) table.docutils td {
+        border-color: #475569 !important;
+    }
+    body[data-theme="auto"] table.docutils th,
+    body:not([data-theme="light"]) table.docutils th {
+        background-color: #334155 !important;
+        color: #f1f5f9 !important;
+    }
+    body[data-theme="auto"] table.docutils th code.literal,
+    body[data-theme="auto"] table.docutils th .literal,
+    body:not([data-theme="light"]) table.docutils th code.literal,
+    body:not([data-theme="light"]) table.docutils th .literal {
+        color: #f1f5f9 !important;
+        background-color: transparent !important;
+    }
+    body[data-theme="auto"] table.docutils td,
+    body:not([data-theme="light"]) table.docutils td {
+        background-color: #1e293b !important;
+        color: #e2e8f0 !important;
+    }
+    body[data-theme="auto"] table.docutils caption .caption-text,
+    body:not([data-theme="light"]) table.docutils caption .caption-text {
+        color: #e2e8f0 !important;
+    }
 }
 
 /* Custom navigation styling */
@@ -356,27 +757,44 @@ h5, h6 {
 }
 
 /* Dark mode heading styling - fix visibility */
+body[data-theme="dark"] h1,
+body[data-theme="dark"] h2,
+body[data-theme="dark"] h3,
+body[data-theme="dark"] h4,
+body[data-theme="dark"] h5,
+body[data-theme="dark"] h6,
 [data-theme="dark"] h1,
 [data-theme="dark"] h2,
 [data-theme="dark"] h3,
 [data-theme="dark"] h4,
 [data-theme="dark"] h5,
 [data-theme="dark"] h6 {
-    color: #f1f5f9 !important; /* Light text for dark backgrounds */
+    color: #f8fafc !important; /* High-contrast light text for dark backgrounds */
 }
 
+body[data-theme="dark"] h1,
 [data-theme="dark"] h1 {
     border-bottom-color: #60a5fa !important; /* Lighter blue for dark mode */
 }
 
 /* Fix section header styling in dark mode */
+body[data-theme="dark"] .section h1,
+body[data-theme="dark"] .section h2,
+body[data-theme="dark"] .section h3,
 [data-theme="dark"] .section h1,
 [data-theme="dark"] .section h2,
 [data-theme="dark"] .section h3 {
-    color: #f1f5f9 !important;
+    color: #f8fafc !important;
 }
 
 /* Fix document title in dark mode */
+body[data-theme="dark"] .document h1,
+body[data-theme="dark"] .furo-content h1,
+body[data-theme="dark"] .furo-content h2,
+body[data-theme="dark"] .furo-content h3,
+body[data-theme="dark"] .furo-content h4,
+body[data-theme="dark"] .furo-content h5,
+body[data-theme="dark"] .furo-content h6,
 [data-theme="dark"] .document h1,
 [data-theme="dark"] .furo-content h1,
 [data-theme="dark"] .furo-content h2,
@@ -384,7 +802,7 @@ h5, h6 {
 [data-theme="dark"] .furo-content h4,
 [data-theme="dark"] .furo-content h5,
 [data-theme="dark"] .furo-content h6 {
-    color: #f1f5f9 !important;
+    color: #f8fafc !important;
 }
 
 /* Paragraph and text styling */
@@ -401,6 +819,10 @@ p {
 }
 
 /* Dark mode paragraph and content text styling */
+body[data-theme="dark"] p,
+body[data-theme="dark"] .furo-content,
+body[data-theme="dark"] .furo-content p,
+body[data-theme="dark"] .document,
 [data-theme="dark"] p,
 [data-theme="dark"] .furo-content,
 [data-theme="dark"] .furo-content p,
@@ -409,6 +831,10 @@ p {
 }
 
 /* Dark mode list styling */
+body[data-theme="dark"] ul li,
+body[data-theme="dark"] ol li,
+body[data-theme="dark"] dl dt,
+body[data-theme="dark"] dl dd,
 [data-theme="dark"] ul li,
 [data-theme="dark"] ol li,
 [data-theme="dark"] dl dt,
@@ -422,6 +848,21 @@ blockquote {
     background-color: var(--biolm-bg-secondary);
     padding: 1rem;
     margin: 1rem 0;
+}
+
+/* Dark: blockquotes (e.g. CLI "Examples" from docstrings) must be readable */
+body[data-theme="dark"] blockquote,
+[data-theme="dark"] blockquote {
+    background-color: #1e293b !important;
+    border-left-color: #60a5fa !important;
+    color: #f1f5f9 !important;
+}
+body[data-theme="dark"] blockquote p,
+body[data-theme="dark"] blockquote div,
+[data-theme="dark"] blockquote p,
+[data-theme="dark"] blockquote div {
+    color: #f1f5f9 !important;
+    font-family: var(--biolm-font-mono), monospace !important;
 }
 
 /* Custom list styling */

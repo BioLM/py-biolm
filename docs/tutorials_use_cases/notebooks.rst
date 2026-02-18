@@ -1,5 +1,5 @@
 =========
-Notebooks
+Tutorials
 =========
 
 We are developing a series of executable Jupyter notebook tutorials,
