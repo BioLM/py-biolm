@@ -1,4 +1,4 @@
-.PHONY: clean clean-build clean-pyc clean-test coverage dist docs help install lint lint/flake8
+.PHONY: clean clean-build clean-pyc clean-test coverage dist docs docs-iframe help install lint lint/flake8
 .DEFAULT_GOAL := help
 
 define BROWSER_PYSCRIPT
@@ -103,6 +103,13 @@ docs: ## generate Sphinx HTML documentation, including API docs
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	$(BROWSER) docs/_build/html/index.html
+
+docs-iframe: ## generate docs in iframe mode (no header, for embedding)
+	mkdir -p docs/_static
+	rm -f docs/biolmai.rst docs/modules.rst
+	sphinx-apidoc -o docs/ biolmai
+	$(MAKE) -C docs clean
+	IFRAME_MODE=1 $(MAKE) -C docs html
 
 servedocs: docs ## compile the docs watching for changes
 	watchmedo shell-command -p '*.rst' -c '$(MAKE) -C docs html' -R -D .

@@ -12,6 +12,12 @@
 # All configuration values have a default; values that are commented out
 # serve to show the default.
 
+import os
+
+# Build option: iframe mode (hides header for embedding)
+# Set via environment variable: IFRAME_MODE=1 make html
+iframe_mode = os.environ.get('IFRAME_MODE', '0') == '1'
+
 # If extensions (or modules to document with autodoc) are in another
 # directory, add these directories to sys.path here. If the directory is
 # relative to the documentation root, use os.path.abspath to make it
@@ -101,8 +107,8 @@ html_theme = "furo"
 html_theme_options = {
     "top_of_page_button": None,
     "sidebar_hide_name": True,
-    "light_logo": "biolm_logo_light.svg",
-    "dark_logo": "biolm_logo_dark.svg",
+    "light_logo": None if iframe_mode else "biolm_logo_light.svg",
+    "dark_logo": None if iframe_mode else "biolm_logo_dark.svg",
     
     # Custom CSS variables for branding
     "light_css_variables": {
@@ -164,6 +170,8 @@ html_static_path = ["_static"]
 html_css_files = [
     'custom.css',
 ]
+if iframe_mode:
+    html_css_files.append('iframe-mode.css')
 
 # Add Google Fonts (Inter and Roboto Mono to match website)
 html_css_files.extend([

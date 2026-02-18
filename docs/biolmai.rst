@@ -1,11 +1,20 @@
 biolmai package
 ===============
 
+Subpackages
+-----------
+
+.. toctree::
+   :maxdepth: 4
+
+   biolmai.core
+   biolmai.io
+
 Submodules
 ----------
 
 biolmai.biolmai module
----------------------
+----------------------
 
 .. automodule:: biolmai.biolmai
    :members:
@@ -20,10 +29,34 @@ biolmai.cli module
    :undoc-members:
    :show-inheritance:
 
-biolmai.cli_entry module
-------------------------
+biolmai.cli\_entry module
+-------------------------
 
 .. automodule:: biolmai.cli_entry
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.client module
+---------------------
+
+.. automodule:: biolmai.client
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.datasets\_mlflow module
+-------------------------------
+
+.. automodule:: biolmai.datasets_mlflow
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.examples module
+-----------------------
+
+.. automodule:: biolmai.examples
    :members:
    :undoc-members:
    :show-inheritance:
@@ -36,98 +69,42 @@ biolmai.ltc module
    :undoc-members:
    :show-inheritance:
 
-biolmai.core package
---------------------
+biolmai.models module
+---------------------
 
-.. automodule:: biolmai.core
+.. automodule:: biolmai.models
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolmai.core.asynch module
---------------------------
-
-.. automodule:: biolmai.core.asynch
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.auth module
+biolmai.protocols module
 ------------------------
 
-.. automodule:: biolmai.core.auth
+.. automodule:: biolmai.protocols
    :members:
    :undoc-members:
    :show-inheritance:
 
-biolmai.core.const module
+biolmai.protocols\_mlflow module
+--------------------------------
+
+.. automodule:: biolmai.protocols_mlflow
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.volumes module
+----------------------
+
+.. automodule:: biolmai.volumes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+biolmai.workspaces module
 -------------------------
 
-.. automodule:: biolmai.core.const
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.http module
-------------------------
-
-.. automodule:: biolmai.core.http
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.payloads module
-----------------------------
-
-.. automodule:: biolmai.core.payloads
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.seqflow\_auth module
-----------------------------------
-
-.. automodule:: biolmai.core.seqflow_auth
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.utils module
--------------------------
-
-.. automodule:: biolmai.core.utils
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.validate module
-----------------------------
-
-.. automodule:: biolmai.core.validate
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.legacy package
----------------------------
-
-.. automodule:: biolmai.core.legacy
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.legacy.api module
-------------------------------
-
-.. automodule:: biolmai.core.legacy.api
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-biolmai.core.legacy.cls module
-------------------------------
-
-.. automodule:: biolmai.core.legacy.cls
+.. automodule:: biolmai.workspaces
    :members:
    :undoc-members:
    :show-inheritance:
