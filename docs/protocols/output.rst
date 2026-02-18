@@ -1,14 +1,15 @@
 Response mapping and outputs
 =============================
 
-``response_mapping`` (on model tasks) values can be:
+On model tasks, *response_mapping* can be a string expression (e.g. to pull a field from the API response) or an object with *path*, optional *explode*, and optional *prefix*. The top-level *outputs* array defines MLflow output rules for logging. See :doc:`schema` for the full JSON Schema and MLflow rules.
 
-- A string expression (e.g. ``"${{ response.results[*].pdb }}"``), or
-- An object with:
-  - ``path``: expression or string.
-  - ``explode``: optional boolean.
-  - ``prefix``: optional string.
+**Example (response_mapping):**
 
-``outputs``: Optional array of MLflow output rules (OutputRule) for logging results to MLflow.
+.. code-block:: yaml
 
-See :doc:`schema` for the full JSON Schema and MLflow output rules.
+    - id: predict
+      slug: esmfold
+      action: predict
+      request_body:
+        items: "{{ inputs.sequences }}"
+      response_mapping: "{{ response.results[*].pdb }}"

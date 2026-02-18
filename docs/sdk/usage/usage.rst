@@ -2,9 +2,10 @@
 Usage
 =====
 
-**Synchronous usage (high-level):** you can use the one-off function :code:`biolm()` or the class-based :code:`Model`.
+You can call the API in three ways: the one-off function, the class-based Model (one model, multiple calls), or the API client for advanced control. Examples below.
 
-**Option 1 —** :code:`biolm()` ** (one-off calls):**
+One-off calls (function)
+------------------------
 
 .. code-block:: python
 
@@ -32,7 +33,10 @@ Usage
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "MDNELE"], output='disk', file_path="results.jsonl")
 
-**Option 2 —** :code:`Model` ** (class-based, one model):** bind to a model and call :code:`.encode()`, :code:`.predict()`, or :code:`.generate()`. Good when you use the same model for multiple calls.
+Class-based (one model, multiple calls)
+---------------------------------------
+
+Bind to a model once, then call encode, predict, or generate as needed.
 
 .. code-block:: python
 
@@ -48,7 +52,10 @@ Usage
     model = Model("progen2-oas")
     result = model.generate(type="context", items="M", params={"temperature": 0.7, "top_p": 0.6, "num_samples": 2, "max_length": 17})
 
-**Direct usage with** :code:`BioLMApi` ** (sync, advanced):**
+API client (sync, more control)
+-------------------------------
+
+For schema access, custom error handling, and manual batching:
 
 .. code-block:: python
 
@@ -82,7 +89,8 @@ Usage
 
    **Large datasets?** Pass a generator instead of a list so items are consumed batch-by-batch—you never load everything into memory. See :doc:`batching`. For concurrency and rate limits, see :doc:`rate_limiting`.
 
-**Async usage:**
+Async usage
+-----------
 
 .. code-block:: python
 
@@ -101,17 +109,7 @@ Usage
 Disk output
 -----------
 
-When you set ``output='disk'`` and provide a ``file_path``, results are written as JSONL (one JSON object per line). Supported for ``biolm``, ``BioLMApi``, and ``BioLMApiClient``.
-
-**When to use:** Large jobs where keeping all results in memory would be costly. Combine with generators for inputs to minimize memory use end-to-end.
-
-**Key points:**
-
-- One line per input item, in the same order as the input.
-- Batch errors: if a batch fails, an error dict is written for each item in that batch.
-- ``stop_on_error=True``: writing stops after the first error batch.
-- ``stop_on_error=False``: all items are processed; errors are written for failed items.
-- ``retry_error_batches=True`` (``BioLMApi``/``BioLMApiClient`` only): failed batches are retried as single items.
+For large jobs you can write results to a JSONL file instead of returning them in memory. Set *output* to disk and pass a *file_path*. One line per input item, in input order. If a batch fails, an error dict is written for each item in that batch. You can stop on first error or process all items; with the API client you can also retry failed batches as single items. See :doc:`error-handling` for the options.
 
 **Examples:**
 
@@ -125,14 +123,4 @@ When you set ``output='disk'`` and provide a ``file_path``, results are written 
     biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "BADSEQ"],
           output='disk', file_path="results.jsonl", stop_on_error=True)
 
-For batch error behavior (retry_error_batches, stop_on_error), see :doc:`error-handling`.
-
-**When to use which:**
-
-- Use :code:`biolm()` for one-off, one-line requests (quick scripts, notebooks).
-- Use :code:`Model` when you're focused on one model and want to call :code:`.encode()`, :code:`.predict()`, or :code:`.generate()` on it (e.g. load data → model.encode() → save). See :doc:`../models` for more.
-- Use :code:`BioLMApi` for:
-    - More control over batching, error handling, or output
-    - Accessing schema or batch size programmatically
-    - Custom workflows, integration, or advanced error recovery
-    - When you want to reuse the same client for multiple calls (avoids re-authenticating)
+**When to use which:** One-off or quick scripts → use the function. One model and several operations → use Model. More control (batching, errors, schema, reuse) → use BioLMApi or BioLMApiClient. See :doc:`../models` and :doc:`../../getting-started/concepts`.

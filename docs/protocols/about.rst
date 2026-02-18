@@ -1,21 +1,22 @@
 About Protocols
 ===============
 
-A protocol defines a workflow for the BioLM server: inputs, tasks (model or gather), and optional MLflow outputs. The schema is validated by the Python client (e.g. ``biolmai protocol validate``).
+A protocol defines a workflow for the BioLM server: inputs, tasks (model or gather), and optional MLflow outputs. Validate with the Python client (e.g. ``biolmai protocol validate``).
 
-Top-level keys
---------------
+**Minimal example:**
 
-- ``name`` (required): Protocol name identifier.
-- ``inputs`` (required): Object mapping input names to ``InputSpec`` objects (see :doc:`inputs`).
-- ``tasks`` (required): Array of tasks (model tasks or gather tasks). See :doc:`tasks` and :doc:`execution`.
-- ``description``: Human-readable description.
-- ``example_inputs``: Optional object of example values (literals) per input name.
-- ``progress``: Optional ``{ total_expected: integer | expression }`` for progress tracking.
-- ``ranking``: Optional ``{ field, order: "ascending"|"descending", top_n }`` for top-N ranking.
-- ``writing``: Optional ``{ deduplicate?, max_dedupe_size? }`` for output writing.
-- ``concurrency``: Optional ``{ workflow: integer, tasks: integer }`` for concurrency control.
-- ``outputs``: Optional array of MLflow output rules (OutputRule). See :doc:`output`.
-- ``schema_version``: Optional integer (default 1).
+.. code-block:: yaml
 
-See :doc:`schema` for the full JSON Schema and MLflow output rules.
+    name: my-protocol
+    inputs:
+      sequences:
+        type: list_of_str
+        label: Sequences
+        required: true
+    tasks:
+      - slug: esmfold
+        action: predict
+        request_body:
+          items: "{{ inputs.sequences }}"
+
+Required top-level keys: *name*, *inputs* (map of input names to InputSpec — see :doc:`inputs`), and *tasks* (array of model or gather tasks — see :doc:`tasks` and :doc:`execution`). Optional: *description*, *example_inputs*, *progress*, *ranking*, *writing*, *concurrency*, *outputs* (MLflow), *schema_version* (default 1). See :doc:`schema` for the full JSON Schema.

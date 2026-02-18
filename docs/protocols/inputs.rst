@@ -1,17 +1,22 @@
 Inputs (InputSpec)
 ==================
 
-Each value under ``inputs`` is an ``InputSpec`` object:
+Each entry under *inputs* is an InputSpec: a type (e.g. text, float, integer, boolean, select, list_of_str, pdb_text, multiselect) plus optional label, required/optional, help_text, initial, min/max, min_length/max_length, choices (for select/multiselect), advanced, and step.
 
-- ``type``: string, e.g. ``text``, ``float``, ``integer``, ``boolean``, ``select``, ``list_of_str``, ``pdb_text``, ``multiselect``.
-- ``label``: Optional display label.
-- ``required`` / ``optional``: Boolean.
-- ``help_text``: Optional help string.
-- ``initial``: Optional default/initial value (literal or expression).
-- ``min``, ``max``: Optional numeric bounds.
-- ``min_length``, ``max_length``: Optional length bounds for text/list.
-- ``choices``: Optional array of strings (for select/multiselect).
-- ``advanced``: Optional boolean.
-- ``step``: Optional number (e.g. for float sliders).
+**Example:**
+
+.. code-block:: yaml
+
+    inputs:
+      sequences:
+        type: list_of_str
+        label: Protein sequences
+        required: true
+      temperature:
+        type: float
+        label: Sampling temperature
+        initial: 0.7
+        min: 0
+        max: 2
 
 See :doc:`about` for top-level structure and :doc:`schema` for the full JSON Schema.

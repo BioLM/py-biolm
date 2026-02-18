@@ -19,8 +19,7 @@ You can provide input in several ways:
         biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
 
 **2. List of values (strings, numbers, etc):**
-  - For a batch of simple items (e.g., sequences).
-  - You must specify ``type`` (e.g., ``type="sequence"``).
+  - For a batch of simple items (e.g. sequences). Pass a type so the client knows how to interpret the values.
   - Example:
 
     .. code-block:: python
@@ -28,8 +27,7 @@ You can provide input in several ways:
         biolm(entity="esm2-8m", action="encode", type="sequence", items=["SEQ1", "SEQ2"])
 
 **3. List of dicts:**
-  - For a batch of structured items (e.g., ``{"sequence": ...}``).
-  - No need to specify ``type`` if your dicts have the correct keys.
+  - For a batch of structured items. Type is inferred from the dict keys.
   - Example:
 
     .. code-block:: python
@@ -53,8 +51,6 @@ You can provide input in several ways:
 
         result = biolm(entity="esm2-8m", action="encode", items=sequences_from_file("sequences.txt"))
 
-  - Works with ``biolm()``, ``BioLMApi``, and ``BioLMApiClient``.
-
 **5. List of lists of dicts (advanced/manual batching):**
   - Each inner list is treated as a batch and sent as a single API request.
   - Useful for custom batching, controlling batch size, or mixing valid/invalid items.
@@ -69,16 +65,10 @@ You can provide input in several ways:
         biolm(entity="esmfold", action="predict", items=batches)
 
 ------------------------
-How Auto-Batching Works
+How auto-batching works
 ------------------------
 
-- By default, the client will automatically batch your input according to the model's maximum batch size (queried from the API schema).
-- You do **not** need to manually split your input into batches; just provide a list of items.
-- The client will:
-    1. Query the schema for the model/action to determine ``maxItems`` (batch size).
-    2. Split your input into batches of up to ``maxItems``.
-    3. Send each batch as a separate API request.
-    4. Collect and return results in the same order as your input.
+The client asks the API for the model’s maximum batch size, splits your input into batches of that size, and sends each batch as a separate request. Results come back in the same order as your input. You don’t need to split manually.
 
 **Example:**
 
@@ -113,26 +103,24 @@ Advanced: Manual Batching with List of Lists
     # result is a flat list: [result1, result2, result3]
 
 ------------------------
-Input Validation and Type Inference
+Input validation
 ------------------------
 
-- If you provide a list of dicts, the client infers the input type from the dict keys.
-- If you provide a list of values (not dicts), you **must** specify ``type`` (e.g., ``type="sequence"``).
-- If you provide a list of lists, each inner list must be a list of dicts (not strings).
+- List of dicts: type is inferred from the keys.
+- List of plain values (e.g. strings): pass a type (e.g. sequence) so the client knows how to interpret them.
+- List of lists (manual batching): each inner list must be a list of dicts.
 
 ------------------------
-Sequence Validity
+Sequence validity
 ------------------------
 
-- Protein sequences must use only valid amino acid letters: ``ACDEFGHIKLMNPQRSTVWYBXZUO``.
-- Use sequences that contain only valid amino acid letters (e.g. ``MSILV``, ``MDNELE``).
+Protein sequences must use only valid amino acid letters. The client accepts the standard set (e.g. ACDEFGHIKLMNPQRSTVWYBXZUO).
 
 ------------------------
-Batch Size and Schema
+Batch size and schema
 ------------------------
 
-- The client queries the API schema for the model/action to determine the maximum batch size (``maxItems``).
-- You can inspect this yourself:
+You can read the maximum batch size from the schema:
 
 .. code-block:: python
 
@@ -143,13 +131,10 @@ Batch Size and Schema
     print("Max batch size:", max_batch)
 
 ------------------------
-Batching and Error Handling
+Batching and errors
 ------------------------
 
-- If a batch contains invalid items, the entire batch may fail (depending on the API).
-- Use ``stop_on_error=True`` to halt processing after the first error batch.
-- Use ``stop_on_error=False`` to continue processing all batches, with errors included in the results.
-- Use ``retry_error_batches=True`` (``BioLMApi``/``BioLMApiClient`` only) to retry failed batches as single items.
+If a batch has invalid items, the whole batch may fail. You can halt on the first error batch or process all batches and get error dicts in the results; with the API client you can also retry failed batches as single items. See :doc:`error-handling` for details and examples.
 
 ------------------------
 Summary Table
@@ -160,7 +145,7 @@ Summary Table
 +==========================+=============================+==========================================+
 | Single value/dict        | Yes                         | Single item                               |
 +--------------------------+-----------------------------+------------------------------------------+
-| List of values           | Yes (needs ``type``)        | Batch of simple items                     |
+| List of values           | Yes (pass type)             | Batch of simple items                     |
 +--------------------------+-----------------------------+------------------------------------------+
 | List of dicts            | Yes                         | Batch of structured items                 |
 +--------------------------+-----------------------------+------------------------------------------+
@@ -198,14 +183,13 @@ Examples
     result = biolm(entity="esmfold", action="predict", items=batches, stop_on_error=False)
 
 ------------------------
-Best Practices
+Best practices
 ------------------------
 
-- For most use cases, provide a list of values or dicts and let the client auto-batch.
-- For large datasets (files, streams), use a **generator** so items are consumed batch-by-batch—you never hold everything in memory.
-- Use ``output='disk'`` for very large jobs to avoid memory pressure on results (see the :ref:`disk-output` section in :doc:`usage`).
-- Use manual batching (list of lists) only for advanced workflows.
-- Always specify ``type`` if your items are not dicts.
+- Prefer a list of values or dicts and let the client auto-batch.
+- For large datasets (files, streams), use a generator so items are consumed batch-by-batch.
+- For very large result sets, write to disk (see :ref:`disk-output` in :doc:`usage`).
+- Use manual batching (list of lists) only when you need custom batch sizes or composition.
 
 ------------------------
 See Also

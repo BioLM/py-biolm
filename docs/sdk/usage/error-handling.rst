@@ -2,43 +2,40 @@
 Error Handling
 ========================
 
-The BioLM Python client provides flexible error handling for both single and batch API calls. You can control error behavior using the ``raise_httpx``, ``stop_on_error``, and ``retry_error_batches`` options.
+You can either raise HTTP errors as exceptions (fail fast) or get them as dicts in the results and choose whether to stop on the first error batch or process all items. With the API client you can also retry failed batches as single items.
+
+**Fail fast (exceptions):**
+
+.. code-block:: python
+
+    from biolmai import biolm
+    try:
+        result = biolm(entity="esmfold", action="predict", type="sequence", items="BADSEQ", raise_httpx=True)
+    except Exception as e:
+        print("Caught:", e)
+
+**Continue and collect errors:**
+
+.. code-block:: python
+
+    result = biolm(
+        entity="esmfold", action="predict", type="sequence",
+        items=["GOODSEQ", "BADSEQ"],
+        raise_httpx=False, stop_on_error=False
+    )
+    for r in result:
+        if "error" in r:
+            print("Error:", r["error"])
+        else:
+            print("OK")
 
 ------------------------
-Key Options
+Options in brief
 ------------------------
 
-- **raise_httpx (default: False for ``biolm``/``BioLM``, True for ``BioLMApi``/``BioLMApiClient``)**  
-  - If ``True``, HTTP errors (e.g., 400/422/500) raise an ``httpx.HTTPStatusError`` exception immediately.
-  - If ``False``, errors are returned as dicts in the results (with ``"error"`` and ``"status_code"`` keys).
-  - Available on: ``biolm``, ``BioLM``, ``BioLMApi``, ``BioLMApiClient``
-
-- **stop_on_error (default: False)**  
-  - If ``True``, processing stops after the first error batch. Only results up to and including the error are returned (or written to disk).
-  - If ``False``, all items are processed; errors are included in the results for failed items.
-  - Available on: ``biolm``, ``BioLM``, ``BioLMApi``, ``BioLMApiClient``
-  - For ``BioLMApi``/``BioLMApiClient``: passed as parameter to ``encode()``, ``predict()``, ``generate()`` methods
-  - For ``biolm``/``BioLM``: passed as keyword argument to the constructor
-
-- **retry_error_batches (default: False)**
-  - If ``True``, failed batches are retried as single items, so you may recover partial results from a batch that would otherwise be all errors.
-  - Available on: ``BioLMApi``, ``BioLMApiClient`` only (not available on ``biolm``/``BioLM``)
-  - Set at client initialization: ``BioLMApi("model", retry_error_batches=True)`` or ``BioLMApiClient("model", retry_error_batches=True)``
-
-------------------------
-How the Options Interact
-------------------------
-
-- ``raise_httpx=True`` always takes precedence:  
-  - Any HTTP error will immediately raise an exception, regardless of ``stop_on_error``.
-  - If you want to handle errors as return values, set ``raise_httpx=False``.
-
-- ``stop_on_error`` only applies when ``raise_httpx=False``:
-  - If ``stop_on_error=True``, processing halts after the first error batch (no further items are processed).
-  - If ``stop_on_error=False``, all items are processed, and errors are included in the results.
-
-- ``retry_error_batches`` is only relevant when ``raise_httpx=False``:
-  - If a batch fails, each item in the batch is retried individually. This can help recover partial results.
+- **raise_httpx** — If True, HTTP errors raise an exception immediately. If False, errors are returned as dicts (with "error" and "status_code" keys). Default: False for the high-level function/BioLM, True for BioLMApi/BioLMApiClient.
+- **stop_on_error** — When raise_httpx is False: True = stop after the first error batch; False = process all items and include error dicts in results.
+- **retry_error_batches** — (BioLMApi/BioLMApiClient only.) When True, failed batches are retried as single items so you can get partial results.
 
 ------------------------
 Behavior Matrix
@@ -70,34 +67,21 @@ Behavior Matrix
      - Failed batches retried as single items; errors as dicts
 
 ------------------------
-Examples
+More examples
 ------------------------
 
-**1. Raising exceptions on error (default for** :code:`BioLMApi` **/** :code:`BioLMApiClient` **):**
+**Stop on first error:**
 
 .. code-block:: python
 
-    from biolmai import biolm
-    try:
-        result = biolm(entity="esmfold", action="predict", type="sequence", items="BADSEQ", raise_httpx=True)
-    except Exception as e:
-        print("Caught exception:", e)
-
-**2. Continue on errors, errors as dicts:**
-
-.. code-block:: python
-
-    result = biolm(entity="esmfold", action="predict", type="sequence", items=["GOODSEQ", "BADSEQ"], raise_httpx=False, stop_on_error=False)
-    # result[0] is a normal result, result[1] is a dict with "error" and "status_code"
-
-**3. Stop on first error:**
-
-.. code-block:: python
-
-    result = biolm(entity="esmfold", action="predict", type="sequence", items=["GOODSEQ", "BADSEQ", "ANOTHER"], raise_httpx=False, stop_on_error=True)
+    result = biolm(
+        entity="esmfold", action="predict", type="sequence",
+        items=["GOODSEQ", "BADSEQ", "ANOTHER"],
+        raise_httpx=False, stop_on_error=True
+    )
     # Only results up to and including the first error are returned
 
-**4. Retrying failed batches as single items (** :code:`BioLMApi` **/** :code:`BioLMApiClient` **only):**
+**Retry failed batches as single items (BioLMApi/BioLMApiClient only):**
 
 .. code-block:: python
 
@@ -112,54 +96,10 @@ Examples
     result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
 
 ------------------------
-What do error results look like?
+Error result shape
 ------------------------
 
-If ``raise_httpx=False``, errors are returned as dicts, e.g.:
-
-.. code-block:: python
-
-    {
-        "error": "Validation error: ...",
-        "status_code": 422
-    }
-
-For batch calls, the result is a list, with each item either a normal result or an error dict.
-
-------------------------
-Catching Exceptions
-------------------------
-
-If you set ``raise_httpx=True``, you must catch exceptions:
-
-.. code-block:: python
-
-    from biolmai import biolm
-    try:
-        result = biolm(entity="esmfold", action="predict", type="sequence", items="BADSEQ", raise_httpx=True)
-    except Exception as e:
-        print("Caught exception:", e)
-
-If you set ``raise_httpx=False``, you can check for errors in the results:
-
-.. code-block:: python
-
-    result = biolm(entity="esmfold", action="predict", type="sequence", items=["GOODSEQ", "BADSEQ"], raise_httpx=False)
-    for r in result:
-        if "error" in r:
-            print("Error:", r["error"])
-        else:
-            print("Success:", r)
-
-------------------------
-Best Practices
-------------------------
-
-- Use ``raise_httpx=True`` for strict error handling (fail fast, catch exceptions).
-- Use ``raise_httpx=False, stop_on_error=False`` to process all items and collect all errors.
-- Use ``raise_httpx=False, stop_on_error=True`` to halt on the first error batch.
-- Use ``retry_error_batches=True`` (with ``raise_httpx=False``) on ``BioLMApi``/``BioLMApiClient`` to maximize successful results in large batches.
-- Always check for ``"error"`` in results if not raising exceptions.
+When raise_httpx is False, failed items appear as dicts in the result list with an "error" string and a "status_code" (e.g. 422). The examples above show how to detect and handle them.
 
 ------------------------
 Parameter Availability Summary

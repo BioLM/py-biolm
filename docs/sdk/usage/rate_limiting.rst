@@ -2,60 +2,7 @@
 Rate Limiting and Throttling
 ========================
 
-The BioLM Python client batches your requests and runs them concurrently. By default:
-
-- **Concurrency:** Up to 16 requests in flight at once (semaphore limit).
-- **Rate limiting:** API-recommended throttle from the schema (requests per second/minute).
-- **Batching:** Items are split by schema ``maxItems`` and sent as parallel batch requests.
-
-This gives high throughput out of the box. You can customize or disable these limits (see below).
-
-------------------------
-Order of Throttling/Concurrency
-------------------------
-
-When making a request, the client applies throttling in this order:
-
-1. **Semaphore (Concurrency Limit):**
-   - If you provide a semaphore (e.g., ``asyncio.Semaphore(5)``), it is acquired first.
-   - This limits the number of concurrent requests.
-
-2. **Rate Limiter (Requests per Time Window):**
-   - After acquiring the semaphore, the rate limiter is applied.
-   - This enforces a maximum number of requests per second or minute, using a sliding window.
-
-**Both can be used together**:  
-If both are set, a request must acquire the semaphore *and* pass the rate limiter before proceeding.
-
-------------------------
-How to Configure
-------------------------
-
-- **Default (API throttle with cancellation protection):**
-  - The client queries the API schema for the recommended throttle rate and uses it.
-  - By default, a semaphore with limit 16 is enabled to provide cancellation protection (limits in-flight requests to 16).
-  - No need to set anything.
-
-- **Disable Throttling:**
-  - Pass ``rate_limit=None`` and ``semaphore=None`` to disable all throttling (for advanced users).
-
-- **Custom Rate Limit:**
-  - Pass ``rate_limit="N/second"`` or ``rate_limit="N/minute"``.
-  - Example: ``rate_limit="1000/second"`` or ``rate_limit="60/minute"``.
-
-- **Custom Semaphore:**
-  - Pass ``semaphore=N`` (integer) or ``semaphore=asyncio.Semaphore(N)`` to limit concurrency to N requests at a time.
-  - Pass ``semaphore=None`` to disable the default semaphore (no concurrency limit).
-
-------------------------
-Rate Limit String Parsing and Windowing
-------------------------
-
-- The ``rate_limit`` string must be in the form ``"N/second"`` or ``"N/minute"``.
-- The limiter uses a **sliding window**:
-    - For ``"1000/second"``, at most 1000 requests can start in any rolling 1-second window.
-    - For ``"60/minute"``, at most 60 requests can start in any rolling 60-second window.
-- If the limit is reached, the client waits until a slot is available.
+The client batches requests and runs them concurrently. By default it uses the API’s recommended throttle and a concurrency limit (up to 16 in-flight requests). You can leave defaults, set a custom rate (e.g. requests per second or minute), or set a custom concurrency limit.
 
 **Examples:**
 

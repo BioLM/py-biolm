@@ -4,33 +4,26 @@
 Concepts
 =========
 
-This page explains core concepts for using the BioLM Python client: the different client interfaces, sync vs async usage, batching, error handling, disk output, and rate limiting.
+This page explains core concepts for using the BioLM Python client: the different client interfaces, sync vs async, batching, error handling, disk output, and rate limiting.
 
 ------------------------
 Feature summary
 ------------------------
 
-- **High-level constructor**: One-line API calls with ``biolm()`` or ``BioLM``; no setup required.
-- **Sync and async**: Use ``biolm()`` or ``BioLM`` for sync, or ``BioLMApi`` / ``BioLMApiClient`` for more control or async.
-- **Auto-batching**: Items are split into batches (schema-based max size) and sent in parallel. See :doc:`../sdk/usage/batching`.
-- **Generators supported**: Pass a generator or iterator; items are consumed batch-by-batch for low memory use.
-- **Flexible input**: Single value, list of values, list of dicts, or list of lists (manual batching). Use ``type="sequence"`` when items are strings.
-- **Configurable concurrency**: Custom semaphore, rate limits (e.g. ``1000/second``). See :doc:`../sdk/usage/rate_limiting`.
-- **Error handling**: Raise HTTPX errors, continue on error, or stop on first error; optional retry of failed batches. See :doc:`../sdk/usage/error-handling`.
-- **Disk output**: Write results as JSONL to disk for very large jobs (see :ref:`disk-output` in :doc:`../sdk/usage/usage`).
-- **Direct access**: Use ``BioLMApi`` for ``.schema()``, ``.call()``, and advanced batching/error control.
-- **Example endpoints**: ``esm2-8m/encode``, ``esmfold/predict``, ``progen2-oas/generate``, and others. See :doc:`../sdk/overview` and :doc:`../sdk/models`.
+- **Simple one-off calls:** Use the high-level function or the class-based Model; no setup required.
+- **Sync and async:** Use the sync interface for scripts and notebooks, or the async client for high throughput and async apps.
+- **Auto-batching:** Items are split by the API’s maximum batch size and sent in parallel. See :doc:`../sdk/usage/batching`.
+- **Flexible input:** Single value, list of values, list of dicts, or a generator. For lists of plain strings you pass a type (e.g. sequence). See :doc:`../sdk/usage/batching`.
+- **Error handling:** Raise exceptions, continue and collect errors, or stop on first error; optional retry of failed batches. See :doc:`../sdk/usage/error-handling`.
+- **Disk output:** Write results as JSONL for very large jobs. See :ref:`disk-output` in :doc:`../sdk/usage/usage`.
+- **Rate limiting:** Default throttle from the API schema; you can set a custom rate or concurrency. See :doc:`../sdk/usage/rate_limiting`.
+- **Advanced control:** The sync and async API clients expose schema access, manual batching, and more. See :doc:`../sdk/usage/usage`.
 
 ------------------------
-BioLM
+BioLM (simple sync)
 ------------------------
 
-**BioLM** is the simplest synchronous interface. Use it when you want quick one-liner calls or a straightforward scripting experience.
-
-- **Convenient interface**: Call ``biolm(...)`` and get your result.
-- **Unpacks single-item results**: If you pass a single item, you get a single result (dict), not a list.
-- **Runs in the main thread**: No need for ``asyncio`` or event loops.
-- **Great for Jupyter, scripts, and simple batch jobs.**
+**BioLM** is the simplest synchronous interface: call a function with entity, action, and items. Single-item calls return a single result (dict); batch calls return a list. No event loop or asyncio required.
 
 **Example:**
 
@@ -45,37 +38,33 @@ BioLM
     # Batch: returns a list of dicts
     result = biolm(entity="esmfold", action="predict", items=["MDNELE", "MENDEL"])
 
-Internally, **BioLM** is a thin synchronous wrapper around the async client, using the ``synchronicity`` package to run async code in a blocking way.
+Internally, BioLM is a thin sync wrapper around the async client (via the synchronicity package).
 
 ------------------------
 BioLMApi and BioLMApiClient
 ------------------------
 
-For more control or high-throughput use cases, the SDK provides:
+For more control or high throughput you can use:
 
-- **BioLMApi** – Synchronous wrapper for ``BioLMApiClient``, for users who want a sync interface but more options than ``BioLM`` (e.g., rate limits, semaphores, retry behavior).
-- **BioLMApiClient** – The core **async** client for maximum throughput and integration in async applications.
+- **BioLMApi** — Sync wrapper around the async client; same style as BioLM but with more options (rate limits, retry, schema access).
+- **BioLMApiClient** — The async client for maximum throughput and use inside async applications.
 
 **When to use which:**
 
-- **Use BioLM** if you want the simplest interface, are in a Jupyter notebook or script, and don't need to manage concurrency.
-- **Use BioLMApiClient** if you want to process many requests in parallel, are building a web server or async application, or need to control concurrency, rate limiting, or batching.
-- **Use BioLMApi** if you want a sync interface with more control than BioLM (e.g., custom rate limits, retry options).
+- **BioLM** — Simplest interface; best for scripts, Jupyter, and one-off or small batches.
+- **BioLMApiClient** — Many requests in parallel, web servers, or any async app; you control concurrency and rate limiting.
+- **BioLMApi** — Sync interface with more control than BioLM (e.g. custom rate limits, retry).
 
-**BioLMApiClient** always returns a list, even for a single item, unless you set ``unwrap_single=True``. **BioLM** and **BioLMApi** return a single dict when you pass a single item.
+BioLMApiClient always returns a list (even for one item) unless you set unwrap_single. BioLM and BioLMApi return a single dict when you pass a single item.
 
-------------------------
-Async and Sync Usage
-------------------------
-
-**Synchronous usage:**
+**Sync example:**
 
 .. code-block:: python
 
     from biolmai import biolm
     result = biolm(entity="esmfold", action="predict", items="MDNELE")
 
-**Asynchronous usage:**
+**Async example:**
 
 .. code-block:: python
 
@@ -89,115 +78,101 @@ Async and Sync Usage
 
     asyncio.run(main())
 
-**Summary:**
+**Using the async client from sync code:** wrap the call in :code:`asyncio.run(...)`, or use BioLMApi for a blocking interface.
 
-- **BioLM**: Synchronous, easy-to-use, ideal for quick scripts, Jupyter, and most users.
-- **BioLMApi / BioLMApiClient**: Fully asynchronous (BioLMApiClient) or sync wrapper (BioLMApi), for advanced users, high-throughput, or async applications.
+------------------------
+Batching and input formats
+------------------------
 
-**Advanced async features:**
+The client supports single items, lists, and generators. It batches automatically using the model’s maximum batch size from the API schema. You do not need to split input yourself.
 
-- **Concurrent requests**: The async client can batch and send multiple requests at once, using semaphores and rate limiters.
-- **Context manager**: Use ``async with BioLMApiClient(...) as model:`` for clean shutdown.
-- **Disk output**: Async disk writing is supported for large jobs (see :ref:`disk-output` in :doc:`../sdk/usage/usage`).
-
-**Using the async client from sync code:**
+**Single item or list of values (e.g. sequences):** pass a type so the client knows how to interpret strings:
 
 .. code-block:: python
 
-    import asyncio
-    from biolmai.core.http import BioLMApiClient
+    result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILV")
+    result = biolm(entity="esm2-8m", action="encode", type="sequence", items=["MSILV", "MDNELE"])
 
-    def run_sync():
-        model = BioLMApiClient("esmfold")
-        return asyncio.run(model.predict(items=[{"sequence": "MDNELE"}]))
+**List of dicts:** type is inferred from the keys, so you usually don’t pass type:
 
-    result = run_sync()
+.. code-block:: python
 
-Or use the sync wrapper **BioLMApi** for a blocking interface.
+    result = biolm(entity="esmfold", action="predict", items=[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}])
 
-**Best practices:**
+**Generator (memory-efficient):** the client consumes it batch-by-batch:
 
-- For quick jobs, use **BioLM** in sync mode.
-- For high-throughput or async apps, use **BioLMApiClient** and ``await`` your calls.
-- For batch jobs in scripts with more control, **BioLMApi** stays synchronous.
+.. code-block:: python
 
-------------------------
-Batching and Input Flexibility
-------------------------
+    def sequences(path):
+        with open(path) as f:
+            for line in f:
+                if line.strip():
+                    yield {"sequence": line.strip()}
 
-The client supports many input formats and automatic batching. See :doc:`../sdk/usage/batching` for full details.
+    result = biolm(entity="esm2-8m", action="encode", items=sequences("sequences.txt"))
 
-**Supported input formats:**
-
-1. **Single item (string or dict)** – One sequence or context.
-2. **List of values** – Batch of simple items; you must specify ``type`` (e.g., ``type="sequence"``).
-3. **List of dicts** – Batch of structured items (e.g., ``{"sequence": ...}``); type can be inferred.
-4. **List of lists of dicts** – Manual batching: each inner list is one API request (auto-batching disabled).
-
-**How auto-batching works:**
-
-- The client queries the API schema for the model/action to get the maximum batch size (``maxItems``).
-- It splits your input into batches of up to that size, sends each batch as a separate request, and returns results in the same order as your input.
-- You do **not** need to manually split input; just pass a list of items.
-
-**Manual batching (list of lists):**  
-If you pass a list of lists of dicts, each inner list is treated as one batch. Use this for custom batch sizes, error isolation, or testing.
-
-**Input validation:**
-
-- List of dicts: type is inferred from dict keys.
-- List of values (not dicts): you **must** specify ``type`` (e.g., ``type="sequence"``).
-
-**Batching and errors:**
-
-- Use ``stop_on_error=True`` to halt after the first error batch.
-- Use ``stop_on_error=False`` to process all batches and include errors in results.
-- Use ``retry_error_batches=True`` (``BioLMApi``/``BioLMApiClient`` only) to retry failed batches as single items.
+For full details and manual batching (list of lists), see :doc:`../sdk/usage/batching`.
 
 ------------------------
-Error Handling
+Error handling
 ------------------------
 
-Control error behavior with ``raise_httpx``, ``stop_on_error``, and ``retry_error_batches``. See :doc:`../sdk/usage/error-handling` for full details.
+You can raise HTTP errors as exceptions or get them as dicts in the results. You can also stop on the first error batch or process all items and collect errors; with the API clients you can optionally retry failed batches as single items.
 
-**Key options:**
+**Fail fast (exceptions):**
 
-- **raise_httpx** (default: False for ``biolm``/``BioLM``, True for ``BioLMApi``/``BioLMApiClient``)
-  - If ``True``, HTTP errors raise an ``httpx.HTTPStatusError`` immediately.
-  - If ``False``, errors are returned as dicts in the results (with ``"error"`` and ``"status_code"`` keys).
+.. code-block:: python
 
-- **stop_on_error** (default: False)
-  - If ``True``, processing stops after the first error batch.
-  - If ``False``, all items are processed; errors appear in the results for failed items.
+    from biolmai import biolm
+    try:
+        result = biolm(entity="esmfold", action="predict", type="sequence", items="BADSEQ", raise_httpx=True)
+    except Exception as e:
+        print("Caught:", e)
 
-- **retry_error_batches** (default: False) – **BioLMApi** / **BioLMApiClient** only
-  - If ``True``, failed batches are retried as single items so you can get partial results.
+**Continue on error (errors as dicts in results):**
+
+.. code-block:: python
+
+    result = biolm(
+        entity="esmfold", action="predict", type="sequence",
+        items=["GOODSEQ", "BADSEQ"],
+        raise_httpx=False, stop_on_error=False
+    )
+    for r in result:
+        if "error" in r:
+            print("Error:", r["error"])
+        else:
+            print("OK:", r.get("mean_plddt"))
+
+See :doc:`../sdk/usage/error-handling` for the full behavior matrix and retry options.
 
 ------------------------
-Disk Output and Batch Error Handling
+Disk output
 ------------------------
 
-When you set ``output='disk'`` and provide a ``file_path``, results are written as JSONL (one JSON object per line). Supported in both **BioLM** and **BioLMApi** / **BioLMApiClient**. See the :ref:`disk-output` section in :doc:`../sdk/usage/usage` for details.
+For very large jobs you can write results to a JSONL file instead of holding them in memory. Set output to disk and provide a file path. Results are one JSON object per line, in input order. Batch error behavior (stop on first error vs continue, retry) is the same as in-memory. See the :ref:`disk-output` section in :doc:`../sdk/usage/usage`.
 
-- One line per input item, in input order.
-- ``stop_on_error=True``: writing stops after the first error batch.
-- ``stop_on_error=False``: all items are processed; errors are written for failed items.
-- ``retry_error_batches=True`` (``BioLMApi``/``BioLMApiClient``): failed batches are retried as single items.
+.. code-block:: python
+
+    biolm(
+        entity="esmfold", action="predict", type="sequence",
+        items=["SEQ1", "SEQ2"],
+        output="disk", file_path="results.jsonl",
+        stop_on_error=False
+    )
 
 ------------------------
-Rate Limiting and Throttling
+Rate limiting
 ------------------------
 
-The client supports configurable rate limiting and throttling. See :doc:`../sdk/usage/rate_limiting` for full details.
+By default the client uses the API schema’s recommended throttle and a concurrency limit (semaphore) so you get good throughput without overloading. You can disable throttling, set a custom rate (e.g. requests per second or minute), or set a custom concurrency limit. See :doc:`../sdk/usage/rate_limiting` for details and examples.
 
-**Order of application:**
+.. code-block:: python
 
-1. **Semaphore (concurrency limit)** – If you pass a semaphore (e.g., ``asyncio.Semaphore(5)``), it is acquired first.
-2. **Rate limiter** – After the semaphore, the rate limiter enforces a maximum number of requests per time window (sliding window).
+    from biolmai.core.http import BioLMApi
 
-**Configuration:**
+    # Default (recommended): uses API throttle + semaphore
+    model = BioLMApi("esmfold")
 
-- **Default:** The client uses the API schema's recommended throttle; no configuration needed.
-- **Disable:** Pass ``rate_limit=None`` and ``semaphore=None``.
-- **Custom rate limit:** ``rate_limit="N/second"`` or ``rate_limit="N/minute"`` (e.g., ``"1000/second"``, ``"60/minute"``).
-- **Custom concurrency:** ``semaphore=asyncio.Semaphore(N)``.
+    # Custom: 1000 requests per second, max 5 concurrent
+    model = BioLMApi("esmfold", rate_limit="1000/second", semaphore=5)
