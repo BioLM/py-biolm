@@ -179,9 +179,12 @@ class ExampleGenerator:
         
         # Check items schema for type information
         if isinstance(items_schema, dict):
-            # Look for common input type keys
+            # items_schema may be the array schema (with nested 'items') or the object schema
+            item_props = items_schema.get('properties', {})
+            if not item_props and 'items' in items_schema:
+                item_props = items_schema.get('items', {}).get('properties', {})
             for key in ['sequence', 'pdb', 'context', 'dna', 'rna']:
-                if key in items_schema.get('properties', {}):
+                if key in item_props:
                     return key
             
             # Check for oneOf/anyOf patterns

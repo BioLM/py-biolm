@@ -26,6 +26,8 @@ requirements = [
     "aiofiles",
     "cryptography",
     "nest_asyncio",
+    "rich>=13.0.0",
+    "pyyaml>=5.0",
 ]
 
 test_requirements = [
@@ -52,7 +54,7 @@ setup(
     description="BioLM Python client",
     entry_points={
         "console_scripts": [
-            "biolmai=biolmai.cli:cli",
+            "biolmai=biolmai.cli_entry:cli",
         ],
         'mlflow.request_header_provider': [
             'unused=biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider',

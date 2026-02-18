@@ -1,0 +1,12 @@
+HEADER    PROTEIN                           01-JAN-23   TEST
+TITLE     TEST STRUCTURE
+ATOM      1  N   MET A   1      20.154  16.967  19.502  1.00 30.00           N
+ATOM      2  CA  MET A   1      19.032  15.993  19.443  1.00 30.00           C
+ATOM      3  C   MET A   1      17.694  16.677  19.443  1.00 30.00           C
+ATOM      4  O   MET A   1      17.615  17.901  19.443  1.00 30.00           O
+ATOM      5  CB  MET A   1      19.032  15.993  19.443  1.00 30.00           C
+ATOM      6  CG  MET A   1      19.032  15.993  19.443  1.00 30.00           C
+ATOM      7  SD  MET A   1      19.032  15.993  19.443  1.00 30.00           S
+ATOM      8  CE  MET A   1      19.032  15.993  19.443  1.00 30.00           C
+END
+
