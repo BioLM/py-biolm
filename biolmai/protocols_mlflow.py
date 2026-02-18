@@ -4,6 +4,8 @@ This module provides functionality to log protocol results to MLflow based on
 the protocol's outputs configuration. It handles result selection, template
 expression evaluation, and MLflow run creation.
 """
+from __future__ import annotations
+
 import gzip
 import json
 import statistics
