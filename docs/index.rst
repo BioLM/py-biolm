@@ -24,6 +24,7 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    getting-started/authentication
    getting-started/quickstart
    getting-started/concepts
+   tutorials_use_cases/notebooks
 
 .. toctree::
    :maxdepth: 1
@@ -77,10 +78,3 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    cli/reference
    sdk/api-reference/index
    resources/rest-api
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Tutorials & Resources:
-   :hidden:
-
-   tutorials_use_cases/notebooks
