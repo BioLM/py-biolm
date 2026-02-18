@@ -25,7 +25,7 @@ Basic usage (one-off calls with ``biolm()``):
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
 
-**Or use the class-based ``Model``** when you're working with one model and want to call ``.encode()``, ``.predict()``, or ``.generate()`` on it:
+**Or use the class-based** :code:`Model` **when** you're working with one model and want to call :code:`.encode()`, :code:`.predict()`, or :code:`.generate()` on it:
 
 .. code-block:: python
 
