@@ -223,6 +223,6 @@ Best Practices
 See Also
 ------------------------
 
-- :doc:`error_handling`
+- :doc:`error-handling`
 - :doc:`disk_output`
-- :doc:`faq`
+- :doc:`../faq`

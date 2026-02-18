@@ -106,6 +106,6 @@ Best Practices
 See Also
 ------------------------
 
-- :doc:`error_handling`
+- :doc:`error-handling`
 - :doc:`batching`
-- :doc:`faq`
+- :doc:`../faq`

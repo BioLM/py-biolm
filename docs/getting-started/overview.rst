@@ -13,4 +13,4 @@ Main features:
 - **Error handling:** Raise on error, continue and collect errors, or stop on first error; optional retry of failed batches.
 - **Disk output:** Write results as JSONL for large jobs.
 
-See :doc:`quickstart` for examples, :doc:`batching` for input flexibility, and :doc:`rate_limiting` for concurrency and throttling options.
+See :doc:`getting-started/quickstart` for examples, :doc:`../sdk/usage/batching` for input flexibility, and :doc:`../sdk/usage/rate_limiting` for concurrency and throttling options.

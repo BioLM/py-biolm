@@ -192,5 +192,5 @@ See Also
 
 - :doc:`batching`
 - :doc:`rate_limiting`
-- :doc:`error_handling`
+- :doc:`error-handling`
 - :doc:`disk_output`

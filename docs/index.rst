@@ -1,36 +1,81 @@
 ===================================
-Welcome to Our Python Client Docs
+Welcome to BioLM Python Client Docs
 ===================================
 
-.. include:: python-client/quickstart.rst
+.. include:: getting-started/quickstart.rst
    :start-line: 1
    :end-line: 27
 
-.. include:: python-client/overview.rst
+.. include:: getting-started/overview.rst
    :start-line: 1
    :end-line: 17
 
+Documentation Authors
+---------------------
+
+If you're writing or updating documentation, see the :doc:`authoring-guide` for information on where to write documentation vs where auto-generated documentation appears.
+
 .. toctree::
-   :maxdepth: 2
-   :caption: Python Client:
+   :maxdepth: 1
+   :caption: Getting Started:
    :hidden:
 
-   python-client/installation
-   python-client/authentication
-   python-client/quickstart
-   python-client/overview
-   python-client/features
-   python-client/usage
-   python-client/batching
-   python-client/error_handling
-   python-client/disk_output
-   python-client/async_sync
-   python-client/api_biolm
-   python-client/api_client
-   python-client/rate_limiting
-   python-client/faq
-   modules.rst
-   protocols
+   getting-started/installation
+   getting-started/authentication
+   getting-started/quickstart
+   getting-started/concepts
+
+.. toctree::
+   :maxdepth: 1
+   :caption: CLI:
+   :hidden:
+
+   cli/login
+   cli/logout
+   cli/status
+   cli/workspace
+   cli/model
+   cli/protocol
+   cli/dataset
+   cli/reference
+
+.. toctree::
+   :maxdepth: 2
+   :caption: SDK:
+   :hidden:
+
+   sdk/overview
+   sdk/models
+   sdk/protocols
+   sdk/workspaces
+   sdk/volumes
+   sdk/io
+   sdk/usage/usage
+   sdk/usage/batching
+   sdk/usage/error-handling
+   sdk/usage/async-sync
+   sdk/usage/rate_limiting
+   sdk/usage/disk_output
+   sdk/faq
+   sdk/api-reference/index
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Protocol Schema:
+   :hidden:
+
+   protocols/about
+   protocols/inputs
+   protocols/execution
+   protocols/tasks
+   protocols/output
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference:
+   :hidden:
+
+   api-reference/index
 
 .. toctree::
    :maxdepth: 2
@@ -41,9 +86,9 @@ Welcome to Our Python Client Docs
 
 .. toctree::
    :maxdepth: 2
-   :caption: Tutorials & Guides:
+   :caption: Tutorials & Resources:
    :hidden:
 
    tutorials_use_cases/notebooks
-
-
+   resources/rest-api
+   resources/guides/notebooks

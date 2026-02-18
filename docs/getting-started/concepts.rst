@@ -1,10 +1,10 @@
-========================
-Features
-========================
+=========
+Concepts
+=========
 
 - **High-level constructor**: Instantly run an API call with a single line.
 - **Sync and async**: Use `biolm()` or `BioLM` for sync, or `BioLMApiClient` for async.
-- **Auto-batching + concurrency**: Items are split into batches (schema-based max size) and sent in parallel. By default, up to 16 requests run concurrently, with API-recommended rate limiting. See :doc:`rate_limiting`.
+- **Auto-batching + concurrency**: Items are split into batches (schema-based max size) and sent in parallel. By default, up to 16 requests run concurrently, with API-recommended rate limiting. See :doc:`../sdk/usage/rate_limiting`.
 - **Generators supported**: Pass a generator or iterator instead of a list; items are consumed batch-by-batch so you never load the full dataset into memory. Ideal for large FASTA/FASTQ files or streaming pipelines.
 - **Flexible input**: Single value, list, tuple, generator, or list of lists (manual batching). Use `type="sequence"` when items are strings.
 - **Configurable concurrency**: Custom semaphore (in-flight limit), rate limits (e.g. ``1000/second``), or disable throttling for advanced control.
@@ -19,3 +19,5 @@ Features
 - `progen2-oas/generate`: Sequence generation from a context string.
 - `dnabert2/predict`: Masked prediction for protein sequences.
 - `ablang2/encode`: Embeddings for paired-chain antibodies.
+
+For more detail, see :doc:`../sdk/overview` and the :doc:`../sdk/usage/batching`, :doc:`../sdk/usage/error-handling`, and :doc:`../sdk/usage/rate_limiting` guides.
