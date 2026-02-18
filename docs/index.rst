@@ -73,23 +73,8 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
 
 .. toctree::
    :maxdepth: 2
-   :caption: API Reference:
-   :hidden:
-
-   api-reference/index
-
-.. toctree::
-   :maxdepth: 2
-   :caption: REST API:
-   :hidden:
-
-   api_docs/index
-
-.. toctree::
-   :maxdepth: 2
    :caption: Tutorials & Resources:
    :hidden:
 
    tutorials_use_cases/notebooks
    resources/rest-api
-   resources/guides/notebooks
