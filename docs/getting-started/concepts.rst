@@ -10,7 +10,7 @@ This page explains core concepts for using the BioLM Python client: the differen
 Feature summary
 ------------------------
 
-- **Simple one-off calls:** Use the high-level function or the class-based Model; no setup required.
+- **Simple one-off calls:** Use the high-level function or the class-based ``Model``; no setup required.
 - **Sync and async:** Use the sync interface for scripts and notebooks, or the async client for high throughput and async apps.
 - **Auto-batching:** Items are split by the API’s maximum batch size and sent in parallel. See :doc:`../sdk/usage/batching`.
 - **Flexible input:** Single value, list of values, list of dicts, or a generator. For lists of plain strings you pass a type (e.g. sequence). See :doc:`../sdk/usage/batching`.
@@ -23,7 +23,7 @@ Feature summary
 BioLM (simple sync)
 ------------------------
 
-**BioLM** is the simplest synchronous interface: call a function with entity, action, and items. Single-item calls return a single result (dict); batch calls return a list. No event loop or asyncio required.
+**``BioLM``** is the simplest synchronous interface: call a function with entity, action, and items. Single-item calls return a single result (dict); batch calls return a list. No event loop or asyncio required.
 
 **Example:**
 
@@ -38,7 +38,7 @@ BioLM (simple sync)
     # Batch: returns a list of dicts
     result = biolm(entity="esmfold", action="predict", items=["MDNELE", "MENDEL"])
 
-Internally, BioLM is a thin sync wrapper around the async client (via the synchronicity package).
+Internally, ``BioLM`` is a thin sync wrapper around the async client (via the ``synchronicity`` package).
 
 ------------------------
 BioLMApi and BioLMApiClient
@@ -46,16 +46,16 @@ BioLMApi and BioLMApiClient
 
 For more control or high throughput you can use:
 
-- **BioLMApi** — Sync wrapper around the async client; same style as BioLM but with more options (rate limits, retry, schema access).
-- **BioLMApiClient** — The async client for maximum throughput and use inside async applications.
+- **``BioLMApi``** — Sync wrapper around the async client; same style as ``BioLM`` but with more options (rate limits, retry, schema access).
+- **``BioLMApiClient``** — The async client for maximum throughput and use inside async applications.
 
 **When to use which:**
 
-- **BioLM** — Simplest interface; best for scripts, Jupyter, and one-off or small batches.
-- **BioLMApiClient** — Many requests in parallel, web servers, or any async app; you control concurrency and rate limiting.
-- **BioLMApi** — Sync interface with more control than BioLM (e.g. custom rate limits, retry).
+- **``BioLM``** — Simplest interface; best for scripts, Jupyter, and one-off or small batches.
+- **``BioLMApiClient``** — Many requests in parallel, web servers, or any async app; you control concurrency and rate limiting.
+- **``BioLMApi``** — Sync interface with more control than ``BioLM`` (e.g. custom rate limits, retry).
 
-BioLMApiClient always returns a list (even for one item) unless you set unwrap_single. BioLM and BioLMApi return a single dict when you pass a single item.
+``BioLMApiClient`` always returns a list (even for one item) unless you set ``unwrap_single``. ``BioLM`` and ``BioLMApi`` return a single dict when you pass a single item.
 
 **Sync example:**
 
@@ -78,7 +78,7 @@ BioLMApiClient always returns a list (even for one item) unless you set unwrap_s
 
     asyncio.run(main())
 
-**Using the async client from sync code:** wrap the call in :code:`asyncio.run(...)`, or use BioLMApi for a blocking interface.
+**Using the async client from sync code:** wrap the call in :code:`asyncio.run(...)`, or use ``BioLMApi`` for a blocking interface.
 
 ------------------------
 Batching and input formats

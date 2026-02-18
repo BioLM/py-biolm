@@ -24,11 +24,11 @@ A: Set ``raise_httpx=False`` and choose ``stop_on_error=True`` or ``False``. Wit
 
 **Q: How do I write results to disk?**
 
-A: Set `output='disk'` and provide `file_path` in either `BioLM` or `BioLMApi`.
+A: Set ``output='disk'`` and provide ``file_path`` in either ``BioLM`` or ``BioLMApi``.
 
 **Q: How do I use the async client?**
 
-A: Use `BioLMApiClient` and `await` the methods.
+A: Use ``BioLMApiClient`` and ``await`` the methods.
 
 **Q: How does the client achieve high throughput?**
 
@@ -36,14 +36,14 @@ A: By default, the client batches your items (schema-based size), sends batch re
 
 **Q: How do I set a custom rate limit?**
 
-A: Use `rate_limit="1000/second"` or provide your own semaphore to `BioLMApi` or `BioLMApiClient`.
+A: Use ``rate_limit="1000/second"`` or provide your own semaphore to ``BioLMApi`` or ``BioLMApiClient``.
 
 **Q: When should I use BioLMApi instead of BioLM?**
 
-A: Use `BioLMApi` if you need:
+A: Use ``BioLMApi`` if you need:
     - To reuse a client for multiple calls (avoids re-auth)
     - To access the schema or batch size programmatically
-    - To call lower-level methods like `.call()` or `.schema()`
+    - To call lower-level methods like ``.call()`` or ``.schema()``
     - To do advanced batching or error handling
 
 **Q: What are ``.schema()``, ``.call()``, and ``._batch_call_autoschema_or_manual()`` for?**

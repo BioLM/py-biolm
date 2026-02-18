@@ -495,8 +495,8 @@ def login(client_id, scope):
 def logout():
     """Logout and remove saved credentials.
     
-    Removes the saved authentication credentials from ~/.biolmai/credentials.
-    After logout, you will need to run `biolm login` again to authenticate.
+    Removes the saved authentication credentials from ``~/.biolmai/credentials``.
+    After logout, you will need to run ``biolmai login`` again to authenticate.
     """
     try:
         os.remove(ACCESS_TOK_PATH)

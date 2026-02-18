@@ -164,10 +164,49 @@ table.docutils {
     border: 1px solid #e2e8f0;
 }
 
+table.docutils th,
+table.docutils td {
+    border: 1px solid #e2e8f0;
+    padding: 0.5rem 0.75rem;
+}
+
 table.docutils th {
     background-color: var(--biolm-bg-secondary);
     color: var(--biolm-text-primary);
     font-weight: 600;
+}
+
+/* Dark/auto: tables readable with clear borders and header contrast */
+body[data-theme="dark"] table.docutils,
+[data-theme="dark"] table.docutils {
+    border-color: #475569 !important;
+}
+body[data-theme="dark"] table.docutils th,
+body[data-theme="dark"] table.docutils td,
+[data-theme="dark"] table.docutils th,
+[data-theme="dark"] table.docutils td {
+    border-color: #475569 !important;
+}
+body[data-theme="dark"] table.docutils th,
+[data-theme="dark"] table.docutils th {
+    background-color: #334155 !important;
+    color: #f1f5f9 !important;
+}
+body[data-theme="dark"] table.docutils th code.literal,
+body[data-theme="dark"] table.docutils th .literal,
+[data-theme="dark"] table.docutils th code.literal,
+[data-theme="dark"] table.docutils th .literal {
+    color: #f1f5f9 !important;
+    background-color: transparent !important;
+}
+body[data-theme="dark"] table.docutils td,
+[data-theme="dark"] table.docutils td {
+    background-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+body[data-theme="dark"] table.docutils caption .caption-text,
+[data-theme="dark"] table.docutils caption .caption-text {
+    color: #e2e8f0 !important;
 }
 
 /* Custom code block styling to match Tailwind CSS */
@@ -563,6 +602,38 @@ body[data-theme="dark"] .highlight-console .highlight span,
     body:not([data-theme="light"]) blockquote div {
         color: #f1f5f9 !important;
         font-family: var(--biolm-font-mono), monospace !important;
+    }
+    /* Tables: clear borders and header contrast in auto/dark */
+    body[data-theme="auto"] table.docutils,
+    body:not([data-theme="light"]) table.docutils {
+        border-color: #475569 !important;
+    }
+    body[data-theme="auto"] table.docutils th,
+    body[data-theme="auto"] table.docutils td,
+    body:not([data-theme="light"]) table.docutils th,
+    body:not([data-theme="light"]) table.docutils td {
+        border-color: #475569 !important;
+    }
+    body[data-theme="auto"] table.docutils th,
+    body:not([data-theme="light"]) table.docutils th {
+        background-color: #334155 !important;
+        color: #f1f5f9 !important;
+    }
+    body[data-theme="auto"] table.docutils th code.literal,
+    body[data-theme="auto"] table.docutils th .literal,
+    body:not([data-theme="light"]) table.docutils th code.literal,
+    body:not([data-theme="light"]) table.docutils th .literal {
+        color: #f1f5f9 !important;
+        background-color: transparent !important;
+    }
+    body[data-theme="auto"] table.docutils td,
+    body:not([data-theme="light"]) table.docutils td {
+        background-color: #1e293b !important;
+        color: #e2e8f0 !important;
+    }
+    body[data-theme="auto"] table.docutils caption .caption-text,
+    body:not([data-theme="light"]) table.docutils caption .caption-text {
+        color: #e2e8f0 !important;
     }
 }
 
