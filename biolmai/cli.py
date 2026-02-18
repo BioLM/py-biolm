@@ -421,15 +421,17 @@ def login(client_id, scope):
     ~/.biolmai/credentials.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Login with default client ID
-        biolm login
-        
+        biolmai login
+
         # Login with custom client ID
-        biolm login --client-id your-client-id
-        
+        biolmai login --client-id your-client-id
+
         # Login with custom scope (supported: read, write, introspection)
-        biolm login --scope "read write"
+        biolmai login --scope "read write"
     """
     # Check if credentials already exist and are valid
     if are_credentials_valid():
@@ -952,21 +954,23 @@ def list(filter, sort, format, output, fields, view):
     various output format options.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # List all models
-        biolm model list
-        
+        biolmai model list
+
         # Filter for encoder models
-        biolm model list --filter encoder=true
-        
+        biolmai model list --filter encoder=true
+
         # Sort by model name
-        biolm model list --sort model_name
-        
+        biolmai model list --sort model_name
+
         # Output as JSON
-        biolm model list --format json --output models.json
-        
+        biolmai model list --format json --output models.json
+
         # Compact view
-        biolm model list --view compact
+        biolmai model list --view compact
     """
     try:
         with console.status("[brand]Fetching models...[/brand]"):
@@ -1246,15 +1250,17 @@ def show(model_name, format, output, include_schemas, include_code_examples):
     available actions, and optionally JSON schemas for each action.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Show model details
-        biolm model show esm2-8m
-        
+        biolmai model show esm2-8m
+
         # Include schemas
-        biolm model show esmfold --include-schemas
-        
+        biolmai model show esmfold --include-schemas
+
         # Output as JSON
-        biolm model show esm2-8m --format json --output model.json
+        biolmai model show esm2-8m --format json --output model.json
     """
     try:
         with console.status("[brand]Fetching model information...[/brand]"):
@@ -1515,18 +1521,20 @@ def run(model_name, action, input, output, format, input_format, type, params, b
     (FASTA, CSV, PDB, JSON) or stdin, and writing results to files or stdout.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Run model with inline input
-        echo '{"sequence": "ACDEFGHIKLMNPQRSTVWY"}' | biolm model run esm2-8m encode -i - --format json
-        
+        echo '{"sequence": "ACDEFGHIKLMNPQRSTVWY"}' | biolmai model run esm2-8m encode -i - --format json
+
         # Run model with FASTA file
-        biolm model run esmfold predict -i sequences.fasta -o results.json
-        
+        biolmai model run esmfold predict -i sequences.fasta -o results.json
+
         # Run with parameters
-        biolm model run esm2-8m encode -i seq.fasta --params '{"normalize": true}'
-        
+        biolmai model run esm2-8m encode -i seq.fasta --params '{"normalize": true}'
+
         # Run with progress bar
-        biolm model run esmfold predict -i large.fasta --progress
+        biolmai model run esmfold predict -i large.fasta --progress
     """
     # Initialize items variable for error reporting
     items = None
@@ -2068,12 +2076,14 @@ def show(protocol_source):
     specified either as a YAML file path or as a protocol ID from the platform.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Show protocol from YAML file
-        biolm protocol show protocol.yaml
-        
+        biolmai protocol show protocol.yaml
+
         # Show protocol from platform by ID
-        biolm protocol show abc123
+        biolmai protocol show abc123
     """
     from biolmai.protocols import Protocol
     import os
@@ -2346,21 +2356,23 @@ def init(filename, output, example, list_examples, force, interactive):
     The generated file will be validated automatically.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Create a blank protocol
-        biolm protocol init
-        
+        biolmai protocol init
+
         # Create with custom filename
-        biolm protocol init my_protocol.yaml
-        
+        biolmai protocol init my_protocol.yaml
+
         # Create from example
-        biolm protocol init --example antibody_design
-        
+        biolmai protocol init --example antibody_design
+
         # List available examples
-        biolm protocol init --list-examples
-        
+        biolmai protocol init --list-examples
+
         # Interactive mode
-        biolm protocol init --interactive
+        biolmai protocol init --interactive
     """
     from biolmai.protocols import Protocol
     
@@ -2507,15 +2519,17 @@ def log(results, outputs, account, workspace, protocol_slug, dry_run, mlflow_uri
     configuration. The MLflow experiment is created as account/workspace/protocol.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Log results with outputs config from protocol file
-        biolm protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody
-        
+        biolmai protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody
+
         # Dry run to see what would be logged
-        biolm protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody --dry-run
-        
+        biolmai protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody --dry-run
+
         # Use custom MLflow URI
-        biolm protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody --mlflow-uri http://localhost:5001
+        biolmai protocol log results.jsonl --outputs protocol.yaml --account acme --workspace lab --protocol antifold-antibody --mlflow-uri http://localhost:5001
     """
     try:
         from biolmai.protocols_mlflow import (
@@ -2801,18 +2815,20 @@ def list(experiment, format, output, mlflow_uri, all_runs):
     Display a list of all datasets you have access to.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # List all datasets
-        biolm dataset list
-        
+        biolmai dataset list
+
         # List datasets in specific experiment
-        biolm dataset list --experiment my-datasets
-        
+        biolmai dataset list --experiment my-datasets
+
         # Output as JSON
-        biolm dataset list --format json --output datasets.json
-        
+        biolmai dataset list --format json --output datasets.json
+
         # List all runs (for debugging - shows runs without dataset tag)
-        biolm dataset list --all-runs
+        biolmai dataset list --all-runs
     """
     try:
         # Check MLflow availability
@@ -2971,12 +2987,14 @@ def show(dataset_id, experiment, format, output, mlflow_uri):
     By default, looks for datasets in the ``{username}/datasets`` experiment.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Show dataset details
-        biolm dataset show my-dataset-123
-        
+        biolmai dataset show my-dataset-123
+
         # Output as JSON
-        biolm dataset show my-dataset-123 --format json --output dataset.json
+        biolmai dataset show my-dataset-123 --format json --output dataset.json
     """
     try:
         # Check MLflow availability
@@ -3186,15 +3204,17 @@ def upload(dataset_id, file_path, experiment, name, recursive, mlflow_uri):
     If the dataset doesn't exist, it will be created automatically.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Upload a single file
-        biolm dataset upload my-dataset-123 data.csv
-        
+        biolmai dataset upload my-dataset-123 data.csv
+
         # Upload a directory
-        biolm dataset upload my-dataset-123 ./data --recursive
-        
+        biolmai dataset upload my-dataset-123 ./data --recursive
+
         # Upload with a custom name
-        biolm dataset upload my-dataset-123 data.csv --name "Training Data"
+        biolmai dataset upload my-dataset-123 data.csv --name "Training Data"
     """
     try:
         # Check MLflow availability
@@ -3285,15 +3305,17 @@ def download(dataset_id, output_path, experiment, artifact_path, mlflow_uri):
     By default, looks for datasets in the ``{username}/datasets`` experiment.
     
     Examples:
-    
+
+    .. code-block:: bash
+
         # Download all artifacts to current directory
-        biolm dataset download my-dataset-123
-        
+        biolmai dataset download my-dataset-123
+
         # Download to specific directory
-        biolm dataset download my-dataset-123 ./downloads
-        
+        biolmai dataset download my-dataset-123 ./downloads
+
         # Download specific artifact
-        biolm dataset download my-dataset-123 ./downloads --artifact-path model.pkl
+        biolmai dataset download my-dataset-123 ./downloads --artifact-path model.pkl
     """
     try:
         # Check MLflow availability

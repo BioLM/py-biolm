@@ -13,9 +13,10 @@ Authenticate with your BioLM account:
    biolmai login
 
 The command will:
+
 - Check for existing valid credentials
 - If credentials are missing or invalid, open a browser for OAuth authorization
-- Save credentials to ``~/.biolmai/credentials``
+- Save credentials to :code:`~/.biolmai/credentials`
 
 Options
 -------
