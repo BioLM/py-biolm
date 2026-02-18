@@ -180,6 +180,19 @@ pre {
     font-size: 0.875rem; /* Tailwind's text-sm */
     line-height: 1.5;
     overflow-x: auto;
+    word-spacing: 0.35em; /* Wider spaces between words for readability */
+}
+
+/* Pygments wraps spaces in <span class="w"> </span>; give them visible width so word boundaries are clear */
+pre .w,
+.highlight pre .w,
+.highlight .w,
+.highlight-bash .w,
+.highlight-console .w,
+.highlight-text .w,
+div[class*="highlight"] .w {
+    display: inline-block;
+    min-width: 0.5em;
 }
 
 /* Inline code styling */
@@ -190,6 +203,7 @@ code:not(pre code) {
     border-radius: 0.25rem; /* Tailwind's rounded */
     font-family: var(--biolm-font-mono) !important;
     font-size: 0.875em;
+    word-spacing: 0.2em; /* Slightly wider spaces so e.g. "biolmai login" is easier to read */
 }
 
 /* --- Light theme: ensure code blocks and headers are readable (moon/sun/hybrid) --- */
