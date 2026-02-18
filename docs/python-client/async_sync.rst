@@ -7,7 +7,7 @@ Async and Sync Usage
 .. code-block:: python
 
     from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
 
 **Asynchronous usage:**
 
@@ -36,7 +36,7 @@ Async and Sync Usage
 
     # Sync wrappers also work automatically (nest_asyncio is applied internally)
     from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
 
 
 ------------------------
@@ -62,7 +62,7 @@ Synchronous Usage (BioLM)
     from biolmai import biolm
 
     # Single item: returns a dict
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
     print(result["mean_plddt"])
 
     # Batch: returns a list of dicts
@@ -174,7 +174,7 @@ The library automatically detects Jupyter environments and handles async/sync co
 
     # Also works: Sync wrapper (nest_asyncio applied automatically)
     from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
 
 ------------------------
 Best Practices
