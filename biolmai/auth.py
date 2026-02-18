@@ -120,9 +120,9 @@ def refresh_access_token(refresh):
 
 
 def get_auth_status():
-    environ_token = os.environ.get("BIOLMAI_TOKEN", None)
+    environ_token = os.environ.get("BIOLMAI_TOKEN") or os.environ.get("BIOLM_TOKEN")
     if environ_token:
-        msg = "Environment variable BIOLMAI_TOKEN detected. Validating token..."
+        msg = "Environment variable BIOLMAI_TOKEN/BIOLM_TOKEN detected. Validating token..."
         click.echo(msg)
         validate_user_auth(api_token=environ_token)
     elif os.path.exists(ACCESS_TOK_PATH):
@@ -199,7 +199,7 @@ def get_auth_status():
     else:
         msg = (
             f"No {BIOLMAI_BASE_DOMAIN} credentials found. Please "
-            f"set the environment variable BIOLMAI_TOKEN to a token from "
+            f"set the environment variable BIOLMAI_TOKEN (or BIOLM_TOKEN) to a token from "
             f"{GEN_TOKEN_URL}, or login by running `biolmai login`."
         )
         click.echo(msg)
@@ -276,9 +276,9 @@ def get_api_token():
 
 def get_user_auth_header():
     """Returns a dict with the appropriate Authorization header, either using
-    an API token from BIOLMAI_TOKEN environment variable, or by reading the
-    credentials file at ~/.biolmai/credntials next."""
-    api_token = os.environ.get("BIOLMAI_TOKEN", None)
+    an API token from BIOLMAI_TOKEN or BIOLM_TOKEN environment variable, or by
+    reading the credentials file at ~/.biolmai/credentials next."""
+    api_token = os.environ.get("BIOLMAI_TOKEN") or os.environ.get("BIOLM_TOKEN")
     if api_token:
         headers = {"Authorization": f"Token {api_token}"}
     elif os.path.exists(ACCESS_TOK_PATH):
