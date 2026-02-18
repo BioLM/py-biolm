@@ -1027,7 +1027,7 @@ def list(filter, sort, format, output, fields, view):
                     f.write(output_data)
                 console.print(f"[success]✓ Models saved to {output}[/success]")
             else:
-                console.print(output_data)
+                console.print(output_data, markup=False, highlight=False)
         elif format == 'yaml':
             try:
                 import yaml
@@ -1366,7 +1366,7 @@ def show(model_name, format, output, include_schemas, include_code_examples):
                     f.write(output_str)
                 console.print(f"[success]✓ Model information saved to {output}[/success]")
             else:
-                console.print(output_str)
+                console.print(output_str, markup=False, highlight=False)
         elif format == 'yaml':
             try:
                 import yaml
@@ -2212,7 +2212,7 @@ def validate(protocol_file, output_json):
                 "errors": [{"message": str(e), "path": "", "error_type": "exception"}],
                 "warnings": [],
                 "statistics": {}
-            }))
+            }), markup=False, highlight=False)
         else:
             console.print(Panel(
                 f"[error]Validation failed: {e}[/error]",
@@ -2237,7 +2237,7 @@ def validate(protocol_file, output_json):
             "warnings": result.warnings,
             "statistics": result.statistics
         }
-        console.print(json.dumps(output, indent=2))
+        console.print(json.dumps(output, indent=2), markup=False, highlight=False)
         sys.exit(0 if result.is_valid else 1)
     
     # Rich formatted output
@@ -2873,7 +2873,7 @@ def list(experiment, format, output, mlflow_uri, all_runs):
                     f.write(output_data)
                 console.print(f"[success]✓ Datasets saved to {output}[/success]")
             else:
-                console.print(output_data)
+                console.print(output_data, markup=False, highlight=False)
         elif format == 'csv':
             if not datasets:
                 console.print("[text.muted]No datasets to display.[/text.muted]")
@@ -3023,7 +3023,7 @@ def show(dataset_id, experiment, format, output, mlflow_uri):
                     f.write(output_data)
                 console.print(f"[success]✓ Dataset details saved to {output}[/success]")
             else:
-                console.print(output_data)
+                console.print(output_data, markup=False, highlight=False)
         elif format == 'yaml':
             try:
                 import yaml
