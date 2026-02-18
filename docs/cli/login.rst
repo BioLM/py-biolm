@@ -28,11 +28,11 @@ You can specify a custom OAuth client ID:
 
 Or set the ``BIOLMAI_OAUTH_CLIENT_ID`` environment variable.
 
-You can also specify custom OAuth scopes:
+You can also specify custom OAuth scopes (supported: read, write, introspection):
 
 .. code-block:: bash
 
-   biolmai login --scope "read write admin"
+   biolmai login --scope "read write"
 
 Examples
 --------
@@ -49,7 +49,7 @@ Login with custom client ID:
 
    biolmai login --client-id abc123xyz
 
-Login with custom scope:
+Login with custom scope (read and write for API access):
 
 .. code-block:: bash
 

@@ -24,29 +24,28 @@ For examples, see below.
 
    Ensure you replace the example API token with your own.
 
-.. code:: shell
+.. code-block:: shell
 
     export BIOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
 
 For Bash
 ^^^^^^^^
 
-.. code:: shell
+.. code-block:: shell
 
     echo "export BIOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b" >> ~/.bash_profile && source ~/.bash_profile
 
 For Zsh
 ^^^^^^^
 
-
-.. code:: shell
+.. code-block:: shell
 
     echo "export BIOLMAI_TOKEN=9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b" >> ~/.zshrc && source ~/.zshrc
 
 For Python
 ^^^^^^^^^^
 
-.. code:: python
+.. code-block:: python
 
     import os
     os.environ['BIOLMAI_TOKEN'] = '9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b'
@@ -64,7 +63,7 @@ OAuth Login
 The login command uses OAuth 2.0 with PKCE (Proof Key for Code Exchange) for secure authentication.
 It checks for existing credentials first, and only opens a browser if credentials are missing or invalid.
 
-.. code:: shell
+.. code-block:: shell
 
     $ biolmai login
 
@@ -77,7 +76,7 @@ It checks for existing credentials first, and only opens a browser if credential
 
 If you already have valid credentials, the command will inform you:
 
-.. code:: shell
+.. code-block:: shell
 
     $ biolmai login
 
@@ -90,7 +89,7 @@ Login Options
 
 You can specify a custom OAuth client ID and scope:
 
-.. code:: shell
+.. code-block:: shell
 
     # Specify a custom OAuth client ID
     $ biolmai login --client-id YOUR_CLIENT_ID
@@ -99,20 +98,27 @@ You can specify a custom OAuth client ID and scope:
     $ export BIOLMAI_OAUTH_CLIENT_ID=YOUR_CLIENT_ID
     $ biolmai login
 
-    # Specify custom scope
-    $ biolmai login --scope "read write profile"
+    # Specify custom scope (supported: read, write, introspection)
+    $ biolmai login --scope "read write"
 
 OAuth Configuration
 ^^^^^^^^^^^^^^^^^^^
 
-The OAuth login uses a fixed redirect URI: :code:`https://127.0.0.1:8765/callback`.
-This port must be available on your machine. If port 8765 is in use, you'll need to
-close the application using it or configure a different redirect URI.
+The OAuth login uses a fixed redirect URI: :code:`http://127.0.0.1:8765/callback`
+(or :code:`http://localhost:8765/callback`). This port must be available on your
+machine. If port 8765 is in use, you'll need to close the application using it
+or configure a different redirect URI.
 
-The callback server uses HTTPS with a self-signed certificate. Your browser will
-display a security warning about the certificate - this is expected and safe for
-localhost. You can proceed by clicking "Advanced" and then "Proceed to 127.0.0.1"
-(or similar, depending on your browser).
+.. note::
+
+   If using a custom OAuth client ID, ensure the redirect URI is registered in
+   your BioLM OAuth Application (Console → OAuth Apps). For flexible port support,
+   register :code:`http://127.0.0.1/callback` (no port) per RFC 8252.
+
+The callback server may use HTTPS with a self-signed certificate when the
+:code:`cryptography` package is installed. Your browser will display a security
+warning about the certificate - this is expected and safe for localhost. You can
+proceed by clicking "Advanced" and then "Proceed to 127.0.0.1" (or similar).
 
 .. note::
 
@@ -129,7 +135,7 @@ Credentials are saved to :code:`~/.biolmai/credentials` in JSON format with:
 - :code:`client_id`: OAuth client ID
 
 Legacy Username/Password Login
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. note::
 

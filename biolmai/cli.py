@@ -428,8 +428,8 @@ def login(client_id, scope):
         # Login with custom client ID
         biolm login --client-id your-client-id
         
-        # Login with custom scope
-        biolm login --scope "read write admin"
+        # Login with custom scope (supported: read, write, introspection)
+        biolm login --scope "read write"
     """
     # Check if credentials already exist and are valid
     if are_credentials_valid():
