@@ -2,7 +2,7 @@
 FAQ
 ===
 
-**Q: Can I use generators or iterators for** ``items``**?**
+**Q:** Can I use generators or iterators for ``items``?
 
 A: Yes. Pass a generator (or any iterable) instead of a list. The client consumes it batch-by-batch, so you never hold all items in memory. Ideal for large files or streams. The generator is fully consumed during the call. See :doc:`usage/batching`.
 
