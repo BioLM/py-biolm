@@ -1,27 +1,35 @@
 #!/bin/bash
 set -e
 
+# Run from repo root (Vercel may run from different cwd)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
 # Set locale to avoid locale errors in containerized environments
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
 
-# Install dependencies with Python 3.12 compatible versions
-pip install --upgrade pip setuptools wheel
+# Use python -m pip for consistent behavior (avoids system pip / pkgutil.ImpImporter issues on Python 3.12)
+PYTHON="${PYTHON:-python}"
+PIP="$PYTHON -m pip"
+
+# Upgrade pip with cap to avoid breaking setuptools (matches GitHub Actions docs workflow)
+$PIP install --upgrade "pip<25" setuptools wheel
 
 # Install docutils first with version constraint to avoid conflicts
-pip install "docutils>=0.20.0,<0.22"
+$PIP install "docutils>=0.20.0,<0.22"
 
 # Install remaining dependencies
-pip install -r requirements_vercel.txt
+$PIP install -r requirements_vercel.txt
 
 # Verify sphinx-jsonschema is installed
-if ! pip show sphinx-jsonschema >/dev/null 2>&1; then
+if ! $PIP show sphinx-jsonschema >/dev/null 2>&1; then
     echo "WARNING: sphinx-jsonschema not found, installing..."
-    pip install sphinx-jsonschema>=1.17.0
+    $PIP install "sphinx-jsonschema>=1.17.0"
 fi
 
 # Install the package itself so sphinx-apidoc can import modules
-pip install -e .
+$PIP install -e .
 
 # Build HTML docs in iframe mode using Makefile target (same as GitHub Actions)
 make docs-iframe
