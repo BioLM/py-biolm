@@ -117,7 +117,7 @@ def test_credentials_file_auth_headers():
         old_biomai_token = os.environ.pop("BIOLMAI_TOKEN", None)
         old_biom_token = os.environ.pop("BIOLM_TOKEN", None)
         try:
-            with patch("biolmai.core.const.ACCESS_TOK_PATH", str(cred_path)):
+            with patch("biolmai.core.http.ACCESS_TOK_PATH", str(cred_path)):
                 from biolmai.core.http import CredentialsProvider
 
                 headers = CredentialsProvider.get_auth_headers(api_key=None)
