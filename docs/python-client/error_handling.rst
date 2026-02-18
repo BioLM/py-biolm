@@ -66,7 +66,7 @@ Examples
 
     from biolmai import biolm
     try:
-        result = biolm(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
+        result = biolm(entity="esmfold", action="predict", type="sequence", items="BADSEQ", raise_httpx=True)
     except Exception as e:
         print("Caught exception:", e)
 
@@ -74,14 +74,14 @@ Examples
 
 .. code-block:: python
 
-    result = biolm(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ"], raise_httpx=False, stop_on_error=False)
+    result = biolm(entity="esmfold", action="predict", type="sequence", items=["GOODSEQ", "BADSEQ"], raise_httpx=False, stop_on_error=False)
     # result[0] is a normal result, result[1] is a dict with "error" and "status_code"
 
 **3. Stop on first error:**
 
 .. code-block:: python
 
-    result = biolm(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ", "ANOTHER"], raise_httpx=False, stop_on_error=True)
+    result = biolm(entity="esmfold", action="predict", type="sequence", items=["GOODSEQ", "BADSEQ", "ANOTHER"], raise_httpx=False, stop_on_error=True)
     # Only results up to and including the first error are returned
 
 **4. Retrying failed batches as single items (BioLMApi/BioLMApiClient only):**
@@ -94,9 +94,15 @@ Examples
     # If a batch fails, each item is retried individually
 
     # Async version:
+    import asyncio
     from biolmai.client import BioLMApiClient
-    model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)
-    result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
+
+    async def main():
+        model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)
+        result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
+        # If a batch fails, each item is retried individually
+
+    asyncio.run(main())
 
 ------------------------
 What do error results look like?
@@ -123,7 +129,7 @@ If you set `raise_httpx=True`, you must catch exceptions:
 
     from biolmai import biolm
     try:
-        result = biolm(entity="esmfold", action="predict", items="BADSEQ", raise_httpx=True)
+        result = biolm(entity="esmfold", action="predict", type="sequence", items="BADSEQ", raise_httpx=True)
     except Exception as e:
         print("Caught exception:", e)
 
@@ -131,7 +137,7 @@ If you set `raise_httpx=False`, you can check for errors in the results:
 
 .. code-block:: python
 
-    result = biolm(entity="esmfold", action="predict", items=["GOODSEQ", "BADSEQ"], raise_httpx=False)
+    result = biolm(entity="esmfold", action="predict", type="sequence", items=["GOODSEQ", "BADSEQ"], raise_httpx=False)
     for r in result:
         if "error" in r:
             print("Error:", r["error"])

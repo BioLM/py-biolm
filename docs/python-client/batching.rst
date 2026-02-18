@@ -25,7 +25,7 @@ You can provide input in several ways:
 
     .. code-block:: python
 
-        biolm(entity="esm2-8m", action="encode", type="sequence", items=["SEQ1", "SEQ2"])
+        biolm(entity="esm2-8m", action="encode", type="sequence", items=["MSILV", "MDNELE"])
 
 **3. List of dicts:**
   - For a batch of structured items (e.g., `{"sequence": ...}`).
@@ -34,9 +34,28 @@ You can provide input in several ways:
 
     .. code-block:: python
 
-        biolm(entity="esmfold", action="predict", items=[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}])
+        biolm(entity="esmfold", action="predict", items=[{"sequence": "MSILV"}, {"sequence": "MDNELE"}])
 
-**4. List of lists of dicts (advanced/manual batching):**
+**4. Generators and iterators (memory-efficient):**
+  - Pass a generator or any iterable instead of a list. The client consumes it batch-by-batch, so you never hold all items in memory at once.
+  - Ideal for large files, streams, or lazy data pipelines.
+  - **Note:** The generator is fully consumed during the call; you cannot iterate it again afterwards.
+  - Example:
+
+    .. code-block:: python
+
+        def sequences_from_file(path):
+            with open(path) as f:
+                for line in f:
+                    seq = line.strip()
+                    if seq:
+                        yield {"sequence": seq}
+
+        result = biolm(entity="esm2-8m", action="encode", items=sequences_from_file("sequences.txt"))
+
+  - Works with `biolm()`, `BioLMApi`, and `BioLMApiClient`.
+
+**5. List of lists of dicts (advanced/manual batching):**
   - Each inner list is treated as a batch and sent as a single API request.
   - Useful for custom batching, controlling batch size, or mixing valid/invalid items.
   - Example:
@@ -44,10 +63,24 @@ You can provide input in several ways:
     .. code-block:: python
 
         batches = [
-            [{"sequence": "SEQ1"}, {"sequence": "SEQ2"}],  # batch 1
-            [{"sequence": "SEQ3"}],                        # batch 2
+            [{"sequence": "MSILV"}, {"sequence": "MDNELE"}],  # batch 1
+            [{"sequence": "MENDEL"}],                        # batch 2
         ]
         biolm(entity="esmfold", action="predict", items=batches)
+
+------------------------
+When You Need ``type=``
+------------------------
+
+- If `items` is a **string** (single sequence) or a **list of non-dict values** (e.g. list of strings), you **must** specify `type` (e.g. `type="sequence"`).
+- If `items` is a list of dicts or a generator of dicts, the client infers the type from the keys and you do not need `type`.
+
+------------------------
+Sequence Validity
+------------------------
+
+- Protein sequences must use only valid amino acid letters: ``ACDEFGHIKLMNPQRSTVWYBXZUO``.
+- Use sequences that contain only valid amino acid letters (e.g. ``MSILV``, ``MDNELE``).
 
 ------------------------
 How Auto-Batching Works
@@ -66,9 +99,14 @@ How Auto-Batching Works
 .. code-block:: python
 
     # If the model's max batch size is 8, this will be split into 2 requests:
-    items = ["SEQ" + str(i) for i in range(12)]
+    import random
+    items = [''.join(random.choices('ACDEFGHIKLMNPQRSTVWY', k=6)) for _ in range(12)]
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items=items)
     # result is a list of 12 results, in order
+
+    # Same thing with a generator (memory-efficient for large N):
+    items = (''.join(random.choices('ACDEFGHIKLMNPQRSTVWY', k=6)) for _ in range(12))
+    result = biolm(entity="esm2-8m", action="encode", type="sequence", items=items)
 
 ------------------------
 Advanced: Manual Batching with List of Lists
@@ -87,8 +125,8 @@ Advanced: Manual Batching with List of Lists
 
     # Two batches: first has 2 items, second has 1
     items = [
-        [{"sequence": "SEQ1"}, {"sequence": "BADSEQ"}],  # batch 1
-        [{"sequence": "SEQ3"}],                          # batch 2
+        [{"sequence": "MSILV"}, {"sequence": "BADSEQ"}],  # batch 1
+        [{"sequence": "MENDEL"}],                          # batch 2
     ]
     result = biolm(entity="esmfold", action="predict", items=items, stop_on_error=False)
     # result is a flat list: [result1, result2, result3]
@@ -129,17 +167,19 @@ Batching and Error Handling
 Summary Table
 ------------------------
 
-+--------------------------+-----------------------------+-----------------------------+
-| Input Format             | Auto-batching?              | Use Case                    |
-+==========================+=============================+=============================+
-| Single value/dict        | Yes                         | Single item                 |
-+--------------------------+-----------------------------+-----------------------------+
-| List of values           | Yes (needs `type`)          | Batch of simple items       |
-+--------------------------+-----------------------------+-----------------------------+
-| List of dicts            | Yes                         | Batch of structured items   |
-+--------------------------+-----------------------------+-----------------------------+
-| List of lists of dicts   | No (manual batching)        | Custom batch control        |
-+--------------------------+-----------------------------+-----------------------------+
++--------------------------+-----------------------------+------------------------------------------+
+| Input Format             | Auto-batching?              | Use Case                                  |
++==========================+=============================+==========================================+
+| Single value/dict        | Yes                         | Single item                               |
++--------------------------+-----------------------------+------------------------------------------+
+| List of values           | Yes (needs `type`)          | Batch of simple items                     |
++--------------------------+-----------------------------+------------------------------------------+
+| List of dicts            | Yes                         | Batch of structured items                 |
++--------------------------+-----------------------------+------------------------------------------+
+| Generator/iterator       | Yes (consumed in batches)   | Large streams, low memory                |
++--------------------------+-----------------------------+------------------------------------------+
+| List of lists of dicts   | No (manual batching)       | Custom batch control                      |
++--------------------------+-----------------------------+------------------------------------------+
 
 ------------------------
 Examples
@@ -149,14 +189,14 @@ Examples
 
 .. code-block:: python
 
-    items = [{"sequence": "SEQ1"}, {"sequence": "SEQ2"}]
+    items = [{"sequence": "MSILV"}, {"sequence": "MDNELE"}]
     result = biolm(entity="esm2-8m", action="encode", items=items)
 
 **Batching with list of values:**
 
 .. code-block:: python
 
-    items = ["SEQ1", "SEQ2"]
+    items = ["MSILV", "MDNELE"]
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items=items)
 
 **Manual batching with list of lists:**
@@ -164,8 +204,8 @@ Examples
 .. code-block:: python
 
     batches = [
-        [{"sequence": "SEQ1"}, {"sequence": "BADSEQ"}],  # batch 1
-        [{"sequence": "SEQ3"}],                          # batch 2
+        [{"sequence": "MSILV"}, {"sequence": "BADSEQ"}],  # batch 1
+        [{"sequence": "MENDEL"}],                          # batch 2
     ]
     result = biolm(entity="esmfold", action="predict", items=batches, stop_on_error=False)
 
@@ -174,9 +214,10 @@ Best Practices
 ------------------------
 
 - For most use cases, provide a list of values or dicts and let the client auto-batch.
+- For large datasets (files, streams), use a **generator** so items are consumed batch-by-batch—you never hold everything in memory.
+- Use `output='disk'` for very large jobs to avoid memory pressure on results.
 - Use manual batching (list of lists) only for advanced workflows.
-- Always specify `type` if your items are not dicts.
-- For large jobs, consider `output='disk'` to avoid memory issues.
+- Always specify `type` when `items` is a string or list of non-dict values.
 
 ------------------------
 See Also

@@ -19,10 +19,10 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
 **Key Features**
 
 - Sync and async interfaces
-- Automatic batching (schema-based)
-- Flexible input (list of dicts, single key + list, list of lists)
-- Custom rate limiting or concurrency
-- Low memory usage
+- Automatic batching with concurrent batch requests (default: up to 16 in flight, API rate limit)
+- Flexible input (list of dicts, single key + list, list of lists, generators)
+- Configurable semaphore and rate limiting
+- Low memory usage (generators, disk output)
 - Flexible error handling
 - Disk or memory output
 - Access to schema and batch size
@@ -35,7 +35,7 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
 
     # ESM2-8M: encode a batch
     model = BioLMApi("esm2-8m")
-    result = model.encode(items=[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}])
+    result = model.encode(items=[{"sequence": "MSILV"}, {"sequence": "MDNELE"}])
 
     # ProGen2-OAS: generate new sequences
     model = BioLMApi("progen2-oas")
@@ -49,10 +49,10 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
     max_batch = model.extract_max_items(schema)
 
     # Call the API directly (rarely needed)
-    resp = model.call("encode", [{"sequence": "SEQ1"}])
+    resp = model.call("encode", [{"sequence": "MSILV"}])
 
     # Advanced: manual batching
-    batches = [[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}], [{"sequence": "SEQ3"}]]
+    batches = [[{"sequence": "MSILV"}, {"sequence": "MDNELE"}], [{"sequence": "MENDEL"}]]
     result = model._batch_call_autoschema_or_manual("encode", batches)
 
     # Async usage

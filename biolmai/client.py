@@ -7,9 +7,10 @@ import os
 import threading
 import time
 from collections import namedtuple, OrderedDict
+from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from itertools import chain
-from itertools import tee, islice
+from itertools import islice
 from json import dumps as json_dumps
 from typing import Callable
 from typing import Optional, Union, List, Any, Dict, Tuple
@@ -394,10 +395,19 @@ def type_check(param_types: Dict[str, Any]):
                     else:
                         expected_types = expected_type
                     if not isinstance(value, expected_types):
-                        type_names = ", ".join([t.__name__ for t in expected_types])
-                        raise TypeError(
-                            f"Parameter '{param}' must be of type {type_names}, got {type(value).__name__}"
-                        )
+                        # Special case: 'items' also accepts iterables (generators, iterators)
+                        # but not str, bytes, or dict (those are single-item types)
+                        if (
+                            param == "items"
+                            and isinstance(value, Iterable)
+                            and not isinstance(value, (str, bytes, dict))
+                        ):
+                            pass
+                        else:
+                            type_names = ", ".join([t.__name__ for t in expected_types])
+                            raise TypeError(
+                                f"Parameter '{param}' must be of type {type_names}, got {type(value).__name__}"
+                            )
                     # Check for empty list/tuple
                     # if isinstance(value, (list, tuple)) and len(value) == 0:
                     #     raise ValueError(
@@ -448,7 +458,7 @@ class CredentialsProvider:
     def get_auth_headers(api_key: Optional[str] = None) -> Dict[str, str]:
         if api_key:
             return {"Authorization": f"Token {api_key}"}
-        api_token = os.environ.get("BIOLMAI_TOKEN")
+        api_token = os.environ.get("BIOLMAI_TOKEN") or os.environ.get("BIOLM_TOKEN")
         if api_token:
             return {"Authorization": f"Token {api_token}"}
         if os.path.exists(ACCESS_TOK_PATH):
@@ -459,7 +469,7 @@ class CredentialsProvider:
             return {
                 "Cookie": f"access={access};refresh={refresh}",
             }
-        raise AssertionError("No credentials found. Set BIOLMAI_TOKEN or run `biolmai login`.")
+        raise AssertionError("No credentials found. Set BIOLMAI_TOKEN (or BIOLM_TOKEN) or run `biolmai login`.")
 
 
 class HttpClient:
@@ -632,9 +642,9 @@ def is_list_of_lists(items, check_n=10):
         first_n = items[:check_n]
         is_lol = all(isinstance(x, (list, tuple)) for x in first_n)
         return is_lol, first_n, iter(items[check_n:])
-    # For iterators/generators
-    items, items_copy = tee(items)
-    first_n = list(islice(items_copy, check_n))
+    # For iterators/generators: consume first N, return rest (no tee - tee would
+    # duplicate first N when caller chains first_n + rest)
+    first_n = list(islice(items, check_n))
     is_lol = all(isinstance(x, (list, tuple)) for x in first_n) and bool(first_n)
     return is_lol, first_n, items
 

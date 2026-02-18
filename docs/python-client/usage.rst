@@ -12,7 +12,7 @@ Usage
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
 
     # ESM2-8M: encode a batch of sequences
-    result = biolm(entity="esm2-8m", action="encode", type="sequence", items=["SEQ1", "SEQ2"])
+    result = biolm(entity="esm2-8m", action="encode", type="sequence", items=["MSILV", "MDNELE"])
 
     # ESMFold: predict structure for a batch
     result = biolm(entity="esmfold", action="predict", type="sequence", items=["MDNELE", "MENDEL"])
@@ -28,7 +28,7 @@ Usage
     # result is a list of dicts with "sequence" keys
 
     # Write results to disk
-    biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
+    biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "MDNELE"], output='disk', file_path="results.jsonl")
 
 **Direct usage with BioLMApi (sync, advanced):**
 
@@ -40,7 +40,7 @@ Usage
     model = BioLMApi("esm2-8m", raise_httpx=False)
 
     # Encode a batch
-    result = model.encode(items=[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}])
+    result = model.encode(items=[{"sequence": "MSILV"}, {"sequence": "MDNELE"}])
 
     # Generate with ProGen2-OAS
     model = BioLMApi("progen2-oas")
@@ -54,11 +54,15 @@ Usage
     max_batch = model.extract_max_items(schema)
 
     # Call the API directly (rarely needed)
-    resp = model.call("encode", [{"sequence": "SEQ1"}])
+    resp = model.call("encode", [{"sequence": "MSILV"}])
 
     # Advanced: manual batching
-    batches = [[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}], [{"sequence": "SEQ3"}]]
+    batches = [[{"sequence": "MSILV"}, {"sequence": "MDNELE"}], [{"sequence": "MENDEL"}]]
     result = model._batch_call_autoschema_or_manual("encode", batches)
+
+.. tip::
+
+   **Large datasets?** Pass a generator instead of a list so items are consumed batch-by-batch—you never load everything into memory. See :doc:`batching`. For concurrency and rate limits, see :doc:`rate_limiting`.
 
 **When to use BioLMApi vs BioLM:**
 

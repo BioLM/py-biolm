@@ -3,15 +3,14 @@ Features
 ========================
 
 - **High-level constructor**: Instantly run an API call with a single line.
-- **Sync and async**: Use `BioLM` for sync, or `BioLMApiClient` for async.
-- **Flexible rate limiting**: Use API throttle, disable, or set your own (e.g., '1000/second').
-- **Schema-based batching**: Automatically queries API for max batch size.
-- **Flexible input**: Accepts a single key and list, or list of dicts, or list of lists for advanced batching.
-- **Low memory**: Uses generators for validation and batching.
-- **Error handling**: Raise HTTPX errors, continue on error, or stop on first error.
-- **Disk output**: Write results as JSONL to disk.
-- **Universal HTTP client**: Efficient for both sync and async.
-- **Direct access to schema and batching**: Use `BioLMApi` for advanced workflows, including `.schema()`, `.call()`, and `._batch_call_autoschema_or_manual()`.
+- **Sync and async**: Use `biolm()` or `BioLM` for sync, or `BioLMApiClient` for async.
+- **Auto-batching + concurrency**: Items are split into batches (schema-based max size) and sent in parallel. By default, up to 16 requests run concurrently, with API-recommended rate limiting. See :doc:`rate_limiting`.
+- **Generators supported**: Pass a generator or iterator instead of a list; items are consumed batch-by-batch so you never load the full dataset into memory. Ideal for large FASTA/FASTQ files or streaming pipelines.
+- **Flexible input**: Single value, list, tuple, generator, or list of lists (manual batching). Use `type="sequence"` when items are strings.
+- **Configurable concurrency**: Custom semaphore (in-flight limit), rate limits (e.g. ``1000/second``), or disable throttling for advanced control.
+- **Error handling**: Raise HTTPX errors, continue on error, or stop on first error. Optionally retry failed batches as single items.
+- **Disk output**: Write results as JSONL to disk for very large jobs.
+- **Direct access**: Use `BioLMApi` for `.schema()`, `.call()`, and advanced batching/error control.
 
 **Example endpoints and actions:**
 

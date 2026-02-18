@@ -7,7 +7,7 @@ Async and Sync Usage
 .. code-block:: python
 
     from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
 
 **Asynchronous usage:**
 
@@ -36,7 +36,7 @@ Async and Sync Usage
 
     # Sync wrappers also work automatically (nest_asyncio is applied internally)
     from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
 
 
 ------------------------
@@ -62,7 +62,7 @@ Synchronous Usage (BioLM)
     from biolmai import biolm
 
     # Single item: returns a dict
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
     print(result["mean_plddt"])
 
     # Batch: returns a list of dicts
@@ -74,7 +74,7 @@ Asynchronous Usage (BioLMApi/BioLMApiClient)
 ------------------------
 
 - **True async**: Designed for async Python (e.g., FastAPI, web servers, or high-throughput pipelines).
-- **Concurrent requests**: Can send many requests in parallel, maximizing API throughput.
+- **Concurrent requests**: Batches are sent in parallel (up to semaphore limit, default 16), maximizing API throughput.
 - **Manual control**: You manage the event loop and can await results.
 - **No GIL/threading issues**: All network I/O is non-blocking.
 
@@ -174,7 +174,7 @@ The library automatically detects Jupyter environments and handles async/sync co
 
     # Also works: Sync wrapper (nest_asyncio applied automatically)
     from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
 
 ------------------------
 Best Practices
