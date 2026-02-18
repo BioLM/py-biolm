@@ -8,7 +8,6 @@ from datetime import datetime
 import pytest
 from click.testing import CliRunner
 
-from biolmai.core.const import ACCESS_TOK_PATH
 from biolmai.datasets_mlflow import (
     MLflowNotAvailableError,
     list_datasets,
@@ -533,22 +532,15 @@ class TestCLIDatasetCommands:
 class TestErrorHandling:
     """Test error handling."""
     
-    @patch("biolmai.cli.os.path.exists")
     @patch("biolmai.datasets_mlflow._check_mlflow_available")
     @patch("biolmai.cli.are_credentials_valid")
-    def test_cli_dataset_list_not_authenticated(self, mock_auth, mock_mlflow_check, mock_exists):
-        """Test CLI dataset list without authentication."""
+    def test_cli_dataset_list_not_authenticated(self, mock_auth, mock_mlflow_check):
+        """Test CLI dataset list without authentication (are_credentials_valid returns False)."""
         mock_auth.return_value = False
-        # CLI checks ACCESS_TOK_PATH existence for auth; report no credentials file
-        def exists(path):
-            if path == ACCESS_TOK_PATH:
-                return False
-            return True
-        mock_exists.side_effect = exists
-        
+
         runner = CliRunner()
         result = runner.invoke(cli, ["dataset", "list"])
-        
+
         assert result.exit_code == 1
         assert "Authentication" in result.output or "Not Authenticated" in result.output or "authenticate" in result.output.lower()
     

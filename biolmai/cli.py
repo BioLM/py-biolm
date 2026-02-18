@@ -2827,8 +2827,8 @@ def list(experiment, format, output, mlflow_uri, all_runs):
             ))
             sys.exit(1)
         
-        # Check if credentials file exists (MLflow will handle actual authentication)
-        if not os.path.exists(ACCESS_TOK_PATH):
+        # Check credentials (consistent with login/status)
+        if not are_credentials_valid():
             console.print(Panel(
                 "[error]Authentication required.[/error]\n\n"
                 "Please run [brand]biolm login[/brand] to authenticate.",
@@ -2991,8 +2991,8 @@ def show(dataset_id, experiment, format, output, mlflow_uri):
             ))
             sys.exit(1)
         
-        # Check if credentials file exists (MLflow will handle actual authentication)
-        if not os.path.exists(ACCESS_TOK_PATH):
+        # Check credentials (consistent with login/status)
+        if not are_credentials_valid():
             console.print(Panel(
                 "[error]Authentication required.[/error]\n\n"
                 "Please run [brand]biolm login[/brand] to authenticate.",
@@ -3209,8 +3209,8 @@ def upload(dataset_id, file_path, experiment, name, recursive, mlflow_uri):
             ))
             sys.exit(1)
         
-        # Check if credentials file exists (MLflow will handle actual authentication)
-        if not os.path.exists(ACCESS_TOK_PATH):
+        # Check credentials (consistent with login/status)
+        if not are_credentials_valid():
             console.print(Panel(
                 "[error]Authentication required.[/error]\n\n"
                 "Please run [brand]biolm login[/brand] to authenticate.",
@@ -3308,8 +3308,8 @@ def download(dataset_id, output_path, experiment, artifact_path, mlflow_uri):
             ))
             sys.exit(1)
         
-        # Check if credentials file exists (MLflow will handle actual authentication)
-        if not os.path.exists(ACCESS_TOK_PATH):
+        # Check credentials (consistent with login/status)
+        if not are_credentials_valid():
             console.print(Panel(
                 "[error]Authentication required.[/error]\n\n"
                 "Please run [brand]biolm login[/brand] to authenticate.",
