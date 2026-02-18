@@ -20,15 +20,15 @@ When you set `output='disk'` and provide a `file_path`, results are written as J
 .. code-block:: python
 
     # Write all results to disk, continue on errors
-    biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "BADSEQ"], output='disk', file_path="results.jsonl", stop_on_error=False)
+    biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "BADSEQ"], output='disk', file_path="results.jsonl", stop_on_error=False)
 
     # Write to disk, stop on first error
-    biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "BADSEQ"], output='disk', file_path="results.jsonl", stop_on_error=True)
+    biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "BADSEQ"], output='disk', file_path="results.jsonl", stop_on_error=True)
 
     # Advanced: retry failed batches as single items (BioLMApi only)
     from biolmai.client import BioLMApi
     model = BioLMApi("esm2-8m", retry_error_batches=True)
-    model.encode(items=[{"sequence": "SEQ1"}, {"sequence": "BADSEQ"}], output='disk', file_path="out.jsonl")
+    model.encode(items=[{"sequence": "MSILV"}, {"sequence": "BADSEQ"}], output='disk', file_path="out.jsonl")
 
 Batch Error Handling
 --------------------

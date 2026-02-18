@@ -25,7 +25,7 @@ You can provide input in several ways:
 
     .. code-block:: python
 
-        biolm(entity="esm2-8m", action="encode", type="sequence", items=["SEQ1", "SEQ2"])
+        biolm(entity="esm2-8m", action="encode", type="sequence", items=["MSILV", "MDNELE"])
 
 **3. List of dicts:**
   - For a batch of structured items (e.g., `{"sequence": ...}`).
@@ -34,7 +34,7 @@ You can provide input in several ways:
 
     .. code-block:: python
 
-        biolm(entity="esmfold", action="predict", items=[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}])
+        biolm(entity="esmfold", action="predict", items=[{"sequence": "MSILV"}, {"sequence": "MDNELE"}])
 
 **4. List of lists of dicts (advanced/manual batching):**
   - Each inner list is treated as a batch and sent as a single API request.
@@ -44,8 +44,8 @@ You can provide input in several ways:
     .. code-block:: python
 
         batches = [
-            [{"sequence": "SEQ1"}, {"sequence": "SEQ2"}],  # batch 1
-            [{"sequence": "SEQ3"}],                        # batch 2
+            [{"sequence": "MSILV"}, {"sequence": "MDNELE"}],  # batch 1
+            [{"sequence": "MENDEL"}],                        # batch 2
         ]
         biolm(entity="esmfold", action="predict", items=batches)
 
@@ -66,7 +66,8 @@ How Auto-Batching Works
 .. code-block:: python
 
     # If the model's max batch size is 8, this will be split into 2 requests:
-    items = ["SEQ" + str(i) for i in range(12)]
+    import random
+    items = [''.join(random.choices('ACDEFGHIKLMNPQRSTVWY', k=6)) for _ in range(12)]
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items=items)
     # result is a list of 12 results, in order
 
@@ -87,8 +88,8 @@ Advanced: Manual Batching with List of Lists
 
     # Two batches: first has 2 items, second has 1
     items = [
-        [{"sequence": "SEQ1"}, {"sequence": "BADSEQ"}],  # batch 1
-        [{"sequence": "SEQ3"}],                          # batch 2
+        [{"sequence": "MSILV"}, {"sequence": "BADSEQ"}],  # batch 1
+        [{"sequence": "MENDEL"}],                          # batch 2
     ]
     result = biolm(entity="esmfold", action="predict", items=items, stop_on_error=False)
     # result is a flat list: [result1, result2, result3]
@@ -149,14 +150,14 @@ Examples
 
 .. code-block:: python
 
-    items = [{"sequence": "SEQ1"}, {"sequence": "SEQ2"}]
+    items = [{"sequence": "MSILV"}, {"sequence": "MDNELE"}]
     result = biolm(entity="esm2-8m", action="encode", items=items)
 
 **Batching with list of values:**
 
 .. code-block:: python
 
-    items = ["SEQ1", "SEQ2"]
+    items = ["MSILV", "MDNELE"]
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items=items)
 
 **Manual batching with list of lists:**
@@ -164,8 +165,8 @@ Examples
 .. code-block:: python
 
     batches = [
-        [{"sequence": "SEQ1"}, {"sequence": "BADSEQ"}],  # batch 1
-        [{"sequence": "SEQ3"}],                          # batch 2
+        [{"sequence": "MSILV"}, {"sequence": "BADSEQ"}],  # batch 1
+        [{"sequence": "MENDEL"}],                          # batch 2
     ]
     result = biolm(entity="esmfold", action="predict", items=batches, stop_on_error=False)
 

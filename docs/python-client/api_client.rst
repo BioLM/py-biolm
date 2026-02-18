@@ -35,7 +35,7 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
 
     # ESM2-8M: encode a batch
     model = BioLMApi("esm2-8m")
-    result = model.encode(items=[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}])
+    result = model.encode(items=[{"sequence": "MSILV"}, {"sequence": "MDNELE"}])
 
     # ProGen2-OAS: generate new sequences
     model = BioLMApi("progen2-oas")
@@ -49,10 +49,10 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
     max_batch = model.extract_max_items(schema)
 
     # Call the API directly (rarely needed)
-    resp = model.call("encode", [{"sequence": "SEQ1"}])
+    resp = model.call("encode", [{"sequence": "MSILV"}])
 
     # Advanced: manual batching
-    batches = [[{"sequence": "SEQ1"}, {"sequence": "SEQ2"}], [{"sequence": "SEQ3"}]]
+    batches = [[{"sequence": "MSILV"}, {"sequence": "MDNELE"}], [{"sequence": "MENDEL"}]]
     result = model._batch_call_autoschema_or_manual("encode", batches)
 
     # Async usage
