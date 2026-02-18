@@ -2,7 +2,13 @@
 Rate Limiting and Throttling
 ========================
 
-The BioLM Python client supports flexible rate limiting and throttling to help you stay within API quotas and avoid overloading the server. You can use the default API throttle, disable it, or set your own custom limits.
+The BioLM Python client batches your requests and runs them concurrently. By default:
+
+- **Concurrency:** Up to 16 requests in flight at once (semaphore limit).
+- **Rate limiting:** API-recommended throttle from the schema (requests per second/minute).
+- **Batching:** Items are split by schema ``maxItems`` and sent as parallel batch requests.
+
+This gives high throughput out of the box. You can customize or disable these limits (see below).
 
 ------------------------
 Order of Throttling/Concurrency

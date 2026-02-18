@@ -2,9 +2,21 @@
 FAQ
 ===
 
+**Q: Can I use generators or iterators for `items`?**
+
+A: Yes. Pass a generator (or any iterable) instead of a list. The client consumes it batch-by-batch, so you never hold all items in memory. Ideal for large files or streams. The generator is fully consumed during the call. See :doc:`batching`.
+
+**Q: When do I need to specify `type` (e.g. `type="sequence"`)?**
+
+A: When `items` is a **string** or a **list of non-dict values** (e.g. a list of sequence strings). If `items` is a list or generator of dicts like `{"sequence": "..."}`, the client infers the type and you don't need it.
+
+**Q: What characters are valid in protein sequences?**
+
+A: Use standard amino acid letters: ``ACDEFGHIKLMNPQRSTVWYBXZUO``. Example: ``random.choices('ACDEFGHIKLMNPQRSTVWY', k=6)`` for random valid sequences.
+
 **Q: How do I process a large batch of sequences?**
 
-A: Provide a list of dicts or a list of values; batching is automatic. For advanced control, use `BioLMApi` and access the schema to determine batch size.
+A: Provide a list of dicts or a list of values; batching is automatic. For **very large** datasets, use a generator so items are streamed batch-by-batch. For huge result sets, use `output='disk'` to write JSONL to a file.
 
 **Q: How do I handle errors gracefully?**
 
@@ -17,6 +29,10 @@ A: Set `output='disk'` and provide `file_path` in either `BioLM` or `BioLMApi`.
 **Q: How do I use the async client?**
 
 A: Use `BioLMApiClient` and `await` the methods.
+
+**Q: How does the client achieve high throughput?**
+
+A: By default, the client batches your items (schema-based size), sends batch requests in parallel (up to 16 concurrent), and applies API-recommended rate limiting. No configuration needed. See :doc:`rate_limiting`.
 
 **Q: How do I set a custom rate limit?**
 

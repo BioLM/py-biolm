@@ -19,10 +19,10 @@ Direct, flexible access to the BioLM API, supporting both synchronous (`BioLMApi
 **Key Features**
 
 - Sync and async interfaces
-- Automatic batching (schema-based)
-- Flexible input (list of dicts, single key + list, list of lists)
-- Custom rate limiting or concurrency
-- Low memory usage
+- Automatic batching with concurrent batch requests (default: up to 16 in flight, API rate limit)
+- Flexible input (list of dicts, single key + list, list of lists, generators)
+- Configurable semaphore and rate limiting
+- Low memory usage (generators, disk output)
 - Flexible error handling
 - Disk or memory output
 - Access to schema and batch size

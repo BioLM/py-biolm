@@ -7,6 +7,8 @@ Disk Output
 
 When you set `output='disk'` and provide a `file_path`, results are written as JSONL (one JSON object per line). This is supported in both `BioLM` and `BioLMApi`/`BioLMApiClient`.
 
+**When to use:** For large jobs where keeping all results in memory would be costly. Combine with generators for inputs to minimize memory use end-to-end (generator for items + disk for results).
+
 **Key points:**
 
 - Each input item produces one line in the output file, in the same order as the input.
