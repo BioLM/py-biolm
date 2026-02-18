@@ -3,7 +3,7 @@
 import pytest
 
 from biolmai import biolm
-from biolmai.client import BioLMApi, BioLMApiClient
+from biolmai.core.http import BioLMApi, BioLMApiClient
 
 
 def _gen_dicts(n):

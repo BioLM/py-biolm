@@ -1,6 +1,6 @@
 import pytest
 
-from biolmai.client import BioLMApiClient
+from biolmai.core.http import BioLMApiClient
 
 
 @pytest.mark.asyncio
