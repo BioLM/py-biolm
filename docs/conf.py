@@ -133,9 +133,9 @@ html_theme_options = {
         "color-header-background": "#ffffff",
         "color-header-text": "#1f2937",
         
-        # Code blocks
+        # Code blocks (darker text for readability in light theme)
         "color-code-background": "#f1f5f9",
-        "color-code-foreground": "#334155",
+        "color-code-foreground": "#1e293b",
         
         # Font families to match your website exactly
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
@@ -152,9 +152,9 @@ html_theme_options = {
         "color-sidebar-background-border": "#334155",
         "color-sidebar-brand-text": "#f1f5f9",
         
-        # Dark mode code blocks
+        # Dark mode code blocks (brighter text for readability)
         "color-code-background": "#1e293b",
-        "color-code-foreground": "#e2e8f0",
+        "color-code-foreground": "#f1f5f9",
         
         # Additional dark mode styling
         "color-highlight-on-target": "#374151",
