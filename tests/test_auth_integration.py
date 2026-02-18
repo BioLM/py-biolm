@@ -70,8 +70,8 @@ async def test_api_request_with_access_refresh_tokens():
         old_biomai_token = os.environ.pop("BIOLMAI_TOKEN", None)
         old_biom_token = os.environ.pop("BIOLM_TOKEN", None)
         try:
-            # 4. Patch client to use our temp credentials path
-            with patch("biolmai.core.const.ACCESS_TOK_PATH", str(cred_path)):
+            # 4. Patch client to use our temp credentials path (patch where it's used: http)
+            with patch("biolmai.core.http.ACCESS_TOK_PATH", str(cred_path)):
                 client = BioLMApiClient(
                     "nanobert",
                     raise_httpx=False,
