@@ -28,6 +28,7 @@ requirements = [
     "nest_asyncio",
     "rich>=13.0.0",
     "pyyaml>=5.0",
+    "jsonschema<=4.26.0"
 ]
 
 test_requirements = [

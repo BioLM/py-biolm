@@ -96,6 +96,7 @@ dependencies = [
     "nest_asyncio",
     "rich>=13.0.0",
     "pyyaml>=5.0",
+    "jsonschema>=4.0,<5",
 ]
 scripts = { biolmai = "biolmai.cli_entry:cli" }
 
