@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "uv pip install --system . -r requirements_dev.txt -r requirements_docs.txt",
+  "buildCommand": "sphinx-build -b html docs docs/_build/html",
+  "outputDirectory": "docs/_build/html"
+}
