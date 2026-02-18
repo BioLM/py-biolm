@@ -2,7 +2,9 @@
 Usage
 =====
 
-**Synchronous usage (high-level, BioLM):**
+**Synchronous usage (high-level):** you can use the one-off function ``biolm()`` or the class-based ``Model``.
+
+**Option 1 — ``biolm()`` (one-off calls):**
 
 .. code-block:: python
 
@@ -29,6 +31,22 @@ Usage
 
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "MDNELE"], output='disk', file_path="results.jsonl")
+
+**Option 2 — ``Model`` (class-based, one model):** bind to a model and call ``.encode()``, ``.predict()``, or ``.generate()``. Good when you use the same model for multiple calls.
+
+.. code-block:: python
+
+    from biolmai import Model
+
+    # One model, multiple operations
+    model = Model("esm2-8m")
+    result = model.encode(type="sequence", items=["MSILV", "MDNELE"])
+
+    model = Model("esmfold")
+    result = model.predict(type="sequence", items=["MDNELE", "MENDEL"])
+
+    model = Model("progen2-oas")
+    result = model.generate(type="context", items="M", params={"temperature": 0.7, "top_p": 0.6, "num_samples": 2, "max_length": 17})
 
 **Direct usage with BioLMApi (sync, advanced):**
 
@@ -109,11 +127,12 @@ When you set `output='disk'` and provide a `file_path`, results are written as J
 
 For batch error behavior (retry_error_batches, stop_on_error), see :doc:`error-handling`.
 
-**When to use BioLMApi vs BioLM:**
+**When to use which:**
 
-- Use **BioLM** for simple, one-line, high-level requests (quick scripts, notebooks, most users).
+- Use **``biolm()``** for one-off, one-line requests (quick scripts, notebooks).
+- Use **``Model``** when you're focused on one model and want to call ``.encode()``, ``.predict()``, or ``.generate()`` on it (e.g. load data → model.encode() → save). See :doc:`../models` for more.
 - Use **BioLMApi** for:
     - More control over batching, error handling, or output
     - Accessing schema or batch size programmatically
     - Custom workflows, integration, or advanced error recovery
-    - When you want to use the same client for multiple calls (avoids re-authenticating)
+    - When you want to reuse the same client for multiple calls (avoids re-authenticating)

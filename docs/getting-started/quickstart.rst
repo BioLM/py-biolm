@@ -10,7 +10,7 @@ Install the package:
 
     pip install biolmai
 
-Basic usage:
+Basic usage (one-off calls with ``biolm()``):
 
 .. code-block:: python
 
@@ -24,5 +24,17 @@ Basic usage:
 
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
+
+**Or use the class-based ``Model``** when you're working with one model and want to call ``.encode()``, ``.predict()``, or ``.generate()`` on it:
+
+.. code-block:: python
+
+    from biolmai import Model
+
+    model = Model("esm2-8m")
+    result = model.encode(type="sequence", items="MSILVTRPSPAGEEL")
+
+    model = Model("esmfold")
+    result = model.predict(type="sequence", items=["SEQ1", "SEQ2"])
 
 For core concepts (sync/async, batching, error handling, etc.), see :doc:`concepts`. For SDK usage and examples, see :doc:`../sdk/models`.
