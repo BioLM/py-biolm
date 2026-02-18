@@ -1,7 +1,7 @@
 Execution
 =========
 
-Tasks run in order. You can make a task wait for others (depends_on), run conditionally (skip_if, skip_if_empty), or repeat over a list (foreach). See :doc:`tasks` for task definitions and :doc:`schema` for the full JSON Schema.
+Tasks run in order. You can make a task wait for others (``depends_on``), run conditionally (``skip_if``, ``skip_if_empty``), or repeat over a list (``foreach``). See :doc:`tasks` for task definitions and :doc:`schema` for the full JSON Schema.
 
 **Example (depends_on):**
 

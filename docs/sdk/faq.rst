@@ -46,7 +46,7 @@ A: Use ``BioLMApi`` if you need:
     - To call lower-level methods like ``.call()`` or ``.schema()``
     - To do advanced batching or error handling
 
-**Q: What are ``.schema()``, ``.call()``, and ``._batch_call_autoschema_or_manual()`` for?**
+**Q: What are** :code:`.schema()` **,** :code:`.call()` **, and** :code:`._batch_call_autoschema_or_manual()` **for?**
 
 A: These are lower-level methods on ``BioLMApi``/``BioLMApiClient``:
 

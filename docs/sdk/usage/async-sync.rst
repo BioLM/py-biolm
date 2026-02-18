@@ -108,7 +108,12 @@ Advanced Async Features
 ------------------------
 
 - **Concurrent requests**: The async client can batch and send multiple requests at once, using semaphores and rate limiters.
-- **Context manager support**: Use ``async with BioLMApiClient(...) as model:`` to ensure clean shutdown.
+- **Context manager support**: Use a context manager for clean shutdown:
+
+  .. code-block:: python
+
+      async with BioLMApiClient("esmfold") as model:
+          result = await model.predict(items=[{"sequence": "MDNELE"}])
 - **Disk output**: Async disk writing is supported for large jobs (see :ref:`disk-output` in :doc:`usage`).
 - **Manual batching**: You can control batch size and composition for maximum throughput.
 

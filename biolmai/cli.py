@@ -2968,7 +2968,7 @@ def show(dataset_id, experiment, format, output, mlflow_uri):
     Display detailed information about a specific dataset, including metadata,
     tags, parameters, metrics, and artifacts.
     
-    By default, looks for datasets in the "{username}/datasets" experiment.
+    By default, looks for datasets in the ``{username}/datasets`` experiment.
     
     Examples:
     
@@ -3282,7 +3282,7 @@ def download(dataset_id, output_path, experiment, artifact_path, mlflow_uri):
     
     Download all artifacts from a dataset to the specified directory.
     
-    By default, looks for datasets in the "{username}/datasets" experiment.
+    By default, looks for datasets in the ``{username}/datasets`` experiment.
     
     Examples:
     

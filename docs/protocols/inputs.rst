@@ -1,7 +1,7 @@
 Inputs (InputSpec)
 ==================
 
-Each entry under *inputs* is an InputSpec: a type (e.g. text, float, integer, boolean, select, list_of_str, pdb_text, multiselect) plus optional label, required/optional, help_text, initial, min/max, min_length/max_length, choices (for select/multiselect), advanced, and step.
+Each entry under ``inputs`` is an InputSpec: a ``type`` (e.g. text, float, integer, boolean, select, list_of_str, pdb_text, multiselect) plus optional ``label``, ``required``/``optional``, ``help_text``, ``initial``, ``min``/``max``, ``min_length``/``max_length``, ``choices`` (for select/multiselect), ``advanced``, and ``step``.
 
 **Example:**
 

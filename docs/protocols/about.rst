@@ -19,4 +19,8 @@ A protocol defines a workflow for the BioLM server: inputs, tasks (model or gath
         request_body:
           items: "{{ inputs.sequences }}"
 
-Required top-level keys: *name*, *inputs* (map of input names to InputSpec — see :doc:`inputs`), and *tasks* (array of model or gather tasks — see :doc:`tasks` and :doc:`execution`). Optional: *description*, *example_inputs*, *progress*, *ranking*, *writing*, *concurrency*, *outputs* (MLflow), *schema_version* (default 1). See :doc:`schema` for the full JSON Schema.
+**Required top-level keys:** ``name``, ``inputs`` (map of input names to InputSpec — see :doc:`inputs`), and ``tasks`` (array of model or gather tasks — see :doc:`tasks` and :doc:`execution`).
+
+**Optional:** ``description``, ``example_inputs``, ``progress``, ``ranking``, ``writing``, ``concurrency``, ``outputs`` (MLflow), ``schema_version`` (default 1).
+
+See :doc:`schema` for the full JSON Schema.
