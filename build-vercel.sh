@@ -9,11 +9,13 @@ cd "$SCRIPT_DIR"
 export LC_ALL=C.UTF-8
 export LANG=C.UTF-8
 
-# Use python -m pip for consistent behavior (avoids system pip / pkgutil.ImpImporter issues on Python 3.12)
+# Vercel uses uv-managed Python (PEP 668); use a venv so we don't modify system packages
+python3 -m venv .venv
+source .venv/bin/activate
 PYTHON="${PYTHON:-python}"
 PIP="$PYTHON -m pip"
 
-# Upgrade pip with cap to avoid breaking setuptools (matches GitHub Actions docs workflow)
+# Upgrade pip with cap to avoid breaking setuptools
 $PIP install --upgrade "pip<25" setuptools wheel
 
 # Install docutils first with version constraint to avoid conflicts
