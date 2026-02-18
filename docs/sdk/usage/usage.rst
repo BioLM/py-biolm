@@ -2,9 +2,9 @@
 Usage
 =====
 
-**Synchronous usage (high-level):** you can use the one-off function ``biolm()`` or the class-based ``Model``.
+**Synchronous usage (high-level):** you can use the one-off function :code:`biolm()` or the class-based :code:`Model`.
 
-**Option 1 — ``biolm()`` (one-off calls):**
+**Option 1 —** :code:`biolm()` ** (one-off calls):**
 
 .. code-block:: python
 
@@ -32,7 +32,7 @@ Usage
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "MDNELE"], output='disk', file_path="results.jsonl")
 
-**Option 2 — ``Model`` (class-based, one model):** bind to a model and call ``.encode()``, ``.predict()``, or ``.generate()``. Good when you use the same model for multiple calls.
+**Option 2 —** :code:`Model` ** (class-based, one model):** bind to a model and call :code:`.encode()`, :code:`.predict()`, or :code:`.generate()`. Good when you use the same model for multiple calls.
 
 .. code-block:: python
 
@@ -48,7 +48,7 @@ Usage
     model = Model("progen2-oas")
     result = model.generate(type="context", items="M", params={"temperature": 0.7, "top_p": 0.6, "num_samples": 2, "max_length": 17})
 
-**Direct usage with BioLMApi (sync, advanced):**
+**Direct usage with** :code:`BioLMApi` ** (sync, advanced):**
 
 .. code-block:: python
 
@@ -129,9 +129,9 @@ For batch error behavior (retry_error_batches, stop_on_error), see :doc:`error-h
 
 **When to use which:**
 
-- Use **``biolm()``** for one-off, one-line requests (quick scripts, notebooks).
-- Use **``Model``** when you're focused on one model and want to call ``.encode()``, ``.predict()``, or ``.generate()`` on it (e.g. load data → model.encode() → save). See :doc:`../models` for more.
-- Use **BioLMApi** for:
+- Use :code:`biolm()` for one-off, one-line requests (quick scripts, notebooks).
+- Use :code:`Model` when you're focused on one model and want to call :code:`.encode()`, :code:`.predict()`, or :code:`.generate()` on it (e.g. load data → model.encode() → save). See :doc:`../models` for more.
+- Use :code:`BioLMApi` for:
     - More control over batching, error handling, or output
     - Accessing schema or batch size programmatically
     - Custom workflows, integration, or advanced error recovery

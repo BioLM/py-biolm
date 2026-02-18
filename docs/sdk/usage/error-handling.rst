@@ -48,9 +48,9 @@ Behavior Matrix
    :widths: 20 20 20 40
    :header-rows: 1
 
-   * - raise_httpx
-     - stop_on_error
-     - retry_error_batches
+   * - ``raise_httpx``
+     - ``stop_on_error``
+     - ``retry_error_batches``
      - Behavior
    * - True
      - (any)
@@ -73,7 +73,7 @@ Behavior Matrix
 Examples
 ------------------------
 
-**1. Raising exceptions on error (default for BioLMApi/BioLMApiClient):**
+**1. Raising exceptions on error (default for** :code:`BioLMApi` **/** :code:`BioLMApiClient` **):**
 
 .. code-block:: python
 
@@ -97,7 +97,7 @@ Examples
     result = biolm(entity="esmfold", action="predict", type="sequence", items=["GOODSEQ", "BADSEQ", "ANOTHER"], raise_httpx=False, stop_on_error=True)
     # Only results up to and including the first error are returned
 
-**4. Retrying failed batches as single items (BioLMApi/BioLMApiClient only):**
+**4. Retrying failed batches as single items (** :code:`BioLMApi` **/** :code:`BioLMApiClient` **only):**
 
 .. code-block:: python
 
