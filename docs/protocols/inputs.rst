@@ -14,4 +14,4 @@ Each value under ``inputs`` is an **InputSpec** object:
 - **advanced**: Optional boolean.
 - **step**: Optional number (e.g. for float sliders).
 
-See :doc:`about` for top-level structure and ``schema/protocol_schema.json`` for the full schema.
+See :doc:`about` for top-level structure and :doc:`schema` for the full JSON Schema.

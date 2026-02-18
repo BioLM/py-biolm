@@ -101,7 +101,7 @@ Usage
 Disk output
 -----------
 
-When you set `output='disk'` and provide a `file_path`, results are written as JSONL (one JSON object per line). Supported for `biolm`, `BioLMApi`, and `BioLMApiClient`.
+When you set ``output='disk'`` and provide a ``file_path``, results are written as JSONL (one JSON object per line). Supported for ``biolm``, ``BioLMApi``, and ``BioLMApiClient``.
 
 **When to use:** Large jobs where keeping all results in memory would be costly. Combine with generators for inputs to minimize memory use end-to-end.
 
@@ -109,9 +109,9 @@ When you set `output='disk'` and provide a `file_path`, results are written as J
 
 - One line per input item, in the same order as the input.
 - Batch errors: if a batch fails, an error dict is written for each item in that batch.
-- `stop_on_error=True`: writing stops after the first error batch.
-- `stop_on_error=False`: all items are processed; errors are written for failed items.
-- `retry_error_batches=True` (BioLMApi/BioLMApiClient only): failed batches are retried as single items.
+- ``stop_on_error=True``: writing stops after the first error batch.
+- ``stop_on_error=False``: all items are processed; errors are written for failed items.
+- ``retry_error_batches=True`` (``BioLMApi``/``BioLMApiClient`` only): failed batches are retried as single items.
 
 **Examples:**
 

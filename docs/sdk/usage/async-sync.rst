@@ -35,9 +35,9 @@ High-Level Summary
 Synchronous Usage (BioLM)
 ------------------------
 
-- **Convenient interface**: Just call `biolm(...)` and get your result.
+- **Convenient interface**: Just call ``biolm(...)`` and get your result.
 - **Unpacks single-item results**: If you pass a single item, you get a single result (not a list).
-- **Runs in the main thread**: No need for `asyncio` or event loops.
+- **Runs in the main thread**: No need for ``asyncio`` or event loops.
 - **Great for Jupyter, scripts, and simple batch jobs**.
 
 **Example:**
@@ -82,8 +82,8 @@ Asynchronous Usage (BioLMApi/BioLMApiClient)
 How It Works Internally
 ------------------------
 
-- **BioLM** is a thin synchronous wrapper around the async client, using the `synchronicity` package to run async code in a blocking way.
-- **BioLMApi** is a synchronous wrapper for `BioLMApiClient` (async), for users who want a sync interface but more control than `BioLM`.
+- **BioLM** is a thin synchronous wrapper around the async client, using the ``synchronicity`` package to run async code in a blocking way.
+- **BioLMApi** is a synchronous wrapper for ``BioLMApiClient`` (async), for users who want a sync interface but more control than ``BioLM``.
 - **BioLMApiClient** is the core async client.
 
 ------------------------
@@ -108,7 +108,7 @@ Advanced Async Features
 ------------------------
 
 - **Concurrent requests**: The async client can batch and send multiple requests at once, using semaphores and rate limiters.
-- **Context manager support**: Use `async with BioLMApiClient(...) as model:` to ensure clean shutdown.
+- **Context manager support**: Use ``async with BioLMApiClient(...) as model:`` to ensure clean shutdown.
 - **Disk output**: Async disk writing is supported for large jobs (see :ref:`disk-output` in :doc:`usage`).
 - **Manual batching**: You can control batch size and composition for maximum throughput.
 
@@ -129,20 +129,20 @@ Sync/Async Interoperability
 
     result = run_sync()
 
-- Or, use the sync wrapper (`BioLMApi`) for a blocking interface.
+- Or, use the sync wrapper (``BioLMApi``) for a blocking interface.
 
 ------------------------
 Unpacking Single-Item Results
 ------------------------
 
 - **BioLM** and **BioLMApi**: If you pass a single item, you get a single result (dict), not a list.
-- **BioLMApiClient**: Always returns a list, even for a single item (unless you set `unwrap_single=True`).
+- **BioLMApiClient**: Always returns a list, even for a single item (unless you set ``unwrap_single=True``).
 
 ------------------------
 Jupyter Notebook Usage
 ------------------------
 
-- In Jupyter, the library detects the notebook environment and applies `nest_asyncio` so that sync wrappers (e.g. `biolm()`, `BioLMApi`) work correctly inside the notebook kernel.
+- In Jupyter, the library detects the notebook environment and applies ``nest_asyncio`` so that sync wrappers (e.g. ``biolm()``, ``BioLMApi``) work correctly inside the notebook kernel.
 - You can use the sync interface as usual: ``result = biolm(...)`` or ``model = BioLMApi("esmfold"); result = model.predict(...)``.
 - For **best performance** in Jupyter (e.g. large batches), use the async client with top-level ``await`` so the event loop runs natively:
 
@@ -152,15 +152,15 @@ Jupyter Notebook Usage
     model = BioLMApiClient("esmfold")
     result = await model.predict(items=[{"sequence": "MDNELE"}, {"sequence": "MENDEL"}])
 
-- Sync wrappers also work in Jupyter; use top-level ``await`` with `BioLMApiClient` when you want maximum throughput.
+- Sync wrappers also work in Jupyter; use top-level ``await`` with ``BioLMApiClient`` when you want maximum throughput.
 
 ------------------------
 Best Practices
 ------------------------
 
-- For quick jobs, use `BioLM` in sync mode.
-- For high-throughput or async apps, use `BioLMApiClient` and `await` your calls.
-- For batch jobs in scripts, `BioLMApi` gives you more control but stays synchronous.
+- For quick jobs, use ``BioLM`` in sync mode.
+- For high-throughput or async apps, use ``BioLMApiClient`` and ``await`` your calls.
+- For batch jobs in scripts, ``BioLMApi`` gives you more control but stays synchronous.
 - Always use the async client in async code (e.g., FastAPI, aiohttp, etc).
 
 ------------------------

@@ -17,7 +17,7 @@ Order of Throttling/Concurrency
 When making a request, the client applies throttling in this order:
 
 1. **Semaphore (Concurrency Limit):**
-   - If you provide a semaphore (e.g., `asyncio.Semaphore(5)`), it is acquired first.
+   - If you provide a semaphore (e.g., ``asyncio.Semaphore(5)``), it is acquired first.
    - This limits the number of concurrent requests.
 
 2. **Rate Limiter (Requests per Time Window):**
@@ -37,24 +37,24 @@ How to Configure
   - No need to set anything.
 
 - **Disable Throttling:**
-  - Pass `rate_limit=None` and `semaphore=None` to disable all throttling (for advanced users).
+  - Pass ``rate_limit=None`` and ``semaphore=None`` to disable all throttling (for advanced users).
 
 - **Custom Rate Limit:**
-  - Pass `rate_limit="N/second"` or `rate_limit="N/minute"`.
-  - Example: `rate_limit="1000/second"` or `rate_limit="60/minute"`.
+  - Pass ``rate_limit="N/second"`` or ``rate_limit="N/minute"``.
+  - Example: ``rate_limit="1000/second"`` or ``rate_limit="60/minute"``.
 
 - **Custom Semaphore:**
-  - Pass `semaphore=N` (integer) or `semaphore=asyncio.Semaphore(N)` to limit concurrency to N requests at a time.
-  - Pass `semaphore=None` to disable the default semaphore (no concurrency limit).
+  - Pass ``semaphore=N`` (integer) or ``semaphore=asyncio.Semaphore(N)`` to limit concurrency to N requests at a time.
+  - Pass ``semaphore=None`` to disable the default semaphore (no concurrency limit).
 
 ------------------------
 Rate Limit String Parsing and Windowing
 ------------------------
 
-- The `rate_limit` string must be in the form `"N/second"` or `"N/minute"`.
+- The ``rate_limit`` string must be in the form ``"N/second"`` or ``"N/minute"``.
 - The limiter uses a **sliding window**:
-    - For `"1000/second"`, at most 1000 requests can start in any rolling 1-second window.
-    - For `"60/minute"`, at most 60 requests can start in any rolling 60-second window.
+    - For ``"1000/second"``, at most 1000 requests can start in any rolling 1-second window.
+    - For ``"60/minute"``, at most 60 requests can start in any rolling 60-second window.
 - If the limit is reached, the client waits until a slot is available.
 
 **Examples:**

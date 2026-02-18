@@ -20,7 +20,7 @@ You can provide input in several ways:
 
 **2. List of values (strings, numbers, etc):**
   - For a batch of simple items (e.g., sequences).
-  - You must specify `type` (e.g., `type="sequence"`).
+  - You must specify ``type`` (e.g., ``type="sequence"``).
   - Example:
 
     .. code-block:: python
@@ -28,8 +28,8 @@ You can provide input in several ways:
         biolm(entity="esm2-8m", action="encode", type="sequence", items=["SEQ1", "SEQ2"])
 
 **3. List of dicts:**
-  - For a batch of structured items (e.g., `{"sequence": ...}`).
-  - No need to specify `type` if your dicts have the correct keys.
+  - For a batch of structured items (e.g., ``{"sequence": ...}``).
+  - No need to specify ``type`` if your dicts have the correct keys.
   - Example:
 
     .. code-block:: python
@@ -53,7 +53,7 @@ You can provide input in several ways:
 
         result = biolm(entity="esm2-8m", action="encode", items=sequences_from_file("sequences.txt"))
 
-  - Works with `biolm()`, `BioLMApi`, and `BioLMApiClient`.
+  - Works with ``biolm()``, ``BioLMApi``, and ``BioLMApiClient``.
 
 **5. List of lists of dicts (advanced/manual batching):**
   - Each inner list is treated as a batch and sent as a single API request.
@@ -75,8 +75,8 @@ How Auto-Batching Works
 - By default, the client will automatically batch your input according to the model's maximum batch size (queried from the API schema).
 - You do **not** need to manually split your input into batches; just provide a list of items.
 - The client will:
-    1. Query the schema for the model/action to determine `maxItems` (batch size).
-    2. Split your input into batches of up to `maxItems`.
+    1. Query the schema for the model/action to determine ``maxItems`` (batch size).
+    2. Split your input into batches of up to ``maxItems``.
     3. Send each batch as a separate API request.
     4. Collect and return results in the same order as your input.
 
@@ -117,7 +117,7 @@ Input Validation and Type Inference
 ------------------------
 
 - If you provide a list of dicts, the client infers the input type from the dict keys.
-- If you provide a list of values (not dicts), you **must** specify `type` (e.g., `type="sequence"`).
+- If you provide a list of values (not dicts), you **must** specify ``type`` (e.g., ``type="sequence"``).
 - If you provide a list of lists, each inner list must be a list of dicts (not strings).
 
 ------------------------
@@ -131,7 +131,7 @@ Sequence Validity
 Batch Size and Schema
 ------------------------
 
-- The client queries the API schema for the model/action to determine the maximum batch size (`maxItems`).
+- The client queries the API schema for the model/action to determine the maximum batch size (``maxItems``).
 - You can inspect this yourself:
 
 .. code-block:: python
@@ -147,9 +147,9 @@ Batching and Error Handling
 ------------------------
 
 - If a batch contains invalid items, the entire batch may fail (depending on the API).
-- Use `stop_on_error=True` to halt processing after the first error batch.
-- Use `stop_on_error=False` to continue processing all batches, with errors included in the results.
-- Use `retry_error_batches=True` (BioLMApi/BioLMApiClient only) to retry failed batches as single items.
+- Use ``stop_on_error=True`` to halt processing after the first error batch.
+- Use ``stop_on_error=False`` to continue processing all batches, with errors included in the results.
+- Use ``retry_error_batches=True`` (``BioLMApi``/``BioLMApiClient`` only) to retry failed batches as single items.
 
 ------------------------
 Summary Table
@@ -160,7 +160,7 @@ Summary Table
 +==========================+=============================+==========================================+
 | Single value/dict        | Yes                         | Single item                               |
 +--------------------------+-----------------------------+------------------------------------------+
-| List of values           | Yes (needs `type`)          | Batch of simple items                     |
+| List of values           | Yes (needs ``type``)        | Batch of simple items                     |
 +--------------------------+-----------------------------+------------------------------------------+
 | List of dicts            | Yes                         | Batch of structured items                 |
 +--------------------------+-----------------------------+------------------------------------------+
@@ -203,9 +203,9 @@ Best Practices
 
 - For most use cases, provide a list of values or dicts and let the client auto-batch.
 - For large datasets (files, streams), use a **generator** so items are consumed batch-by-batch—you never hold everything in memory.
-- Use `output='disk'` for very large jobs to avoid memory pressure on results (see the :ref:`disk-output` section in :doc:`usage`).
+- Use ``output='disk'`` for very large jobs to avoid memory pressure on results (see the :ref:`disk-output` section in :doc:`usage`).
 - Use manual batching (list of lists) only for advanced workflows.
-- Always specify `type` if your items are not dicts.
+- Always specify ``type`` if your items are not dicts.
 
 ------------------------
 See Also

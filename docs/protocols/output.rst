@@ -11,4 +11,4 @@ Response mapping and outputs
 
 **outputs**: Optional array of MLflow output rules (OutputRule) for logging results to MLflow.
 
-See ``schema/protocol_schema.json`` for the full JSON Schema and MLflow output rules.
+See :doc:`schema` for the full JSON Schema and MLflow output rules.

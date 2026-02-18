@@ -17,7 +17,7 @@ Documentation Structure
 **Auto-Generated Documentation:**
   - CLI reference (``docs/cli/reference.rst``) - Generated from ``biolmai.cli`` using ``sphinx-click``
   - API reference (``docs/api-reference/``) - Generated from Python code using ``sphinx-apidoc``
-  - Protocol YAML reference - Content in ``docs/protocols/``; full schema in ``schema/protocol_schema.json``
+  - Protocol YAML reference - Content in ``docs/protocols/``; full JSON Schema in :doc:`protocols/schema`
 
 Where to Write Documentation
 -----------------------------
@@ -52,4 +52,4 @@ Protocol Schema Documentation
 **Write here:**
   - ``docs/protocols/about.rst``, ``inputs.rst``, ``execution.rst``, ``tasks.rst``, ``output.rst`` - Protocol YAML structure and semantics
 
-**Schema:** ``schema/protocol_schema.json`` defines the formal JSON Schema; the client validates protocol YAML against it.
+**Schema:** The formal JSON Schema is in :doc:`protocols/schema`; the client validates protocol YAML against it.

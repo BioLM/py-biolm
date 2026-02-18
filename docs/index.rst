@@ -69,6 +69,7 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    protocols/execution
    protocols/tasks
    protocols/output
+   protocols/schema
 
 .. toctree::
    :maxdepth: 2
