@@ -37,7 +37,6 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    cli/model
    cli/protocol
    cli/dataset
-   cli/reference
 
 .. toctree::
    :maxdepth: 2
@@ -57,7 +56,6 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    sdk/usage/rate_limiting
    sdk/usage/io
    sdk/faq
-   sdk/api-reference/index
 
 .. toctree::
    :maxdepth: 1
@@ -73,8 +71,16 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
 
 .. toctree::
    :maxdepth: 2
+   :caption: API References:
+   :hidden:
+
+   cli/reference
+   sdk/api-reference/index
+   resources/rest-api
+
+.. toctree::
+   :maxdepth: 2
    :caption: Tutorials & Resources:
    :hidden:
 
    tutorials_use_cases/notebooks
-   resources/rest-api

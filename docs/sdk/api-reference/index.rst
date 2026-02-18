@@ -1,5 +1,5 @@
-API Reference
-=============
+SDK API
+=======
 
 Complete API reference for the BioLM Python SDK.
 

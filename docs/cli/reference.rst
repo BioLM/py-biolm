@@ -1,5 +1,5 @@
-CLI Reference
-=============
+CLI API
+=======
 
 Auto-generated reference documentation for all CLI commands and command groups.
 
