@@ -158,6 +158,10 @@ html_theme_options = {
         
         # Additional dark mode styling
         "color-highlight-on-target": "#374151",
+        # Admonitions (note, tip, etc.) - dark background, light title text
+        "color-admonition-title-background--note": "#1e3a5f",
+        "color-admonition-title--note": "#93c5fd",
+        "color-admonition-background": "#1e293b",
         
         # Font families to match your website exactly (same as light mode)
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',

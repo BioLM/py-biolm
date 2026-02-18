@@ -117,6 +117,47 @@ input[type="submit"]:hover {
     border-left: 4px solid var(--biolm-error);
 }
 
+/* Dark / auto: admonitions (Note, Tip, etc.) - dark block and readable title */
+body[data-theme="dark"] .admonition,
+[data-theme="dark"] .admonition {
+    background-color: #1e293b !important;
+    border-left-color: #60a5fa;
+    color: #e2e8f0 !important;
+}
+
+body[data-theme="dark"] .admonition.note,
+[data-theme="dark"] .admonition.note {
+    border-left-color: #60a5fa;
+}
+
+body[data-theme="dark"] .admonition .admonition-title,
+[data-theme="dark"] .admonition .admonition-title,
+body[data-theme="dark"] .admonition p.admonition-title,
+[data-theme="dark"] .admonition p.admonition-title {
+    background-color: #1e3a5f !important;
+    color: #f1f5f9 !important;
+}
+
+body[data-theme="dark"] .admonition.note .admonition-title,
+body[data-theme="dark"] .admonition.note p.admonition-title,
+[data-theme="dark"] .admonition.note .admonition-title,
+[data-theme="dark"] .admonition.note p.admonition-title {
+    background-color: #1e3a5f !important;
+    color: #93c5fd !important;
+}
+
+body[data-theme="dark"] .admonition .admonition-title::before,
+body[data-theme="dark"] .admonition p.admonition-title::before,
+[data-theme="dark"] .admonition .admonition-title::before,
+[data-theme="dark"] .admonition p.admonition-title::before {
+    filter: brightness(0) invert(1);
+}
+
+body[data-theme="dark"] .admonition p,
+[data-theme="dark"] .admonition p {
+    color: #e2e8f0 !important;
+}
+
 /* Custom table styling */
 table.docutils {
     border-collapse: collapse;
@@ -476,6 +517,24 @@ body[data-theme="dark"] .highlight-console .highlight span,
     body:not([data-theme="light"]) .furo-content h5,
     body:not([data-theme="light"]) .furo-content h6 {
         color: #f8fafc !important;
+    }
+    /* Admonitions (Note, Tip, etc.) in auto/dark */
+    body:not([data-theme="light"]) .admonition {
+        background-color: #1e293b !important;
+        border-left-color: #60a5fa;
+        color: #e2e8f0 !important;
+    }
+    body:not([data-theme="light"]) .admonition .admonition-title,
+    body:not([data-theme="light"]) .admonition p.admonition-title {
+        background-color: #1e3a5f !important;
+        color: #93c5fd !important;
+    }
+    body:not([data-theme="light"]) .admonition .admonition-title::before,
+    body:not([data-theme="light"]) .admonition p.admonition-title::before {
+        filter: brightness(0) invert(1);
+    }
+    body:not([data-theme="light"]) .admonition p {
+        color: #e2e8f0 !important;
     }
 }
 
