@@ -18,4 +18,4 @@ Top-level keys
 - **outputs**: Optional array of MLflow output rules (OutputRule). See :doc:`output`.
 - **schema_version**: Optional integer (default 1).
 
-See ``schema/protocol_schema.json`` for the full JSON Schema and MLflow output rules.
+See :doc:`schema` for the full JSON Schema and MLflow output rules.
