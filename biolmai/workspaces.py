@@ -35,7 +35,7 @@ class Workspace:
         
         Args:
             name: Name of the workspace to create.
-            **kwargs: Additional workspace parameters.
+            ``**kwargs``: Additional workspace parameters.
             
         Returns:
             Created workspace information.

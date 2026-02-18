@@ -9,23 +9,22 @@ def load_csv(
     sequence_key: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Load data from a CSV file.
-    
+
     Parses a CSV file and returns a list of dictionaries suitable for use
-    with BioLM API requests. Each row becomes a dictionary with column headers
-    as keys. All values are kept as strings (no type inference).
-    
+    with BioLM API requests. Each row becomes a dictionary with column
+    headers as keys. All values are kept as strings (no type inference).
+
     Args:
-        file_path: Path to CSV file (str, Path) or file-like object
-        sequence_key: Optional key name to validate exists in CSV.
-            If provided, raises ValueError if column is missing.
-        
+        file_path: Path to CSV file (str, Path) or file-like object.
+        sequence_key: Optional key name to validate exists in CSV; if provided, raises ValueError if column is missing.
+
     Returns:
-        List of dictionaries, one per row
-        
+        List of dictionaries, one per row.
+
     Raises:
-        FileNotFoundError: If file path doesn't exist
-        ValueError: If file is empty or sequence_key column is missing
-        
+        FileNotFoundError: If file path doesn't exist.
+        ValueError: If file is empty or sequence_key column is missing.
+
     Example:
         >>> items = load_csv("data.csv", sequence_key="sequence")
         >>> items[0]
@@ -87,19 +86,17 @@ def to_csv(
     fieldnames: Optional[List[str]] = None,
 ) -> None:
     """Write data to a CSV file.
-    
+
     Converts a list of dictionaries (API response format) to CSV format.
-    
+
     Args:
-        data: List of dictionaries to write
-        file_path: Output file path (str, Path) or file-like object
-        fieldnames: Optional list of column names. If not provided, inferred
-            from the first item's keys. Missing keys are filled with
-            empty strings.
-        
+        data: List of dictionaries to write.
+        file_path: Output file path (str, Path) or file-like object.
+        fieldnames: Optional list of column names; if not provided, inferred from the first item's keys (missing keys filled with empty strings).
+
     Raises:
-        ValueError: If data is empty
-        
+        ValueError: If data is empty.
+
     Example:
         >>> data = [{"sequence": "ACDEFGHIKLMNPQRSTVWY", "score": 0.95}]
         >>> to_csv(data, "output.csv")

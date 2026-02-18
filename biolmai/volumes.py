@@ -35,7 +35,7 @@ class Volume:
         
         Args:
             name: Name of the volume to create.
-            **kwargs: Additional volume parameters.
+            ``**kwargs``: Additional volume parameters.
             
         Returns:
             Created volume information.

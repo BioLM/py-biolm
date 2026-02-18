@@ -140,19 +140,28 @@ If a batch has invalid items, the whole batch may fail. You can halt on the firs
 Summary Table
 ------------------------
 
-+--------------------------+-----------------------------+------------------------------------------+
-| Input Format             | Auto-batching?              | Use Case                                  |
-+==========================+=============================+==========================================+
-| Single value/dict        | Yes                         | Single item                               |
-+--------------------------+-----------------------------+------------------------------------------+
-| List of values           | Yes (pass type)             | Batch of simple items                     |
-+--------------------------+-----------------------------+------------------------------------------+
-| List of dicts            | Yes                         | Batch of structured items                 |
-+--------------------------+-----------------------------+------------------------------------------+
-| Generator/iterator       | Yes (consumed in batches)   | Large streams, low memory                 |
-+--------------------------+-----------------------------+------------------------------------------+
-| List of lists of dicts   | No (manual batching)        | Custom batch control                      |
-+--------------------------+-----------------------------+------------------------------------------+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 28 44
+
+   * - Input Format
+     - Auto-batching?
+     - Use Case
+   * - Single value/dict
+     - Yes
+     - Single item
+   * - List of values
+     - Yes (pass type)
+     - Batch of simple items
+   * - List of dicts
+     - Yes
+     - Batch of structured items
+   * - Generator/iterator
+     - Yes (consumed in batches)
+     - Large streams, low memory
+   * - List of lists of dicts
+     - No (manual batching)
+     - Custom batch control
 
 ------------------------
 Examples

@@ -16,7 +16,7 @@ class Model:
     Args:
         name (str): The model name (e.g., 'esm2-8m', 'esmfold').
         api_key (Optional[str]): API key for authentication.
-        **kwargs: Additional arguments passed to BioLMApi.
+        ``**kwargs``: Additional arguments passed to BioLMApi.
     """
     def __init__(self, name: str, api_key: Optional[str] = None, **kwargs):
         self.name = name
@@ -30,8 +30,8 @@ class Model:
             items: Single item or list of items to predict.
             type: Type of item (e.g., 'sequence', 'pdb'). Required if items are not dicts.
             params: Optional parameters for the prediction.
-            **kwargs: Additional arguments (stop_on_error, output, file_path, etc.).
-            
+            ``**kwargs``: Additional arguments (stop_on_error, output, file_path, etc.).
+
         Returns:
             Prediction results.
         """
@@ -45,8 +45,8 @@ class Model:
             items: Single item or list of items to encode.
             type: Type of item (e.g., 'sequence'). Required if items are not dicts.
             params: Optional parameters for the encoding.
-            **kwargs: Additional arguments (stop_on_error, output, file_path, etc.).
-            
+            ``**kwargs``: Additional arguments (stop_on_error, output, file_path, etc.).
+
         Returns:
             Encoding results.
         """
@@ -60,8 +60,8 @@ class Model:
             items: Single item or list of items to generate from.
             type: Type of item (e.g., 'context', 'pdb'). Required if items are not dicts.
             params: Optional parameters for the generation.
-            **kwargs: Additional arguments (stop_on_error, output, file_path, etc.).
-            
+            ``**kwargs``: Additional arguments (stop_on_error, output, file_path, etc.).
+
         Returns:
             Generation results.
         """
@@ -73,7 +73,7 @@ class Model:
         
         Args:
             query: Query dict or list of query dicts.
-            **kwargs: Additional arguments (raw, output, file_path).
+            ``**kwargs``: Additional arguments (raw, output, file_path).
             
         Returns:
             Lookup results.
@@ -86,7 +86,7 @@ class Model:
         Args:
             action: Action name (encode, predict, generate, lookup). If None, generates for first available action.
             format: Output format ('python', 'markdown', 'rst', 'json').
-            **kwargs: Additional arguments passed to ExampleGenerator (base_url).
+            ``**kwargs``: Additional arguments passed to ExampleGenerator (base_url).
             
         Returns:
             Formatted example string.
@@ -115,7 +115,7 @@ class Model:
         
         Args:
             format: Output format ('python', 'markdown', 'rst', 'json').
-            **kwargs: Additional arguments passed to ExampleGenerator (base_url).
+            ``**kwargs``: Additional arguments passed to ExampleGenerator (base_url).
             
         Returns:
             Formatted examples string with all actions.

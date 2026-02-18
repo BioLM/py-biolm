@@ -113,19 +113,18 @@ def to_json(
     jsonl: bool = False,
 ) -> None:
     """Write data to a JSON file or JSONL (newline-delimited JSON) file.
-    
+
     Converts a list of dictionaries (API response format) to JSON format.
-    
+
     Args:
-        data: List of dictionaries to write
-        file_path: Output file path (str, Path), file-like object, or "-" for stdout
+        data: List of dictionaries to write.
+        file_path: Output file path (str, Path), file-like object, or "-" for stdout.
         indent: Indentation level for JSON (default: 2). Use None for compact JSON.
-        jsonl: If True, write as JSONL (one JSON object per line). If False,
-            write as JSON array. Default: False.
-        
+        jsonl: If True, write as JSONL (one JSON object per line); if False, write as JSON array. Default: False.
+
     Raises:
-        ValueError: If data is empty
-        
+        ValueError: If data is empty.
+
     Example:
         >>> data = [{"sequence": "ACDEFGHIKLMNPQRSTVWY", "score": 0.95}]
         >>> to_json(data, "output.json")

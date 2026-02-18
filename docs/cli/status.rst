@@ -1,5 +1,5 @@
 ``biolmai status``
-=================
+==================
 
 Show authentication status.
 

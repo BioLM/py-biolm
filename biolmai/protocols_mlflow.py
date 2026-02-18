@@ -362,20 +362,21 @@ def _percentile(values: List[float], p: int) -> float:
 
 def generate_seqparse(sequence: str, sequence_id: Optional[str] = None, metadata: Optional[Dict] = None) -> str:
     """Generate seqparse format JSON for a sequence.
-    
-    According to https://github.com/Lattice-Automation/seqparse, the format is:
-    {
-      "name": string,
-      "type": "dna" | "rna" | "aa" | "unknown",
-      "seq": string,
-      "annotations": Annotation[]
-    }
-    
+
+    According to https://github.com/Lattice-Automation/seqparse, the format is::
+
+        {
+          "name": string,
+          "type": "dna" | "rna" | "aa" | "unknown",
+          "seq": string,
+          "annotations": Annotation[]
+        }
+
     Args:
         sequence: The sequence string
         sequence_id: Optional sequence identifier (used as name)
         metadata: Optional metadata dictionary (may contain annotations)
-        
+
     Returns:
         JSON string in seqparse format
     """
