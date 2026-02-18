@@ -14,7 +14,7 @@ from pathlib import Path
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
 from biolmai.pipeline.datastore import DataStore
 from biolmai.pipeline.filters import BaseFilter
-from biolmai.client import BioLMApi
+from biolmai.client import BioLMApiClient  # Use async client directly
 
 
 class PredictionStage(Stage):
@@ -86,9 +86,9 @@ class PredictionStage(Stage):
             # Process uncached sequences
             print(f"  Calling {self.model_name}.{self.action}...")
             
-            # Create or reuse BioLM API client with shared semaphore
+            # Create or reuse async BioLM API client with shared semaphore
             if self._api_client is None:
-                self._api_client = BioLMApi(
+                self._api_client = BioLMApiClient(
                     self.model_name,
                     semaphore=self._semaphore,  # Share stage's semaphore for rate limiting
                     retry_error_batches=True  # Auto-retry failed batches individually
@@ -100,11 +100,11 @@ class PredictionStage(Stage):
                 sequences = df_uncached['sequence'].tolist()
                 items = [{'sequence': seq} for seq in sequences]
                 
-                # Call appropriate API method based on action
+                # Call appropriate async API method based on action
                 if self.action == 'encode':
-                    results = api.encode(items=items, params=self.params)
+                    results = await api.encode(items=items, params=self.params)
                 else:  # predict
-                    results = api.predict(items=items, params=self.params)
+                    results = await api.predict(items=items, params=self.params)
                 
                 # Store results in datastore
                 for seq, result in zip(sequences, results):
