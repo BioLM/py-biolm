@@ -10,7 +10,7 @@ from collections import namedtuple, OrderedDict
 from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from itertools import chain
-from itertools import tee, islice
+from itertools import islice
 from json import dumps as json_dumps
 from typing import Callable
 from typing import Optional, Union, List, Any, Dict, Tuple
@@ -642,9 +642,9 @@ def is_list_of_lists(items, check_n=10):
         first_n = items[:check_n]
         is_lol = all(isinstance(x, (list, tuple)) for x in first_n)
         return is_lol, first_n, iter(items[check_n:])
-    # For iterators/generators
-    items, items_copy = tee(items)
-    first_n = list(islice(items_copy, check_n))
+    # For iterators/generators: consume first N, return rest (no tee - tee would
+    # duplicate first N when caller chains first_n + rest)
+    first_n = list(islice(items, check_n))
     is_lol = all(isinstance(x, (list, tuple)) for x in first_n) and bool(first_n)
     return is_lol, first_n, items
 
