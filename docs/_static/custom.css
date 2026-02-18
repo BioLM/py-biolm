@@ -229,11 +229,13 @@ pre {
     overflow-x: auto;
 }
 
-/* Wider word spacing only for shell/console (not Python) so commands stay readable without spacing out code */
+/* Wider word spacing for shell/console, YAML, and JSON (not Python) so commands and protocol/schema blocks read clearly */
 .highlight-bash pre,
 .highlight-console pre,
 .highlight-shell pre,
-.highlight-text pre {
+.highlight-text pre,
+.highlight-yaml pre,
+.highlight-json pre {
     word-spacing: 0.35em;
 }
 
