@@ -46,9 +46,10 @@ A: Use `BioLMApi` if you need:
     - To call lower-level methods like `.call()` or `.schema()`
     - To do advanced batching or error handling
 
-**Q: What are `.schema()`, `.call()`, and `._batch_call_autoschema_or_manual()` for?**
+**Q: What are ``.schema()``, ``.call()``, and ``._batch_call_autoschema_or_manual()`` for?**
 
-A:
-- `.schema(model, action)`: Fetches the API schema for a model/action, useful for inspecting input/output formats and max batch size.
-- `.call(func, items, ...)`: Makes a direct API call for a given function (e.g., "encode"), bypassing batching logic. Useful for custom workflows or debugging.
-- `._batch_call_autoschema_or_manual(func, items, ...)`: Internal batching logic that splits items into batches based on schema, handles errors, and can write to disk. Advanced users may use this for custom batching or error handling.
+A: These are lower-level methods on ``BioLMApi``/``BioLMApiClient``:
+
+- ``.schema(model, action)``: Fetches the API schema for a model/action, useful for inspecting input/output formats and max batch size.
+- ``.call(func, items, ...)``: Makes a direct API call for a given function (e.g., "encode"), bypassing batching logic. Useful for custom workflows or debugging.
+- ``._batch_call_autoschema_or_manual(func, items, ...)``: Internal batching logic that splits items into batches based on schema, handles errors, and can write to disk. Advanced users may use this for custom batching or error handling.
