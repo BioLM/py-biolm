@@ -66,8 +66,9 @@ async def test_api_request_with_access_refresh_tokens():
         with open(cred_path, "w") as f:
             json.dump(creds, f)
 
-        # 3. Unset BIOLMAI_TOKEN so client falls back to credentials file
-        old_token = os.environ.pop("BIOLMAI_TOKEN", None)
+        # 3. Unset BIOLMAI_TOKEN and BIOLM_TOKEN so client falls back to credentials file
+        old_biomai_token = os.environ.pop("BIOLMAI_TOKEN", None)
+        old_biom_token = os.environ.pop("BIOLM_TOKEN", None)
         try:
             # 4. Patch client to use our temp credentials path
             with patch("biolmai.client.ACCESS_TOK_PATH", str(cred_path)):
@@ -88,14 +89,16 @@ async def test_api_request_with_access_refresh_tokens():
             assert isinstance(result[0], dict)
             assert "error" not in result[0]
         finally:
-            if old_token is not None:
-                os.environ["BIOLMAI_TOKEN"] = old_token
+            if old_biomai_token is not None:
+                os.environ["BIOLMAI_TOKEN"] = old_biomai_token
+            if old_biom_token is not None:
+                os.environ["BIOLM_TOKEN"] = old_biom_token
 
 
 def test_credentials_file_auth_headers():
     """Test that CredentialsProvider builds Cookie headers from credentials file.
 
-    When BIOLMAI_TOKEN is unset and ~/.biolmai/credentials exists, the client
+    When BIOLMAI_TOKEN and BIOLM_TOKEN are unset and ~/.biolmai/credentials exists, the client
     uses Cookie auth. This verifies the header-building logic. OAuth and legacy
     tokens both use the same Cookie format in the credentials file.
     """
@@ -111,7 +114,8 @@ def test_credentials_file_auth_headers():
         with open(cred_path, "w") as f:
             json.dump(creds, f)
 
-        old_token = os.environ.pop("BIOLMAI_TOKEN", None)
+        old_biomai_token = os.environ.pop("BIOLMAI_TOKEN", None)
+        old_biom_token = os.environ.pop("BIOLM_TOKEN", None)
         try:
             with patch("biolmai.client.ACCESS_TOK_PATH", str(cred_path)):
                 from biolmai.client import CredentialsProvider
@@ -122,5 +126,7 @@ def test_credentials_file_auth_headers():
                 assert "access=mock_oauth_access_token" in headers["Cookie"]
                 assert "refresh=mock_oauth_refresh_token" in headers["Cookie"]
         finally:
-            if old_token is not None:
-                os.environ["BIOLMAI_TOKEN"] = old_token
+            if old_biomai_token is not None:
+                os.environ["BIOLMAI_TOKEN"] = old_biomai_token
+            if old_biom_token is not None:
+                os.environ["BIOLM_TOKEN"] = old_biom_token

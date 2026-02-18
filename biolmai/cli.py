@@ -33,13 +33,14 @@ def cli(debug):
 
 
 def echo_env_vars():
-    env_var_tok = os.environ.get("BIOLMAI_TOKEN", "")[:6]
+    api_token = os.environ.get("BIOLMAI_TOKEN") or os.environ.get("BIOLM_TOKEN")
+    env_var_tok = (api_token or "")[:6]
     if env_var_tok and len(env_var_tok) == 6:
         env_var_tok += "*****************"
-    
+
     s = "\n".join(
         [
-            f"BIOLMAI_TOKEN={env_var_tok}",
+            f"BIOLMAI_TOKEN/BIOLM_TOKEN={env_var_tok}",
             f"BIOLMAI_ACCESS_CRED={ACCESS_TOK_PATH}",
             f"BIOLMAI_BASE_API_URL={BIOLMAI_BASE_API_URL}",
         ]

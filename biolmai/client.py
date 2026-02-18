@@ -448,7 +448,7 @@ class CredentialsProvider:
     def get_auth_headers(api_key: Optional[str] = None) -> Dict[str, str]:
         if api_key:
             return {"Authorization": f"Token {api_key}"}
-        api_token = os.environ.get("BIOLMAI_TOKEN")
+        api_token = os.environ.get("BIOLMAI_TOKEN") or os.environ.get("BIOLM_TOKEN")
         if api_token:
             return {"Authorization": f"Token {api_token}"}
         if os.path.exists(ACCESS_TOK_PATH):
@@ -459,7 +459,7 @@ class CredentialsProvider:
             return {
                 "Cookie": f"access={access};refresh={refresh}",
             }
-        raise AssertionError("No credentials found. Set BIOLMAI_TOKEN or run `biolmai login`.")
+        raise AssertionError("No credentials found. Set BIOLMAI_TOKEN (or BIOLM_TOKEN) or run `biolmai login`.")
 
 
 class HttpClient:
