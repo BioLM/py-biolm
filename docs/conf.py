@@ -279,6 +279,18 @@ texinfo_documents = [
     ),
 ]
 
+# sphinx-click: render envvar descriptions as normal text instead of block quotes
+def _envvar_description_as_paragraph(app, ctx, lines):
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("Provide a default for ") and ":option:" in stripped:
+            lines[i] = stripped
+
+
+def setup(app):
+    app.connect("sphinx-click-process-envvars", _envvar_description_as_paragraph)
+
+
 # Redirects
 redirects = {
     "model-docs/esmfold/ESMFold_Additional": "https://biolm.ai/models/esmfold/",

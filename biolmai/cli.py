@@ -405,7 +405,7 @@ def status():
     "--client-id",
     envvar="BIOLMAI_OAUTH_CLIENT_ID",
     default=None,
-    help="OAuth client ID (defaults to BIOLMAI_PUBLIC_CLIENT_ID or BIOLMAI_OAUTH_CLIENT_ID env var)",
+    help="OAuth client ID (defaults to ``BIOLMAI_PUBLIC_CLIENT_ID`` or ``BIOLMAI_OAUTH_CLIENT_ID`` env var)",
 )
 @click.option(
     "--scope",
@@ -418,7 +418,7 @@ def login(client_id, scope):
     
     Checks for existing credentials and validates them. If credentials are missing
     or invalid, opens a browser for OAuth authorization. Credentials are saved to
-    ~/.biolmai/credentials.
+    ``~/.biolmai/credentials``.
     
     Examples:
 

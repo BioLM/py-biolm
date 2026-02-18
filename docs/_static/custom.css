@@ -1,6 +1,14 @@
 /* Custom CSS for BioLM Documentation */
 /* Fonts and colors matching your website exactly - Inter + Roboto Mono */
 
+/* sphinx-click envvar: show "Provide a default for ..." as normal text, not block quote */
+dl.envvar dd blockquote {
+    border-left: none !important;
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    background: none !important;
+}
+
 /* Logo sizing for better visibility */
 .sidebar-brand img {
     width: 100% !important;
