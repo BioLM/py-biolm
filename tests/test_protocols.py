@@ -15,16 +15,40 @@ from biolmai.protocols import (
 
 @pytest.fixture
 def valid_protocol_yaml(tmp_path):
-    """Create a valid protocol YAML file for testing."""
+    """Create a valid protocol YAML file for testing (server format: InputSpec, top-level progress/ranking)."""
     protocol_content = """
 name: Test Protocol
 schema_version: 1
 description: A test protocol
 
 inputs:
-  n_samples: 10
-  temperature: 1.0
-  sequence: "ACDEFGHIKLMNPQRSTVWY"
+  sequence:
+    type: text
+    label: Protein sequence
+    required: true
+    initial: ''
+    min_length: 1
+    max_length: 2000
+  n_samples:
+    type: integer
+    label: N samples
+    optional: true
+    initial: '10'
+    min: 1
+    max: 100
+  temperature:
+    type: float
+    label: Temperature
+    optional: true
+    initial: '1.0'
+
+progress:
+  total_expected: 1
+
+ranking:
+  field: pdb
+  order: descending
+  top_n: 10
 
 tasks:
   - id: task1
@@ -37,7 +61,6 @@ tasks:
         temperature: ${{ temperature }}
     response_mapping:
       pdb: "${{ response.results[*].pdb }}"
-  
   - id: task2
     type: gather
     from: task1
@@ -60,33 +83,39 @@ def invalid_yaml_syntax(tmp_path):
 
 @pytest.fixture
 def missing_schema_version(tmp_path):
-    """Create a protocol file missing required schema_version."""
+    """Create a protocol file missing required 'inputs' (schema requires name, inputs, tasks)."""
     protocol_content = """
 name: Test Protocol
-inputs:
-  n_samples: 10
 tasks:
   - id: task1
     slug: esmfold
     action: predict
+    request_body:
+      items: []
 """
-    protocol_file = tmp_path / "missing_schema.yaml"
+    protocol_file = tmp_path / "missing_inputs.yaml"
     protocol_file.write_text(protocol_content)
     return str(protocol_file)
 
 
 @pytest.fixture
 def invalid_task_reference(tmp_path):
-    """Create a protocol with invalid task ID references."""
+    """Create a protocol with invalid task ID references in depends_on."""
     protocol_content = """
 name: Test Protocol
 schema_version: 1
 inputs:
-  n_samples: 10
+  x:
+    type: text
+    label: X
+    required: true
+    initial: ''
 tasks:
   - id: task1
     slug: esmfold
     action: predict
+    request_body:
+      items: []
     depends_on: [nonexistent_task]
 """
     protocol_file = tmp_path / "invalid_ref.yaml"
@@ -101,15 +130,23 @@ def circular_dependency(tmp_path):
 name: Test Protocol
 schema_version: 1
 inputs:
-  n_samples: 10
+  x:
+    type: text
+    label: X
+    required: true
+    initial: ''
 tasks:
   - id: task1
     slug: esmfold
     action: predict
+    request_body:
+      items: []
     depends_on: [task2]
   - id: task2
     slug: esm2-8m
     action: encode
+    request_body:
+      items: []
     depends_on: [task1]
 """
     protocol_file = tmp_path / "circular.yaml"
@@ -119,12 +156,16 @@ tasks:
 
 @pytest.fixture
 def invalid_template_expression(tmp_path):
-    """Create a protocol with invalid template expressions."""
+    """Create a protocol with invalid template expression (unclosed ${{)."""
     protocol_content = """
 name: Test Protocol
 schema_version: 1
 inputs:
-  n_samples: 10
+  x:
+    type: text
+    label: X
+    required: true
+    initial: ''
 tasks:
   - id: task1
     slug: esmfold
@@ -198,7 +239,6 @@ class TestProtocolValidationResult:
 class TestProtocolValidate:
     """Test Protocol.validate() class method."""
 
-    @pytest.mark.skip(reason="valid_protocol_yaml fixture uses plain input values; schema requires ExprString (${{ }}) pattern")
     def test_validate_valid_protocol(self, valid_protocol_yaml):
         """Test validating a valid protocol."""
         result = Protocol.validate(valid_protocol_yaml)
@@ -216,10 +256,10 @@ class TestProtocolValidate:
         assert any(e.error_type == "syntax" for e in result.errors)
     
     def test_validate_missing_schema_version(self, missing_schema_version):
-        """Test validating protocol missing required fields."""
+        """Test validating protocol missing required fields (e.g. inputs)."""
         result = Protocol.validate(missing_schema_version)
         assert result.is_valid is False
-        assert any("schema_version" in e.message for e in result.errors)
+        assert any("inputs" in e.message or "required" in e.message.lower() for e in result.errors)
         assert any(e.error_type == "schema" for e in result.errors)
     
     def test_validate_invalid_task_reference(self, invalid_task_reference):
@@ -260,11 +300,23 @@ class TestProtocolValidate:
 name: Test Protocol
 schema_version: 1
 inputs:
-  invalid_input: invalid
+  x:
+    type: text
+    label: X
+    required: true
+    initial: ''
 tasks:
   - id: task1
+    slug: esmfold
+    action: predict
+    request_body:
+      items: []
     depends_on: [nonexistent1, nonexistent2]
   - id: task2
+    slug: esm2
+    action: encode
+    request_body:
+      items: []
     depends_on: [nonexistent3]
 """
         protocol_file = tmp_path / "multiple_errors.yaml"
@@ -272,7 +324,7 @@ tasks:
         
         result = Protocol.validate(str(protocol_file))
         assert result.is_valid is False
-        # Should have multiple errors (schema errors + semantic errors)
+        # Should have multiple errors (semantic: unknown task IDs)
         assert len(result.errors) > 1
 
 
@@ -500,7 +552,6 @@ outputs:
 class TestProtocolInitBackwardCompatibility:
     """Test that Protocol.__init__ still works with validation."""
 
-    @pytest.mark.skip(reason="valid_protocol_yaml fixture uses plain input values; schema requires ExprString (${{ }}) pattern")
     def test_init_valid_protocol(self, valid_protocol_yaml):
         """Test Protocol can be instantiated with valid protocol."""
         protocol = Protocol(valid_protocol_yaml)
@@ -600,7 +651,6 @@ tasks:
 class TestCLIValidate:
     """Test CLI protocol validate command."""
     
-    @pytest.mark.skip(reason="valid_protocol_yaml fixture uses plain input values; schema requires ExprString (${{ }}) pattern")
     def test_cli_validate_valid_protocol(self, valid_protocol_yaml):
         """Test CLI validate command with valid protocol."""
         runner = CliRunner()
@@ -619,7 +669,6 @@ class TestCLIValidate:
         assert "Validation Failed" in result.output or "✗" in result.output
         assert "error" in result.output.lower()
     
-    @pytest.mark.skip(reason="valid_protocol_yaml fixture uses plain input values; schema requires ExprString (${{ }}) pattern")
     def test_cli_validate_json_output(self, valid_protocol_yaml):
         """Test CLI validate command with JSON output."""
         runner = CliRunner()
@@ -634,7 +683,6 @@ class TestCLIValidate:
         assert "warnings" in output_data
         assert "statistics" in output_data
     
-    @pytest.mark.skip(reason="CLI --json output can include Rich control chars; parse fragile")
     def test_cli_validate_json_output_invalid(self, missing_schema_version):
         """Test CLI validate command with JSON output for invalid protocol."""
         runner = CliRunner()
@@ -657,7 +705,6 @@ class TestCLIValidate:
         assert result.exit_code != 0
         assert "error" in result.output.lower() or "Error" in result.output or "no such file" in result.output.lower()
     
-    @pytest.mark.skip(reason="valid_protocol_yaml fixture uses plain input values; schema requires ExprString (${{ }}) pattern")
     def test_cli_validate_shows_statistics(self, valid_protocol_yaml):
         """Test CLI validate command shows statistics for valid protocol."""
         runner = CliRunner()

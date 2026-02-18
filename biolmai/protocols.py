@@ -177,6 +177,13 @@ class Protocol:
                         )
                     task_ids.add(task_id)
         
+        # Gather tasks' "from" can be a task ID or an input name
+        input_names = set()
+        inputs = data.get("inputs", {})
+        if isinstance(inputs, dict):
+            input_names = set(inputs.keys())
+        valid_from_targets = task_ids | input_names
+        
         # Check references in depends_on, from (gather tasks), foreach
         for i, task in enumerate(tasks):
             if not isinstance(task, dict):
@@ -196,11 +203,11 @@ class Protocol:
                             error_type="semantic"
                         )
             
-            # Check from
+            # Check from: can be task ID or input name
             from_task = task.get("from")
-            if isinstance(from_task, str) and from_task not in task_ids:
+            if isinstance(from_task, str) and from_task not in valid_from_targets:
                 result.add_error(
-                    f"Task '{task_id}' references unknown task ID '{from_task}' in from",
+                    f"Task '{task_id}' references unknown task or input '{from_task}' in from",
                     path=f"{base_path}.from",
                     error_type="semantic"
                 )
@@ -357,7 +364,7 @@ class Protocol:
             stats["task_count"] = len(tasks)
             stats["model_task_count"] = sum(
                 1 for t in tasks
-                if isinstance(t, dict) and t.get("type") != "gather" and "slug" in t
+                if isinstance(t, dict) and t.get("type") != "gather" and ("slug" in t or "app" in t or "class" in t)
             )
             stats["gather_task_count"] = sum(
                 1 for t in tasks

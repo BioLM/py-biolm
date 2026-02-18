@@ -30,6 +30,7 @@ Welcome to Our Python Client Docs
    python-client/rate_limiting
    python-client/faq
    modules.rst
+   protocols
 
 .. toctree::
    :maxdepth: 2
