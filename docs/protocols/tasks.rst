@@ -1,7 +1,7 @@
 Task forms
 ==========
 
-**Model task** — calls a model. Use ``slug`` and ``action`` (e.g. esmfold / predict) or ``app``, ``class``, and ``method``. The request body must include ``items`` (array, object, or expression) and can include ``params``. Optional: ``response_mapping``, ``depends_on``, ``foreach``, ``skip_if``, ``skip_if_empty``, ``subtasks``.
+**Model task** — calls a model. Use ``slug`` and ``action`` (e.g. esmfold / predict). The request body must include ``items`` (array, object, or expression) and can include ``params``. Optional: ``response_mapping``, ``depends_on``, ``foreach``, ``skip_if``, ``skip_if_empty``, ``subtasks``.
 
 **Example (model task):**
 

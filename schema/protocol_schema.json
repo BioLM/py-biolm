@@ -211,7 +211,7 @@
       "type": "object",
       "required": ["id"],
       "additionalProperties": true,
-      "description": "Base for all tasks. ApiTask and GatherTask add their own properties (slug/action or type/from/fields).",
+      "description": "Base for all tasks. ApiTask and GatherTask add their own properties (slug and action for model tasks; type/from/fields for gather).",
       "properties": {
         "id": { "type": "string" },
         "depends_on": { "type": "array", "items": { "type": "string" } },
@@ -222,7 +222,7 @@
       }
     },
     "ApiTask": {
-      "description": "Model task. Use slug+action (e.g. predict, encode, generate) or app+class+method. Requires request_body (items and optional params).",
+      "description": "Model task. Use slug and action (e.g. predict, encode, generate). Requires request_body (items and optional params).",
       "allOf": [
         { "$ref": "#/$defs/TaskBase" },
         {

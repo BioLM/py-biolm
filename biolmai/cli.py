@@ -75,7 +75,7 @@ ARGUMENT_DESCRIPTIONS = {
 
 
 class RichHelpFormatter(click.HelpFormatter):
-    """Custom help formatter using Rich for Modal-style output."""
+    """Custom help formatter using Rich for styled output."""
     
     def write_usage(self, prog, args='', prefix='Usage: '):
         """Write usage line with Rich formatting."""
@@ -106,7 +106,7 @@ class RichCommand(click.Command):
     """Custom Click Command with Rich help formatting."""
     
     def format_help(self, ctx, formatter):
-        """Format help output using Rich with Modal-style organization."""
+        """Format help output using Rich with styled organization."""
         # Write usage
         self.write_usage(ctx, formatter)
         
@@ -238,7 +238,7 @@ class RichGroup(click.Group):
     command_class = RichCommand
     
     def format_help(self, ctx, formatter):
-        """Format help output using Rich with Modal-style organization."""
+        """Format help output using Rich with styled organization."""
         # Write usage
         self.write_usage(ctx, formatter)
         
