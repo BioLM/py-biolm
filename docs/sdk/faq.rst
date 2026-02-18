@@ -2,13 +2,13 @@
 FAQ
 ===
 
-**Q: Can I use generators or iterators for `items`?**
+**Q: Can I use generators or iterators for** ``items``**?**
 
 A: Yes. Pass a generator (or any iterable) instead of a list. The client consumes it batch-by-batch, so you never hold all items in memory. Ideal for large files or streams. The generator is fully consumed during the call. See :doc:`usage/batching`.
 
-**Q: When do I need to specify `type` (e.g. `type="sequence"`)?**
+**Q: When do I need to specify** ``type`` (e.g. ``type="sequence"``)?
 
-A: When `items` is a **string** or a **list of non-dict values** (e.g. a list of sequence strings). If `items` is a list or generator of dicts like `{"sequence": "..."}`, the client infers the type and you don't need it.
+A: When ``items`` is a string or a list of non-dict values (e.g. a list of sequence strings). If ``items`` is a list or generator of dicts like ``{"sequence": "..."}``, the client infers the type and you don't need it.
 
 **Q: What characters are valid in protein sequences?**
 
@@ -16,11 +16,11 @@ A: Use standard amino acid letters: ``ACDEFGHIKLMNPQRSTVWYBXZUO``. Example: ``ra
 
 **Q: How do I process a large batch of sequences?**
 
-A: Provide a list of dicts or a list of values; batching is automatic. For **very large** datasets, use a generator so items are streamed batch-by-batch. For huge result sets, use `output='disk'` to write JSONL to a file.
+A: Provide a list of dicts or a list of values; batching is automatic. For **very large** datasets, use a generator so items are streamed batch-by-batch. For huge result sets, use ``output='disk'`` to write JSONL to a file.
 
 **Q: How do I handle errors gracefully?**
 
-A: Set `raise_httpx=False` and choose `stop_on_error=True` or `False`. With `BioLMApi`, you can also set `retry_error_batches=True` to retry failed batches as single items.
+A: Set ``raise_httpx=False`` and choose ``stop_on_error=True`` or ``False``. With ``BioLMApi``, you can also set ``retry_error_batches=True`` to retry failed batches as single items.
 
 **Q: How do I write results to disk?**
 
