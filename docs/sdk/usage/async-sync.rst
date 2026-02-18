@@ -92,17 +92,47 @@ Which APIs can be awaited?
 
 **Synchronous (do not await):** These are blocking; call them normally. They use the async backend internally but expose a sync API.
 
-- ``biolm(...)`` — one-off function
-- ``Model("model").encode(...)``, ``.predict(...)``, ``.generate(...)``
-- ``BioLMApi("model").encode(...)``, ``.predict(...)``, ``.generate(...)``, ``.call(...)``, ``.schema(...)``
+.. code-block:: python
 
-**Asynchronous (must await):** Only **BioLMApiClient** methods are coroutines. Use ``await`` in an async function (or ``asyncio.run(...)`` from sync code), e.g. ``await model.encode(...)``.
+    # One-off function
+    biolm(...)
 
-- ``await model.encode(...)``, ``await model.predict(...)``, ``await model.generate(...)``
-- ``await model.call(...)``, ``await model.schema(...)``
-- ``await model.search(...)``, ``await model.score(...)``, ``await model.lookup(...)``
-- ``await model.shutdown()`` — close the client when done
-- ``async with BioLMApiClient("model") as model: ...`` — context manager (no explicit shutdown)
+    # Model: encode, predict, generate
+    Model("model").encode(...)
+    Model("model").predict(...)
+    Model("model").generate(...)
+
+    # BioLMApi: encode, predict, generate, call, schema
+    BioLMApi("model").encode(...)
+    BioLMApi("model").predict(...)
+    BioLMApi("model").generate(...)
+    BioLMApi("model").call(...)
+    BioLMApi("model").schema(...)
+
+**Asynchronous (must await):** Only **BioLMApiClient** methods are coroutines. Use ``await`` in an async function (or ``asyncio.run(...)`` from sync code).
+
+.. code-block:: python
+
+    # Encode, predict, generate
+    await model.encode(...)
+    await model.predict(...)
+    await model.generate(...)
+
+    # Call, schema
+    await model.call(...)
+    await model.schema(...)
+
+    # Search, score, lookup
+    await model.search(...)
+    await model.score(...)
+    await model.lookup(...)
+
+    # Close the client when done
+    await model.shutdown()
+
+    # Or use a context manager (no explicit shutdown)
+    async with BioLMApiClient("model") as model:
+        ...
 
 ------------------------
 Choosing Between Sync and Async
