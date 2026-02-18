@@ -56,7 +56,7 @@ asyncio_default_fixture_loop_scope = "function"
 
 [project]
 name = "biolmai"
-version = "0.2.18"
+version = "0.3.0"
 description = "BioLM Python client"
 authors = [
     { name="BioLM", email="support@biolm.ai" }
