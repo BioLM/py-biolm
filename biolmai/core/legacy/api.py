@@ -1,4 +1,13 @@
 """References to API endpoints."""
+import warnings
+
+warnings.warn(
+    "The biolmai.core.legacy.api module is deprecated. "
+    "Please use biolmai.models.Model instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 import datetime
 import inspect
 import time
@@ -14,12 +23,11 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
-import biolmai
-import biolmai.auth
-from biolmai.asynch import async_api_call_wrapper
+from biolmai.core import auth
+from biolmai.core.asynch import async_api_call_wrapper
 from biolmai.biolmai import log
-from biolmai.const import MULTIPROCESS_THREADS
-from biolmai.payloads import INST_DAT_TXT, PARAMS_ITEMS, predict_resp_many_in_one_to_many_singles
+from biolmai.core.const import MULTIPROCESS_THREADS
+from biolmai.core.payloads import INST_DAT_TXT, PARAMS_ITEMS, predict_resp_many_in_one_to_many_singles
 
 
 @lru_cache(maxsize=64)
@@ -166,7 +174,7 @@ class APIEndpoint:
         else:
             self.multiprocess_threads = MULTIPROCESS_THREADS  # Could be False
         # Get correct auth-like headers
-        self.auth_headers = biolmai.auth.get_user_auth_header()
+        self.auth_headers = auth.get_user_auth_header()
         self.action_class_strings = tuple(
             [c.__name__.replace("Action", "").lower() for c in self.action_classes]
         )

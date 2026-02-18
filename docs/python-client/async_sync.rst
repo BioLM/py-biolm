@@ -13,7 +13,7 @@ Async and Sync Usage
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
     import asyncio
 
     async def main():
@@ -27,7 +27,7 @@ Async and Sync Usage
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
 
     # Direct await works in Jupyter!
     model = BioLMApiClient("esmfold")
@@ -83,7 +83,7 @@ Asynchronous Usage (BioLMApi/BioLMApiClient)
 .. code-block:: python
 
     import asyncio
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
 
     async def main():
         model = BioLMApiClient("esmfold")
@@ -137,7 +137,7 @@ Sync/Async Interoperability
 .. code-block:: python
 
     import asyncio
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
 
     def run_sync():
         model = BioLMApiClient("esmfold")
@@ -166,7 +166,7 @@ The library automatically detects Jupyter environments and handles async/sync co
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
 
     # Optimal: Direct async usage in Jupyter
     client = BioLMApiClient("esmfold")

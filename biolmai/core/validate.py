@@ -155,5 +155,3 @@ class SingleOrMoreOccurrencesOf:
                 f"Expected at least one occurrence of '{self.token}', got none"
             )
         return value
-
-

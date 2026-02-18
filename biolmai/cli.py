@@ -4,14 +4,14 @@ import sys
 
 import click
 
-from biolmai.auth import (
+from biolmai.core.auth import (
     are_credentials_valid,
     generate_access_token,
     get_auth_status,
     oauth_login,
     save_access_refresh_token,
 )
-from biolmai.const import (
+from biolmai.core.const import (
     ACCESS_TOK_PATH,
     BIOLMAI_BASE_API_URL,
     BIOLMAI_PUBLIC_CLIENT_ID,

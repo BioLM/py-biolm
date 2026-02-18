@@ -34,7 +34,7 @@ Usage
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApi
+    from biolmai.core.http import BioLMApi
 
     # Use BioLMApi for more control, e.g. batching, error handling, schema access
     model = BioLMApi("esm2-8m", raise_httpx=False)
@@ -77,7 +77,7 @@ Usage
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
     import asyncio
 
     async def main():

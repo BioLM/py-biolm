@@ -55,7 +55,7 @@ setup(
             "biolmai=biolmai.cli:cli",
         ],
         'mlflow.request_header_provider': [
-            'unused=biolmai.seqflow_auth:BiolmaiRequestHeaderProvider',
+            'unused=biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider',
         ],
     },
     install_requires=requirements,

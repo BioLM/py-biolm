@@ -88,14 +88,14 @@ Examples
 
 .. code-block:: python
 
-    from biolmai.client import BioLMApi
+    from biolmai.core.http import BioLMApi
     model = BioLMApi("esm2-8m", raise_httpx=False, retry_error_batches=True)
     result = model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
     # If a batch fails, each item is retried individually
 
     # Async version:
     import asyncio
-    from biolmai.client import BioLMApiClient
+    from biolmai.core.http import BioLMApiClient
 
     async def main():
         model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)

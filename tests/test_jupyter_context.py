@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from biolmai.client import (
+from biolmai.core.http import (
     BioLMApi,
     BioLMApiClient,
     _detect_execution_context,

@@ -3,7 +3,7 @@ __author__ = """Nikhil Haas"""
 __email__ = "nikhil@biolm.ai"
 __version__ = '0.2.18'
 
-from biolmai.client import BioLMApi, BioLMApiClient
+from biolmai.core.http import BioLMApi, BioLMApiClient
 from biolmai.biolmai import BioLM
 from typing import Optional, Union, List, Any
 

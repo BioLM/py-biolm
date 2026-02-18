@@ -17,7 +17,7 @@ from typing import Optional, Tuple
 import click
 import requests
 
-from biolmai.const import (
+from biolmai.core.const import (
     ACCESS_TOK_PATH,
     BIOLMAI_BASE_DOMAIN,
     GEN_TOKEN_URL,
@@ -144,7 +144,7 @@ def get_auth_status():
             # Use OAuth introspection for confidential clients, expiration check for public clients
             # Note: django-oauth-toolkit introspection requires client authentication,
             # so it doesn't work for public clients (no client_secret)
-            from biolmai.const import BIOLMAI_OAUTH_CLIENT_SECRET
+            from biolmai.core.const import BIOLMAI_OAUTH_CLIENT_SECRET
             client_id = access_refresh_dict.get("client_id")
             # Try credentials file first, then environment variable
             client_secret = access_refresh_dict.get("client_secret") or BIOLMAI_OAUTH_CLIENT_SECRET
@@ -748,7 +748,7 @@ def _validate_oauth_token_via_api(access_token: str) -> bool:
     Returns:
         True if token is valid, False otherwise
     """
-    from biolmai.const import BASE_API_URL, BIOLMAI_BASE_DOMAIN
+    from biolmai.core.const import BASE_API_URL, BIOLMAI_BASE_DOMAIN
     
     try:
         # Use /api/users/me/ endpoint to validate the token
@@ -818,7 +818,7 @@ def _validate_oauth_token(access_token: str, client_id: str = None, client_secre
     Returns:
         True if token is valid, False otherwise
     """
-    from biolmai.const import BIOLMAI_OAUTH_CLIENT_SECRET, OAUTH_INTROSPECT_URL
+    from biolmai.core.const import BIOLMAI_OAUTH_CLIENT_SECRET, OAUTH_INTROSPECT_URL
     
     introspect_url = OAUTH_INTROSPECT_URL
     
@@ -942,7 +942,7 @@ def are_credentials_valid() -> bool:
         
         if is_oauth:
             # Use OAuth introspection endpoint
-            from biolmai.const import BIOLMAI_OAUTH_CLIENT_SECRET
+            from biolmai.core.const import BIOLMAI_OAUTH_CLIENT_SECRET
             client_id = access_refresh_dict.get("client_id")
             # Try credentials file first, then environment variable
             client_secret = access_refresh_dict.get("client_secret") or BIOLMAI_OAUTH_CLIENT_SECRET
@@ -987,7 +987,7 @@ def oauth_login(
     Returns:
         Token response dict
     """
-    from biolmai.const import (
+    from biolmai.core.const import (
         BIOLMAI_OAUTH_CLIENT_SECRET,
         BIOLMAI_PUBLIC_CLIENT_ID,
         OAUTH_AUTHORIZE_URL,

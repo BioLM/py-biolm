@@ -1,6 +1,15 @@
 """API inference classes."""
-from biolmai.api import APIEndpoint, GenerateAction, PredictAction, TransformAction, EncodeAction
-from biolmai.validate import (AAExtended,
+import warnings
+
+warnings.warn(
+    "The biolmai.core.legacy.cls module is deprecated. "
+    "Please use biolmai.models.Model instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+from biolmai.core.legacy.api import APIEndpoint, GenerateAction, PredictAction, TransformAction, EncodeAction
+from biolmai.core.validate import (AAExtended,
                               AAExtendedPlusExtra,
                               AAUnambiguous,
                               AAUnambiguousPlusExtra,

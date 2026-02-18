@@ -28,7 +28,7 @@ When you set `output='disk'` and provide a `file_path`, results are written as J
     biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "BADSEQ"], output='disk', file_path="results.jsonl", stop_on_error=True)
 
     # Advanced: retry failed batches as single items (BioLMApi only)
-    from biolmai.client import BioLMApi
+    from biolmai.core.http import BioLMApi
     model = BioLMApi("esm2-8m", retry_error_batches=True)
     model.encode(items=[{"sequence": "MSILV"}, {"sequence": "BADSEQ"}], output='disk', file_path="out.jsonl")
 

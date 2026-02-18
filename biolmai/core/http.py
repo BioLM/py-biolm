@@ -10,7 +10,6 @@ from collections import namedtuple, OrderedDict
 from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from itertools import chain
-from itertools import islice
 from json import dumps as json_dumps
 from typing import Callable
 from typing import Optional, Union, List, Any, Dict, Tuple
@@ -57,10 +56,9 @@ if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
         force=True,  # Python 3.8+
     )
 
-from biolmai.const import BIOLMAI_BASE_API_URL
+from biolmai.core.const import BIOLMAI_BASE_API_URL, ACCESS_TOK_PATH
+from biolmai.core.utils import is_list_of_lists, batch_iterable
 
-USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
-ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
 
@@ -632,32 +630,6 @@ class HttpClient:
         # No-op: shared clients are cleaned up by the factory
         pass
 
-
-def is_list_of_lists(items, check_n=10):
-    # Accepts any iterable, checks first N items for list/tuple-ness
-    # Returns (is_list_of_lists, first_n_items, rest_iter)
-    if isinstance(items, (list, tuple)):
-        if not items:
-            return False, [], iter(())
-        first_n = items[:check_n]
-        is_lol = all(isinstance(x, (list, tuple)) for x in first_n)
-        return is_lol, first_n, iter(items[check_n:])
-    # For iterators/generators: consume first N, return rest (no tee - tee would
-    # duplicate first N when caller chains first_n + rest)
-    first_n = list(islice(items, check_n))
-    is_lol = all(isinstance(x, (list, tuple)) for x in first_n) and bool(first_n)
-    return is_lol, first_n, items
-
-def batch_iterable(iterable, batch_size):
-    # Yields lists of up to batch_size from any iterable, deleting as we go
-    batch = []
-    for item in iterable:
-        batch.append(item)
-        if len(batch) == batch_size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
 
 class BioLMApiClient:
     def __init__(

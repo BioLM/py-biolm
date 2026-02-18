@@ -133,7 +133,7 @@ class BiolmaiRequestHeaderProvider(RequestHeaderProvider):
         # Try to get token URL and client credentials from credentials file first,
         # then from biolmai.const constants (which respect BIOLMAI_BASE_DOMAIN), then environment
         try:
-            from biolmai.const import (
+            from biolmai.core.const import (
                 BIOLMAI_OAUTH_CLIENT_SECRET,
                 BIOLMAI_PUBLIC_CLIENT_ID,
                 OAUTH_TOKEN_URL,
