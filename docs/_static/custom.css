@@ -227,7 +227,14 @@ pre {
     font-size: 0.875rem; /* Tailwind's text-sm */
     line-height: 1.5;
     overflow-x: auto;
-    word-spacing: 0.35em; /* Wider spaces between words for readability */
+}
+
+/* Wider word spacing only for shell/console (not Python) so commands stay readable without spacing out code */
+.highlight-bash pre,
+.highlight-console pre,
+.highlight-shell pre,
+.highlight-text pre {
+    word-spacing: 0.35em;
 }
 
 /* Pygments wraps spaces in <span class="w"> </span>; give them visible width so word boundaries are clear */
