@@ -550,6 +550,20 @@ body[data-theme="dark"] .highlight-console .highlight span,
     body:not([data-theme="light"]) .admonition p {
         color: #e2e8f0 !important;
     }
+    /* Blockquotes (e.g. CLI "Examples") readable in auto/dark */
+    body[data-theme="auto"] blockquote,
+    body:not([data-theme="light"]) blockquote {
+        background-color: #1e293b !important;
+        border-left-color: #60a5fa !important;
+        color: #f1f5f9 !important;
+    }
+    body[data-theme="auto"] blockquote p,
+    body[data-theme="auto"] blockquote div,
+    body:not([data-theme="light"]) blockquote p,
+    body:not([data-theme="light"]) blockquote div {
+        color: #f1f5f9 !important;
+        font-family: var(--biolm-font-mono), monospace !important;
+    }
 }
 
 /* Custom navigation styling */
@@ -746,6 +760,21 @@ blockquote {
     background-color: var(--biolm-bg-secondary);
     padding: 1rem;
     margin: 1rem 0;
+}
+
+/* Dark: blockquotes (e.g. CLI "Examples" from docstrings) must be readable */
+body[data-theme="dark"] blockquote,
+[data-theme="dark"] blockquote {
+    background-color: #1e293b !important;
+    border-left-color: #60a5fa !important;
+    color: #f1f5f9 !important;
+}
+body[data-theme="dark"] blockquote p,
+body[data-theme="dark"] blockquote div,
+[data-theme="dark"] blockquote p,
+[data-theme="dark"] blockquote div {
+    color: #f1f5f9 !important;
+    font-family: var(--biolm-font-mono), monospace !important;
 }
 
 /* Custom list styling */
