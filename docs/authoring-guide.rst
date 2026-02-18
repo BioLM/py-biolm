@@ -39,7 +39,7 @@ SDK Documentation
 
 **Write here:**
   - ``docs/sdk/overview.rst`` - SDK overview and general information
-  - ``docs/sdk/usage/*.rst`` - Usage guides (batching, error-handling, async-sync, rate_limiting, disk_output, usage)
+  - ``docs/sdk/usage/*.rst`` - Usage guides (batching, error-handling, async-sync, rate_limiting, io, usage; disk output is covered in the Usage page)
 
 **Auto-generated:**
   - ``docs/api-reference/`` - API reference (generated from Python docstrings using ``sphinx-apidoc``)

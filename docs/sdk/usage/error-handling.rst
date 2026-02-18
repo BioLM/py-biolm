@@ -44,17 +44,30 @@ How the Options Interact
 Behavior Matrix
 ------------------------
 
-+-------------------+-------------------+-------------------+-------------------------------------------------------------+
-| raise_httpx       | stop_on_error     | retry_error_batches| Behavior                                                    |
-+===================+===================+===================+=============================================================+
-| True              | (any)             | (any)             | Exception raised on first HTTP error (no results returned)   |
-+-------------------+-------------------+-------------------+-------------------------------------------------------------+
-| False             | True              | False              | Stop after first error batch; errors returned as dicts       |
-+-------------------+-------------------+-------------------+-------------------------------------------------------------+
-| False             | False             | False              | Continue on errors; errors returned as dicts in results      |
-+-------------------+-------------------+-------------------+-------------------------------------------------------------+
-| False             | True/False        | True               | Failed batches retried as single items; errors as dicts      |
-+-------------------+-------------------+-------------------+-------------------------------------------------------------+
+.. list-table:: Error Handling Behavior Matrix
+   :widths: 20 20 20 40
+   :header-rows: 1
+
+   * - raise_httpx
+     - stop_on_error
+     - retry_error_batches
+     - Behavior
+   * - True
+     - (any)
+     - (any)
+     - Exception raised on first HTTP error (no results returned)
+   * - False
+     - True
+     - False
+     - Stop after first error batch; errors returned as dicts
+   * - False
+     - False
+     - False
+     - Continue on errors; errors returned as dicts in results
+   * - False
+     - True/False
+     - True
+     - Failed batches retried as single items; errors as dicts
 
 ------------------------
 Examples
@@ -94,15 +107,9 @@ Examples
     # If a batch fails, each item is retried individually
 
     # Async version:
-    import asyncio
     from biolmai.core.http import BioLMApiClient
-
-    async def main():
-        model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)
-        result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
-        # If a batch fails, each item is retried individually
-
-    asyncio.run(main())
+    model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)
+    result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
 
 ------------------------
 What do error results look like?
@@ -158,22 +165,35 @@ Best Practices
 Parameter Availability Summary
 ------------------------
 
-+----------------------+------------------+------------------+----------------------+
-| Client               | raise_httpx      | stop_on_error    | retry_error_batches  |
-+======================+==================+==================+======================+
-| `biolm()`            | ✅ (kwarg)       | ✅ (kwarg)       | ❌                   |
-+----------------------+------------------+------------------+----------------------+
-| `BioLM`              | ✅ (kwarg)       | ✅ (kwarg)       | ❌                   |
-+----------------------+------------------+------------------+----------------------+
-| `BioLMApi`           | ✅ (constructor)| ✅ (method param)| ✅ (constructor)     |
-+----------------------+------------------+------------------+----------------------+
-| `BioLMApiClient`     | ✅ (constructor)| ✅ (method param)| ✅ (constructor)     |
-+----------------------+------------------+------------------+----------------------+
+.. list-table:: Parameter Availability by Client
+   :widths: 25 20 20 20
+   :header-rows: 1
+
+   * - Client
+     - raise_httpx
+     - stop_on_error
+     - retry_error_batches
+   * - ``biolm()``
+     - ✅ (kwarg)
+     - ✅ (kwarg)
+     - ❌
+   * - ``BioLM``
+     - ✅ (kwarg)
+     - ✅ (kwarg)
+     - ❌
+   * - ``BioLMApi``
+     - ✅ (constructor)
+     - ✅ (method param)
+     - ✅ (constructor)
+   * - ``BioLMApiClient``
+     - ✅ (constructor)
+     - ✅ (method param)
+     - ✅ (constructor)
 
 ------------------------
 See Also
 ------------------------
 
 - :doc:`batching`
-- :doc:`disk_output`
+- :doc:`usage` (includes Disk output)
 - :doc:`../faq`

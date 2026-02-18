@@ -20,9 +20,9 @@ Basic usage:
     result = biolm(entity="esm2-8m", action="encode", type="sequence", items="MSILVTRPSPAGEEL")
 
     # Predict a batch of sequences
-    result = biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "MDNELE"])
+    result = biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"])
 
     # Write results to disk
-    biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "MDNELE"], output='disk', file_path="results.jsonl")
+    biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
 
-For advanced usage (generators, error handling, disk output), see :doc:`../sdk/usage/usage`, :doc:`../sdk/usage/batching`, and :doc:`../sdk/usage/error-handling`.
+For core concepts (sync/async, batching, error handling, etc.), see :doc:`concepts`. For SDK usage and examples, see :doc:`../sdk/models`.

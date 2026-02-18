@@ -7,7 +7,7 @@ Async and Sync Usage
 .. code-block:: python
 
     from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", items="MDNELE")
 
 **Asynchronous usage:**
 
@@ -22,21 +22,6 @@ Async and Sync Usage
         print(result)
 
     asyncio.run(main())
-
-**In Jupyter notebooks (IPython 7.0+), you can use top-level await:**
-
-.. code-block:: python
-
-    from biolmai.core.http import BioLMApiClient
-
-    # Direct await works in Jupyter!
-    model = BioLMApiClient("esmfold")
-    result = await model.predict(items=[{"sequence": "MDNELE"}])
-    print(result)
-
-    # Sync wrappers also work automatically (nest_asyncio is applied internally)
-    from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
 
 
 ------------------------
@@ -62,7 +47,7 @@ Synchronous Usage (BioLM)
     from biolmai import biolm
 
     # Single item: returns a dict
-    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
+    result = biolm(entity="esmfold", action="predict", items="MDNELE")
     print(result["mean_plddt"])
 
     # Batch: returns a list of dicts
@@ -74,7 +59,7 @@ Asynchronous Usage (BioLMApi/BioLMApiClient)
 ------------------------
 
 - **True async**: Designed for async Python (e.g., FastAPI, web servers, or high-throughput pipelines).
-- **Concurrent requests**: Batches are sent in parallel (up to semaphore limit, default 16), maximizing API throughput.
+- **Concurrent requests**: Can send many requests in parallel, maximizing API throughput.
 - **Manual control**: You manage the event loop and can await results.
 - **No GIL/threading issues**: All network I/O is non-blocking.
 
@@ -100,7 +85,6 @@ How It Works Internally
 - **BioLM** is a thin synchronous wrapper around the async client, using the `synchronicity` package to run async code in a blocking way.
 - **BioLMApi** is a synchronous wrapper for `BioLMApiClient` (async), for users who want a sync interface but more control than `BioLM`.
 - **BioLMApiClient** is the core async client.
-- **Jupyter Support**: The library automatically detects Jupyter environments and applies `nest_asyncio` internally, so sync wrappers (`BioLM`, `BioLMApi`) work seamlessly in Jupyter notebooks without requiring manual setup.
 
 ------------------------
 Choosing Between Sync and Async
@@ -125,7 +109,7 @@ Advanced Async Features
 
 - **Concurrent requests**: The async client can batch and send multiple requests at once, using semaphores and rate limiters.
 - **Context manager support**: Use `async with BioLMApiClient(...) as model:` to ensure clean shutdown.
-- **Disk output**: Async disk writing is supported for large jobs.
+- **Disk output**: Async disk writing is supported for large jobs (see :ref:`disk-output` in :doc:`usage`).
 - **Manual batching**: You can control batch size and composition for maximum throughput.
 
 ------------------------
@@ -158,23 +142,17 @@ Unpacking Single-Item Results
 Jupyter Notebook Usage
 ------------------------
 
-The library automatically detects Jupyter environments and handles async/sync compatibility:
-
-- **Automatic nest_asyncio**: No need to manually call `nest_asyncio.apply()` - the library handles this internally
-- **Sync wrappers work**: `BioLM()` and `BioLMApi()` work seamlessly in Jupyter
-- **Direct async recommended**: For best performance in Jupyter, use `BioLMApiClient` directly with top-level `await`:
+- In Jupyter, the library detects the notebook environment and applies `nest_asyncio` so that sync wrappers (e.g. `biolm()`, `BioLMApi`) work correctly inside the notebook kernel.
+- You can use the sync interface as usual: ``result = biolm(...)`` or ``model = BioLMApi("esmfold"); result = model.predict(...)``.
+- For **best performance** in Jupyter (e.g. large batches), use the async client with top-level ``await`` so the event loop runs natively:
 
 .. code-block:: python
 
     from biolmai.core.http import BioLMApiClient
+    model = BioLMApiClient("esmfold")
+    result = await model.predict(items=[{"sequence": "MDNELE"}, {"sequence": "MENDEL"}])
 
-    # Optimal: Direct async usage in Jupyter
-    client = BioLMApiClient("esmfold")
-    result = await client.predict(items=[{"sequence": "MDNELE"}])
-
-    # Also works: Sync wrapper (nest_asyncio applied automatically)
-    from biolmai import biolm
-    result = biolm(entity="esmfold", action="predict", type="sequence", items="MDNELE")
+- Sync wrappers also work in Jupyter; use top-level ``await`` with `BioLMApiClient` when you want maximum throughput.
 
 ------------------------
 Best Practices
@@ -184,13 +162,12 @@ Best Practices
 - For high-throughput or async apps, use `BioLMApiClient` and `await` your calls.
 - For batch jobs in scripts, `BioLMApi` gives you more control but stays synchronous.
 - Always use the async client in async code (e.g., FastAPI, aiohttp, etc).
-- In Jupyter: Use direct async (`await BioLMApiClient(...)`) for best performance, or sync wrappers for convenience.
 
 ------------------------
 See Also
 ------------------------
 
 - :doc:`batching`
-- :doc:`rate_limiting`
 - :doc:`error-handling`
-- :doc:`disk_output`
+- :doc:`rate_limiting`
+- :doc:`usage` (includes Disk output)

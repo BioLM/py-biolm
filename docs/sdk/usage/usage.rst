@@ -64,15 +64,6 @@ Usage
 
    **Large datasets?** Pass a generator instead of a list so items are consumed batch-by-batch—you never load everything into memory. See :doc:`batching`. For concurrency and rate limits, see :doc:`rate_limiting`.
 
-**When to use BioLMApi vs BioLM:**
-
-- Use **BioLM** for simple, one-line, high-level requests (quick scripts, notebooks, most users).
-- Use **BioLMApi** for:
-    - More control over batching, error handling, or output
-    - Accessing schema or batch size programmatically
-    - Custom workflows, integration, or advanced error recovery
-    - When you want to use the same client for multiple calls (avoids re-authenticating)
-
 **Async usage:**
 
 .. code-block:: python
@@ -86,3 +77,43 @@ Usage
         print(result)
 
     asyncio.run(main())
+
+.. _disk-output:
+
+Disk output
+-----------
+
+When you set `output='disk'` and provide a `file_path`, results are written as JSONL (one JSON object per line). Supported for `biolm`, `BioLMApi`, and `BioLMApiClient`.
+
+**When to use:** Large jobs where keeping all results in memory would be costly. Combine with generators for inputs to minimize memory use end-to-end.
+
+**Key points:**
+
+- One line per input item, in the same order as the input.
+- Batch errors: if a batch fails, an error dict is written for each item in that batch.
+- `stop_on_error=True`: writing stops after the first error batch.
+- `stop_on_error=False`: all items are processed; errors are written for failed items.
+- `retry_error_batches=True` (BioLMApi/BioLMApiClient only): failed batches are retried as single items.
+
+**Examples:**
+
+.. code-block:: python
+
+    # Write to disk, continue on errors
+    biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "BADSEQ"],
+          output='disk', file_path="results.jsonl", stop_on_error=False)
+
+    # Write to disk, stop on first error
+    biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "BADSEQ"],
+          output='disk', file_path="results.jsonl", stop_on_error=True)
+
+For batch error behavior (retry_error_batches, stop_on_error), see :doc:`error-handling`.
+
+**When to use BioLMApi vs BioLM:**
+
+- Use **BioLM** for simple, one-line, high-level requests (quick scripts, notebooks, most users).
+- Use **BioLMApi** for:
+    - More control over batching, error handling, or output
+    - Accessing schema or batch size programmatically
+    - Custom workflows, integration, or advanced error recovery
+    - When you want to use the same client for multiple calls (avoids re-authenticating)

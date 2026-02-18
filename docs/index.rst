@@ -55,7 +55,7 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    sdk/usage/error-handling
    sdk/usage/async-sync
    sdk/usage/rate_limiting
-   sdk/usage/disk_output
+   sdk/usage/io
    sdk/faq
    sdk/api-reference/index
 
