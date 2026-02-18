@@ -14,7 +14,6 @@ from pathlib import Path
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
 from biolmai.pipeline.datastore import DataStore
 from biolmai.pipeline.filters import BaseFilter
-from biolmai.pipeline.async_executor import AsyncBatchExecutor
 from biolmai.client import BioLMApi
 
 
@@ -54,6 +53,8 @@ class PredictionStage(Stage):
         self.prediction_type = prediction_type or f"{model_name}_{action}"
         self.params = params or {}
         self.batch_size = batch_size
+        # Reuse API client across calls for connection pooling
+        self._api_client = None
     
     async def process(
         self,
@@ -85,8 +86,14 @@ class PredictionStage(Stage):
             # Process uncached sequences
             print(f"  Calling {self.model_name}.{self.action}...")
             
-            # Create BioLM API client
-            api = BioLMApi(self.model_name)
+            # Create or reuse BioLM API client with shared semaphore
+            if self._api_client is None:
+                self._api_client = BioLMApi(
+                    self.model_name,
+                    semaphore=self._semaphore,  # Share stage's semaphore for rate limiting
+                    retry_error_batches=True  # Auto-retry failed batches individually
+                )
+            api = self._api_client
             
             try:
                 # Prepare items for API
