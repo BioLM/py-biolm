@@ -60,6 +60,10 @@ Usage
     batches = [[{"sequence": "MSILV"}, {"sequence": "MDNELE"}], [{"sequence": "MENDEL"}]]
     result = model._batch_call_autoschema_or_manual("encode", batches)
 
+.. tip::
+
+   **Large datasets?** Pass a generator instead of a list so items are consumed batch-by-batch—you never load everything into memory. See :doc:`batching`. For concurrency and rate limits, see :doc:`rate_limiting`.
+
 **When to use BioLMApi vs BioLM:**
 
 - Use **BioLM** for simple, one-line, high-level requests (quick scripts, notebooks, most users).

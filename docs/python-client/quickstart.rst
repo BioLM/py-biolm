@@ -25,4 +25,4 @@ Basic usage:
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["MSILV", "MDNELE"], output='disk', file_path="results.jsonl")
 
-For advanced usage, see :doc:`usage`.
+For advanced usage (generators, error handling, disk output), see :doc:`usage`, :doc:`batching`, and :doc:`error_handling`.

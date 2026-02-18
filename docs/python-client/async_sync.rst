@@ -74,7 +74,7 @@ Asynchronous Usage (BioLMApi/BioLMApiClient)
 ------------------------
 
 - **True async**: Designed for async Python (e.g., FastAPI, web servers, or high-throughput pipelines).
-- **Concurrent requests**: Can send many requests in parallel, maximizing API throughput.
+- **Concurrent requests**: Batches are sent in parallel (up to semaphore limit, default 16), maximizing API throughput.
 - **Manual control**: You manage the event loop and can await results.
 - **No GIL/threading issues**: All network I/O is non-blocking.
 
