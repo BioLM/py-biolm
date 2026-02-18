@@ -268,5 +268,5 @@ Best Practices
 See Also
 --------
 
-- :doc:`api-reference/index` for ``biolmai.io`` API details
+- :doc:`../api-reference/index` for ``biolmai.io`` API details
 - :ref:`disk-output` in :doc:`usage` for writing API results to disk

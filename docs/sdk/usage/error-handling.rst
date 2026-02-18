@@ -83,17 +83,29 @@ More examples
 
 **Retry failed batches as single items (BioLMApi/BioLMApiClient only):**
 
+Sync (BioLMApi):
+
 .. code-block:: python
 
     from biolmai.core.http import BioLMApi
+
     model = BioLMApi("esm2-8m", raise_httpx=False, retry_error_batches=True)
     result = model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
     # If a batch fails, each item is retried individually
 
-    # Async version:
+Async (BioLMApiClient):
+
+.. code-block:: python
+
     from biolmai.core.http import BioLMApiClient
-    model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)
-    result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
+    import asyncio
+
+    async def main():
+        model = BioLMApiClient("esm2-8m", raise_httpx=False, retry_error_batches=True)
+        result = await model.encode(items=[{"sequence": "GOOD"}, {"sequence": "BAD"}])
+        return result
+
+    asyncio.run(main())
 
 ------------------------
 Error result shape

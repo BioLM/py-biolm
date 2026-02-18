@@ -162,6 +162,8 @@ Examples
 
 .. code-block:: python
 
+    from biolmai import biolm
+
     items = [{"sequence": "SEQ1"}, {"sequence": "SEQ2"}]
     result = biolm(entity="esm2-8m", action="encode", items=items)
 

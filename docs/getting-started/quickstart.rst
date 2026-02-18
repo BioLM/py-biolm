@@ -25,6 +25,14 @@ Basic usage (one-off calls with ``biolm()``):
     # Write results to disk
     biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"], output='disk', file_path="results.jsonl")
 
+    # Check for errors when not raising (raise_httpx=False)
+    result = biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "BADSEQ"], raise_httpx=False)
+    for r in result:
+        if isinstance(r, dict) and "error" in r:
+            print("Error:", r["error"])
+        else:
+            print("OK")
+
 **Or use the class-based** :code:`Model` **when** you're working with one model and want to call :code:`.encode()`, :code:`.predict()`, or :code:`.generate()` on it:
 
 .. code-block:: python

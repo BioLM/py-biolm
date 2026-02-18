@@ -81,9 +81,13 @@ For schema access, custom error handling, and manual batching:
     # Call the API directly (rarely needed)
     resp = model.call("encode", [{"sequence": "MSILV"}])
 
-    # Advanced: manual batching
+    # Advanced: manual batching (prefer .encode(items=...) for normal use)
     batches = [[{"sequence": "MSILV"}, {"sequence": "MDNELE"}], [{"sequence": "MENDEL"}]]
     result = model._batch_call_autoschema_or_manual("encode", batches)
+
+.. note::
+
+   **Normal use:** Prefer :meth:`~biolmai.core.http.BioLMApi.encode` (e.g. ``model.encode(items=...)``) for encoding; ``_batch_call_autoschema_or_manual`` is for advanced cases when you need to control batches explicitly.
 
 .. tip::
 

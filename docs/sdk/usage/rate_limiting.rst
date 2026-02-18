@@ -8,6 +8,8 @@ The client batches requests and runs them concurrently. By default it uses the A
 
 .. code-block:: python
 
+    from biolmai.core.http import BioLMApi, BioLMApiClient
+
     # Use API's default throttle rate (recommended)
     model = BioLMApi("esmfold")
 

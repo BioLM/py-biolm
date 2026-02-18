@@ -20,11 +20,23 @@ A: Provide a list of dicts or a list of values; batching is automatic. For **ver
 
 **Q: How do I handle errors gracefully?**
 
-A: Set ``raise_httpx=False`` and choose ``stop_on_error=True`` or ``False``. With ``BioLMApi``, you can also set ``retry_error_batches=True`` to retry failed batches as single items.
+A: Set ``raise_httpx=False`` and choose ``stop_on_error=True`` or ``False``. With ``BioLMApi``, you can also set ``retry_error_batches=True`` to retry failed batches as single items. Example:
+
+.. code-block:: python
+
+    result = biolm(..., raise_httpx=False)
+    for r in result:
+        if isinstance(r, dict) and "error" in r:
+            print("Error:", r["error"])
 
 **Q: How do I write results to disk?**
 
-A: Set ``output='disk'`` and provide ``file_path`` in either ``BioLM`` or ``BioLMApi``.
+A: Set ``output='disk'`` and provide ``file_path`` in either ``BioLM`` or ``BioLMApi``. Example:
+
+.. code-block:: python
+
+    biolm(entity="esmfold", action="predict", type="sequence", items=["SEQ1", "SEQ2"],
+          output='disk', file_path="results.jsonl")
 
 **Q: How do I use the async client?**
 
