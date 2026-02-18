@@ -23,7 +23,7 @@ Feature summary
 BioLM (simple sync)
 ------------------------
 
-**``BioLM``** is the simplest synchronous interface: call a function with entity, action, and items. Single-item calls return a single result (dict); batch calls return a list. No event loop or asyncio required.
+**``BioLM``** is the simplest synchronous interface: call a function with entity, action, and items. Single-item calls return a single result (dict); batch calls return a list. No event loop or asyncio required. Under the hood it uses the same asynchronous backend as ``BioLMApiClient``, so you get the performance of concurrent batch requests in a blocking call—no need to write async code.
 
 **Example:**
 
@@ -38,7 +38,7 @@ BioLM (simple sync)
     # Batch: returns a list of dicts
     result = biolm(entity="esmfold", action="predict", items=["MDNELE", "MENDEL"])
 
-Internally, ``BioLM`` is a thin sync wrapper around the async client (via the ``synchronicity`` package).
+Internally, ``BioLM`` is a thin sync wrapper around the async client (via the ``synchronicity`` package), so batches are still sent concurrently on the backend; only the Python API is blocking.
 
 ------------------------
 BioLMApi and BioLMApiClient
@@ -46,8 +46,8 @@ BioLMApi and BioLMApiClient
 
 For more control or high throughput you can use:
 
-- **``BioLMApi``** — Sync wrapper around the async client; same style as ``BioLM`` but with more options (rate limits, retry, schema access).
-- **``BioLMApiClient``** — The async client for maximum throughput and use inside async applications.
+- **``BioLMApi``** — Synchronous interface to the same async backend; same style as ``BioLM`` but with more options (rate limits, retry, schema access). Blocking calls, concurrent batches under the hood.
+- **``BioLMApiClient``** — The async client: its methods are coroutines and must be awaited. Use in async code (e.g. ``await model.encode(...)``) or with ``asyncio.run(...)``.
 
 **When to use which:**
 

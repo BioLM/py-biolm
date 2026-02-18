@@ -28,16 +28,16 @@ Async and Sync Usage
 High-Level Summary
 ------------------------
 
-- **BioLM**: Synchronous, easy-to-use, ideal for quick scripts, Jupyter, and most users.
-- **BioLMApi / BioLMApiClient**: Fully asynchronous, for advanced users, high-throughput, or integration in async applications.
+- **BioLM** and **BioLMApi**: Synchronous (blocking) interface. You call them like normal functions; they run the asynchronous backend internally, so you still get concurrent batch requests and high throughput without writing async code.
+- **BioLMApiClient**: Asynchronous client. Its methods are coroutines and must be awaited. Use when you are in async code (e.g. FastAPI, Jupyter with top-level ``await``) or want explicit control over the event loop.
 
 ------------------------
 Synchronous Usage (BioLM)
 ------------------------
 
-- **Convenient interface**: Just call ``biolm(...)`` and get your result.
+- **Synchronous interface, async backend**: ``biolm()``, ``Model``, and ``BioLMApi`` are blocking from your code’s perspective—no ``await``, no event loop—but they use the same async client under the hood. Batches are still sent concurrently, so you get the performance of async in a blocking call.
+- **Convenient**: Just call ``biolm(...)`` and get your result.
 - **Unpacks single-item results**: If you pass a single item, you get a single result (not a list).
-- **Runs in the main thread**: No need for ``asyncio`` or event loops.
 - **Great for Jupyter, scripts, and simple batch jobs**.
 
 **Example:**
@@ -82,9 +82,27 @@ Asynchronous Usage (BioLMApi/BioLMApiClient)
 How It Works Internally
 ------------------------
 
-- **BioLM** is a thin synchronous wrapper around the async client, using the ``synchronicity`` package to run async code in a blocking way.
-- **BioLMApi** is a synchronous wrapper for ``BioLMApiClient`` (async), for users who want a sync interface but more control than ``BioLM``.
-- **BioLMApiClient** is the core async client.
+- **BioLM** is a thin synchronous wrapper around the async client, using the ``synchronicity`` package to run async code in a blocking way. So when you call ``biolm(...)`` or ``Model(...).encode(...)``, the backend still runs batches concurrently; only the Python call is blocking.
+- **BioLMApi** is a synchronous wrapper for ``BioLMApiClient`` (async), for users who want a sync interface but more control than ``BioLM``. Same idea: blocking API, concurrent backend.
+- **BioLMApiClient** is the core async client. Only this client’s methods are coroutines and must be awaited.
+
+------------------------
+Which APIs can be awaited?
+------------------------
+
+**Synchronous (do not await):** These are blocking; call them normally. They use the async backend internally but expose a sync API.
+
+- ``biolm(...)`` — one-off function
+- ``Model("model").encode(...)``, ``.predict(...)``, ``.generate(...)``
+- ``BioLMApi("model").encode(...)``, ``.predict(...)``, ``.generate(...)``, ``.call(...)``, ``.schema(...)``
+
+**Asynchronous (must await):** Only **BioLMApiClient** methods are coroutines. Use ``await`` in an async function (or ``asyncio.run(...)`` from sync code), e.g. ``await model.encode(...)``.
+
+- ``await model.encode(...)``, ``await model.predict(...)``, ``await model.generate(...)``
+- ``await model.call(...)``, ``await model.schema(...)``
+- ``await model.search(...)``, ``await model.score(...)``, ``await model.lookup(...)``
+- ``await model.shutdown()`` — close the client when done
+- ``async with BioLMApiClient("model") as model: ...`` — context manager (no explicit shutdown)
 
 ------------------------
 Choosing Between Sync and Async

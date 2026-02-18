@@ -4,6 +4,8 @@ Usage
 
 You can call the API in three ways: the one-off function, the class-based Model (one model, multiple calls), or the API client for advanced control. Examples below.
 
+**Sync vs async:** The function ``biolm()``, ``Model``, and ``BioLMApi`` are **synchronous** (blocking) interfaces: you call them without ``await`` and get the result when the call returns. Under the hood they use the same asynchronous backend, so batches are still sent concurrently and you get high throughput without writing async code. For async code (e.g. FastAPI, Jupyter with top-level ``await``), use ``BioLMApiClient`` and ``await`` its methods. See :doc:`async-sync` for details and which methods can be awaited.
+
 One-off calls (function)
 ------------------------
 
@@ -93,8 +95,10 @@ For schema access, custom error handling, and manual batching:
 
    **Large datasets?** Pass a generator instead of a list so items are consumed batch-by-batch—you never load everything into memory. See :doc:`batching`. For concurrency and rate limits, see :doc:`rate_limiting`.
 
-Async usage
------------
+Async usage (BioLMApiClient — await these methods)
+--------------------------------------------------
+
+Only **BioLMApiClient** exposes async methods; you must await them (e.g. ``await model.encode(...)``, ``await model.predict(...)``, ``await model.schema(...)``). The function ``biolm()``, ``Model``, and ``BioLMApi`` are synchronous and must not be awaited.
 
 .. code-block:: python
 

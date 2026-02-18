@@ -10,7 +10,7 @@ Install the package:
 
     pip install biolmai
 
-Basic usage (one-off calls with ``biolm()``):
+Basic usage (one-off calls with ``biolm()``). These calls are synchronous (blocking) but use an async backend internally, so you get concurrent batch performance without writing async code.
 
 .. code-block:: python
 
