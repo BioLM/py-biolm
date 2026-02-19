@@ -42,6 +42,9 @@ class PredictionStage(Stage):
         max_concurrent: int = 5,
         **kwargs
     ):
+        # Extract skip_on_error before passing to parent
+        skip_on_error = kwargs.pop('skip_on_error', False)
+        
         super().__init__(
             name=name,
             cache_key=prediction_type or f"{model_name}_{action}",
@@ -53,8 +56,179 @@ class PredictionStage(Stage):
         self.prediction_type = prediction_type or f"{model_name}_{action}"
         self.params = params or {}
         self.batch_size = batch_size
+        self.skip_on_error = skip_on_error
         # Reuse API client across calls for connection pooling
         self._api_client = None
+    
+    async def process_streaming(
+        self,
+        df: pd.DataFrame,
+        datastore: DataStore,
+        **kwargs
+    ):
+        """
+        Process sequences and yield results as batches complete (streaming).
+        
+        Yields DataFrames as API batches complete instead of waiting for all results.
+        This allows downstream stages to start processing immediately.
+        """
+        from typing import AsyncIterator
+        
+        start_count = len(df)
+        
+        # Check cache for existing predictions
+        uncached_mask = df.apply(
+            lambda row: not datastore.has_prediction(
+                row['sequence'],
+                self.prediction_type,
+                self.model_name
+            ),
+            axis=1
+        )
+        
+        df_uncached = df[uncached_mask].copy()
+        cached_count = start_count - len(df_uncached)
+        
+        print(f"  Cached: {cached_count}/{start_count}")
+        print(f"  To compute: {len(df_uncached)} (streaming)")
+        
+        # Yield cached results first
+        if cached_count > 0:
+            df_cached = df[~uncached_mask].copy()
+            # Load predictions for cached sequences
+            for idx, row in df_cached.iterrows():
+                pred = datastore.get_predictions_by_sequence(
+                    row['sequence'],
+                    self.prediction_type,
+                    self.model_name
+                )
+                if pred:
+                    df_cached.at[idx, self.prediction_type] = pred[0]['value']
+            yield df_cached
+        
+        if len(df_uncached) == 0:
+            return
+        
+        # Create or reuse async API client
+        if self._api_client is None:
+            self._api_client = BioLMApiClient(
+                self.model_name,
+                semaphore=self._semaphore,
+                retry_error_batches=True
+            )
+        api = self._api_client
+        
+        # Batch sequences for API calls
+        sequences = df_uncached['sequence'].tolist()
+        batch_size = 32  # API batch size
+        
+        # Create tasks for all batches and start them immediately
+        pending_tasks = {}  # task -> (batch_seqs, batch_indices)
+        
+        for i in range(0, len(sequences), batch_size):
+            batch_seqs = sequences[i:i+batch_size]
+            batch_indices = df_uncached.index[i:i+batch_size]
+            items = [{'sequence': seq} for seq in batch_seqs]
+            
+            # Create and start task immediately
+            if self.action == 'encode':
+                task = asyncio.create_task(api.encode(items=items, params=self.params))
+            else:
+                task = asyncio.create_task(api.predict(items=items, params=self.params))
+            
+            pending_tasks[task] = (batch_seqs, batch_indices)
+        
+        # Process batches as they complete (true streaming!)
+        remaining_tasks = set(pending_tasks.keys())
+        
+        while remaining_tasks:
+            # Wait for next batch to complete
+            done, remaining_tasks = await asyncio.wait(
+                remaining_tasks, 
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            for completed_task in done:
+                try:
+                    results = await completed_task
+                    batch_seqs, batch_indices = pending_tasks[completed_task]
+                    
+                    # Create DataFrame for this batch
+                    batch_df = pd.DataFrame({
+                        'sequence': batch_seqs
+                    }, index=batch_indices)
+                    
+                    # Store results and add to DataFrame
+                    for seq, result, idx in zip(batch_seqs, results, batch_indices):
+                        seq_id = datastore.add_sequence(seq)
+                        
+                        if self.action == 'predict':
+                            # Extract prediction value
+                            if isinstance(result, dict):
+                                value = self._extract_prediction_value(result)
+                            else:
+                                value = float(result) if result is not None else None
+                            
+                            if value is not None:
+                                datastore.add_prediction(
+                                    seq_id,
+                                    self.prediction_type,
+                                    self.model_name,
+                                    value,
+                                    metadata={'params': self.params, 'result': result}
+                                )
+                                batch_df.at[idx, self.prediction_type] = value
+                        
+                        elif self.action == 'encode':
+                            # Store embeddings (simplified)
+                            if isinstance(result, dict) and 'embedding' in result:
+                                embedding = np.array(result['embedding'])
+                                datastore.add_embedding(seq_id, self.model_name, embedding)
+                    
+                    # Yield batch immediately!
+                    yield batch_df
+                    
+                except Exception as e:
+                    if self.skip_on_error:
+                        # Mark batch sequences as failed in cache
+                        batch_seqs, batch_indices = pending_tasks[completed_task]
+                        print(f"  Error processing batch (skipped): {e}")
+                        
+                        for seq in batch_seqs:
+                            seq_id = datastore.add_sequence(seq)
+                            # Store failed prediction with metadata
+                            datastore.add_prediction(
+                                seq_id,
+                                self.prediction_type,
+                                self.model_name,
+                                value=None,
+                                metadata={
+                                    'status': 'failed',
+                                    'error': str(e),
+                                    'params': self.params
+                                }
+                            )
+                        # Don't yield failed batch - sequences are filtered out
+                    else:
+                        # Propagate error
+                        print(f"  Error processing batch: {e}")
+                        raise
+    
+    def _extract_prediction_value(self, result: dict) -> Optional[float]:
+        """Extract numeric prediction value from API result."""
+        if 'melting_temperature' in result:
+            return result['melting_temperature']
+        elif 'solubility_score' in result:
+            return result['solubility_score']
+        elif 'prediction' in result:
+            return result['prediction']
+        elif 'score' in result:
+            return result['score']
+        elif 'value' in result:
+            return result['value']
+        else:
+            # Use first numeric value found
+            return next((v for v in result.values() if isinstance(v, (int, float))), None)
     
     async def process(
         self,
@@ -181,8 +355,33 @@ class PredictionStage(Stage):
                                     if len(embedding) > 0:
                                         datastore.add_embedding(seq_id, self.model_name, embedding)
                 
+            except Exception as e:
+                if self.skip_on_error:
+                    print(f"  Error during prediction (skipped): {e}")
+                    # Mark all sequences in batch as failed
+                    for seq in df_uncached['sequence']:
+                        seq_id = datastore.add_sequence(seq)
+                        datastore.add_prediction(
+                            seq_id,
+                            self.prediction_type,
+                            self.model_name,
+                            value=None,
+                            metadata={
+                                'status': 'failed',
+                                'error': str(e),
+                                'params': self.params
+                            }
+                        )
+                else:
+                    print(f"  Error during prediction: {e}")
+                    raise
             finally:
-                api.shutdown()
+                # Properly cleanup async client
+                if self._api_client:
+                    try:
+                        await self._api_client.shutdown()
+                    except Exception:
+                        pass  # Best effort cleanup
         
         # Merge predictions back into DataFrame (for predict action)
         if self.action == 'predict':
@@ -269,6 +468,10 @@ class FilterStage(Stage):
     def __init__(self, name: str, filter_func: Union[BaseFilter, callable], **kwargs):
         super().__init__(name=name, **kwargs)
         self.filter_func = filter_func
+        # Check if filter requires complete data (for streaming)
+        self.requires_complete_data = getattr(
+            filter_func, 'requires_complete_data', True  # Default: safe (batch)
+        )
     
     async def process(
         self,

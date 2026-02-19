@@ -255,9 +255,13 @@ class BasePipeline(ABC):
         
         return df_input, result
     
-    async def run_async(self, **kwargs) -> Dict[str, StageResult]:
+    async def run_async(self, enable_streaming: bool = False, **kwargs) -> Dict[str, StageResult]:
         """
         Run the pipeline asynchronously.
+        
+        Args:
+            enable_streaming: If True, stream results through per-sequence filters
+                            for better parallelism and lower latency.
         
         Returns:
             Dict mapping stage names to StageResults
@@ -283,6 +287,8 @@ class BasePipeline(ABC):
                 print(f"# Pipeline: {self.pipeline_type}")
                 print(f"# Run ID: {self.run_id}")
                 print(f"# Initial sequences: {len(df_current):,}")
+                if enable_streaming:
+                    print(f"# Streaming: ENABLED")
                 print(f"{'#'*60}")
             
             # Resolve dependencies and get execution order
@@ -296,14 +302,43 @@ class BasePipeline(ABC):
                     print(f"  Level {i+1}: {', '.join(stage_names)}{parallel_str}")
             
             # Execute stages level by level
+            processed_stages = set()  # Track which stages we've already processed
+            
             for level_idx, level_stages in enumerate(stage_levels):
                 if len(level_stages) == 1:
-                    # Single stage in level - execute directly
+                    # Single stage in level
                     stage = level_stages[0]
-                    df_out, result = await self._execute_stage(stage, df_current)
-                    self.stage_results[stage.name] = result
-                    self._stage_data[stage.name] = df_out
-                    df_current = df_out
+                    
+                    # Skip if already processed via streaming
+                    if stage.name in processed_stages:
+                        continue
+                    
+                    # Check if we can stream through this stage
+                    next_stage = self._get_next_stage(stage, stage_levels, level_idx)
+                    can_stream = (
+                        enable_streaming and
+                        next_stage is not None and
+                        next_stage.name not in processed_stages and
+                        hasattr(stage, 'process_streaming') and
+                        self._can_stream_to_next(stage, next_stage)
+                    )
+                    
+                    if can_stream:
+                        # STREAMING: Process and pass results incrementally
+                        df_out = await self._execute_stage_streaming(stage, next_stage, df_current)
+                        self._stage_data[stage.name] = df_out
+                        self._stage_data[next_stage.name] = df_out
+                        df_current = df_out
+                        # Mark both stages as processed
+                        processed_stages.add(stage.name)
+                        processed_stages.add(next_stage.name)
+                    else:
+                        # BATCHING: Wait for complete results
+                        df_out, result = await self._execute_stage(stage, df_current)
+                        self.stage_results[stage.name] = result
+                        self._stage_data[stage.name] = df_out
+                        df_current = df_out
+                        processed_stages.add(stage.name)
                 else:
                     # Multiple stages in level - execute in parallel
                     if self.verbose:
@@ -342,13 +377,103 @@ class BasePipeline(ABC):
             self.datastore.update_pipeline_run_status(self.run_id, 'failed')
             raise
     
-    def run(self, **kwargs) -> Dict[str, StageResult]:
+    def _get_next_stage(self, current_stage: Stage, stage_levels: List[List[Stage]], current_level: int) -> Optional[Stage]:
+        """Get the next stage after current_stage, if any."""
+        if current_level + 1 >= len(stage_levels):
+            return None
+        
+        next_level = stage_levels[current_level + 1]
+        if len(next_level) == 1:
+            return next_level[0]
+        return None  # Can't stream to multiple parallel stages
+    
+    def _can_stream_to_next(self, current_stage: Stage, next_stage: Stage) -> bool:
+        """Check if current stage can stream to next stage."""
+        from biolmai.pipeline.data import FilterStage
+        
+        # Can stream if next stage is a filter that doesn't require complete data
+        if isinstance(next_stage, FilterStage):
+            return not next_stage.requires_complete_data
+        
+        # Can also stream to another prediction stage
+        from biolmai.pipeline.data import PredictionStage
+        if isinstance(next_stage, PredictionStage):
+            return True
+        
+        return False
+    
+    async def _execute_stage_streaming(
+        self,
+        stage: Stage,
+        next_stage: Stage,
+        df: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        Execute stage in streaming mode, passing results to next_stage incrementally.
+        
+        Returns:
+            Final output DataFrame after both stages
+        """
+        from biolmai.pipeline.data import FilterStage
+        
+        if self.verbose:
+            print(f"\n[Stage: {stage.name}] (streaming to {next_stage.name})")
+        
+        # Collect output chunks
+        output_chunks = []
+        processed_count = 0
+        filtered_count = 0
+        
+        # Stream through both stages
+        async for chunk_df in stage.process_streaming(df, self.datastore):
+            # Pass chunk through next stage immediately
+            if isinstance(next_stage, FilterStage):
+                # Filter the chunk
+                start_chunk_count = len(chunk_df)
+                filtered_chunk = next_stage.filter_func(chunk_df)
+                filtered_count += (start_chunk_count - len(filtered_chunk))
+                
+                if len(filtered_chunk) > 0:
+                    output_chunks.append(filtered_chunk)
+                    processed_count += len(filtered_chunk)
+                    
+                    if self.verbose and processed_count % 100 == 0:
+                        print(f"  Processed: {processed_count} sequences (streaming)")
+        
+        # Combine all chunks
+        if output_chunks:
+            df_out = pd.concat(output_chunks, ignore_index=True)
+        else:
+            df_out = pd.DataFrame(columns=df.columns)
+        
+        # Record results for both stages
+        self.stage_results[stage.name] = StageResult(
+            stage_name=stage.name,
+            input_count=len(df),
+            output_count=len(df),  # All sequences processed
+            filtered_count=0
+        )
+        
+        self.stage_results[next_stage.name] = StageResult(
+            stage_name=next_stage.name,
+            input_count=len(df),
+            output_count=len(df_out),
+            filtered_count=filtered_count
+        )
+        
+        if self.verbose:
+            print(f"  {stage.name}: processed {len(df)} sequences")
+            print(f"  {next_stage.name}: {len(df_out)} passed filter (filtered {filtered_count})")
+        
+        return df_out
+    
+    def run(self, enable_streaming: bool = False, **kwargs) -> Dict[str, StageResult]:
         """
         Run the pipeline synchronously.
         
         This is a convenience wrapper around run_async().
         """
-        return asyncio.run(self.run_async(**kwargs))
+        return asyncio.run(self.run_async(enable_streaming=enable_streaming, **kwargs))
     
     @abstractmethod
     async def _get_initial_data(self, **kwargs) -> pd.DataFrame:

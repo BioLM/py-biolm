@@ -1,5 +1,9 @@
 """
 Filter implementations for pipeline stages.
+
+Filters can be:
+- Per-sequence: Operate on individual sequences independently (streaming-compatible)
+- Aggregate: Require all data before filtering (must batch)
 """
 
 from typing import Callable, Optional, List, Any
@@ -9,7 +13,14 @@ from abc import ABC, abstractmethod
 
 
 class BaseFilter(ABC):
-    """Base class for filters."""
+    """
+    Base class for filters.
+    
+    Attributes:
+        requires_complete_data: If True, filter needs all data before filtering.
+                               If False, can filter sequences as they arrive (streaming).
+    """
+    requires_complete_data: bool = False  # Default: can stream
     
     @abstractmethod
     def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -218,6 +229,8 @@ class RankingFilter(BaseFilter):
     """
     Filter by ranking - select top N or bottom N by a column value.
     
+    This filter REQUIRES complete data to rank all sequences.
+    
     Args:
         column: Column name to rank by
         n: Number of sequences to select
@@ -238,6 +251,7 @@ class RankingFilter(BaseFilter):
         >>> filter = RankingFilter('plddt', method='percentile', percentile=90)
         >>> df_filtered = filter(df)
     """
+    requires_complete_data = True  # Must see all data to rank
     
     def __init__(
         self,
@@ -374,6 +388,8 @@ class DiversitySamplingFilter(BaseFilter):
     """
     Sample diverse sequences using clustering or random sampling.
     
+    This filter REQUIRES complete data to assess diversity.
+    
     Args:
         n_samples: Number of sequences to sample
         method: Sampling method ('random', 'spread', 'top')
@@ -385,6 +401,7 @@ class DiversitySamplingFilter(BaseFilter):
         >>> filter = DiversitySamplingFilter(n_samples=1000, method='random')
         >>> df_sampled = filter(df)
     """
+    requires_complete_data = True  # Must see all data for diversity
     
     def __init__(
         self,
