@@ -161,7 +161,7 @@ class MLMRemasker:
         
         return ''.join(seq_list)
     
-    def predict_masked_positions(
+    async def predict_masked_positions(
         self,
         masked_sequence: str,
         mask_positions: List[int]
@@ -192,12 +192,12 @@ class MLMRemasker:
             return predicted_seq, confidences
         
         else:
-            # Real API prediction
+            # Real API prediction (now async)
             # Call BioLM API for masked prediction
             # The exact API depends on how BioLM exposes masked prediction
             # This is a placeholder structure
             
-            result = self.api_client.predict(
+            result = await self.api_client.predict(
                 items=[{
                     'sequence': masked_sequence,
                     'mask_positions': mask_positions
@@ -239,13 +239,13 @@ class MLMRemasker:
                     f"Expected list with at least one element."
                 )
     
-    def generate_variant(
+    async def generate_variant(
         self,
         parent_sequence: str,
         iteration: int = 0
     ) -> Tuple[str, Dict[str, Any]]:
         """
-        Generate a single variant through remasking.
+        Generate a single variant through remasking (async).
         
         Args:
             parent_sequence: Starting sequence
@@ -266,8 +266,8 @@ class MLMRemasker:
             # Create masked sequence
             masked_seq = self.create_masked_sequence(current_sequence, mask_positions)
             
-            # Predict
-            predicted_seq, confidences = self.predict_masked_positions(
+            # Predict (now async)
+            predicted_seq, confidences = await self.predict_masked_positions(
                 masked_seq, mask_positions
             )
             

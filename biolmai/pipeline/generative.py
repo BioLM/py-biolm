@@ -17,9 +17,9 @@ from dataclasses import dataclass, field
 import random
 
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
-from biolmai.pipeline.datastore import DataStore
+from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 from biolmai.pipeline.mlm_remasking import MLMRemasker, RemaskingConfig
-from biolmai.client import BioLMApi
+from biolmai.client import BioLMApiClient  # Use async client
 
 
 @dataclass
@@ -131,8 +131,8 @@ class GenerationStage(Stage):
         for temp in temps:
             print(f"  {config.model_name} @ T={temp}: generating {config.num_sequences} sequences...")
             
-            # Create API client
-            api = BioLMApi(config.model_name)
+            # Create async API client
+            api = BioLMApiClient(config.model_name)
             
             try:
                 if config.generation_method == 'remask' or (
@@ -161,8 +161,8 @@ class GenerationStage(Stage):
                         model_name=config.model_name
                     )
                     
-                    # Generate variants
-                    variants = remasker.generate_variants(
+                    # Generate variants (now async)
+                    variants = await remasker.generate_variants(
                         config.parent_sequence,
                         num_variants=config.num_sequences,
                         deduplicate=True
@@ -195,8 +195,8 @@ class GenerationStage(Stage):
                     else:
                         items = [{}]  # Unconditional generation
                     
-                    # Generate
-                    result = api.generate(items=items, params=params)
+                    # Generate (now async)
+                    result = await api.generate(items=items, params=params)
                     
                     # Extract sequences
                     if isinstance(result, list):
@@ -216,7 +216,7 @@ class GenerationStage(Stage):
                             })
             
             finally:
-                api.shutdown()
+                await api.shutdown()
         
         return results
     

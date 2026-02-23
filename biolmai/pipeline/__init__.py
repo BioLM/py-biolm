@@ -4,7 +4,10 @@ BioLM Pipeline System
 A comprehensive pipeline framework for biological sequence generation, prediction, and analysis.
 """
 
-from biolmai.pipeline.datastore import DataStore
+from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
+
+# Export DuckDB as DataStore for backward compatibility
+DataStore = DuckDBDataStore
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
 from biolmai.pipeline.generative import GenerativePipeline, GenerationConfig
 from biolmai.pipeline.data import DataPipeline, SingleStepPipeline, Predict, Embed
@@ -32,6 +35,7 @@ from biolmai.pipeline.clustering import (
 
 __all__ = [
     'DataStore',
+    'DuckDBDataStore',
     'BasePipeline',
     'Stage',
     'StageResult',

@@ -339,5 +339,74 @@ class TestStreamingWithFilters:
         print(f"  ✓ Filter streaming test structure in place")
 
 
+class TestDiffMode:
+    """Test diff mode functionality."""
+    
+    def test_diff_mode_counts_existing(self, tmp_path, datastore):
+        """Test that diff mode correctly counts existing sequences."""
+        # Add some sequences to datastore first
+        existing_seqs = ['MKLLIV', 'ACDEFG', 'GHIKLM']
+        for seq in existing_seqs:
+            datastore.add_sequence(seq)
+        
+        # Create pipeline with mix of new and existing sequences
+        all_seqs = existing_seqs + ['NEWSEQ1', 'NEWSEQ2']
+        pipeline = DataPipeline(
+            sequences=all_seqs,
+            datastore=datastore,
+            output_dir=tmp_path,
+            diff_mode=True,
+            verbose=False
+        )
+        
+        # Count existing
+        existing_count = pipeline._count_existing_sequences(all_seqs)
+        assert existing_count == 3, f"Should find 3 existing sequences, found {existing_count}"
+    
+    def test_diff_mode_query_results(self, tmp_path, datastore):
+        """Test SQL-based querying in diff mode."""
+        # Add sequences with predictions
+        for i, seq in enumerate(['A' * 50, 'C' * 100, 'D' * 150]):
+            seq_id = datastore.add_sequence(seq)
+            datastore.add_prediction(seq_id, 'score', 'test_model', float(i * 10))
+        
+        pipeline = DataPipeline(
+            sequences=['E' * 200],  # Add one new sequence
+            datastore=datastore,
+            output_dir=tmp_path,
+            diff_mode=True,
+            verbose=False
+        )
+        
+        # Query for long sequences
+        df = pipeline.query_results("s.length > 75", columns=['sequence', 'score'])
+        
+        assert len(df) >= 2, "Should find at least 2 sequences > 75 length"
+        assert 'sequence' in df.columns
+        print(f"  ✓ SQL query returned {len(df)} sequences efficiently")
+    
+    def test_diff_mode_get_merged_results(self, tmp_path, datastore):
+        """Test get_merged_results with filters."""
+        # Add some test data
+        for i in range(5):
+            seq_id = datastore.add_sequence(f'SEQ{i}' * 20)
+            datastore.add_prediction(seq_id, 'tm', 'test_model', 50.0 + i * 5)
+        
+        pipeline = DataPipeline(
+            sequences=[f'NEWSEQ{i}' * 20 for i in range(3)],
+            datastore=datastore,
+            output_dir=tmp_path,
+            diff_mode=True,
+            verbose=False
+        )
+        
+        # Get merged results with specific prediction types
+        df = pipeline.get_merged_results(prediction_types=['tm'])
+        
+        assert 'tm' in df.columns
+        assert len(df) >= 5, "Should have at least the 5 existing sequences"
+        print(f"  ✓ Merged results: {len(df)} sequences with 'tm' predictions")
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '-s'])
