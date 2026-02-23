@@ -8,6 +8,7 @@ Supports:
 - Multi-model generation in parallel
 """
 
+import json
 import pandas as pd
 import numpy as np
 import asyncio
@@ -226,65 +227,60 @@ class GenerationStage(Stage):
         df: pd.DataFrame,
         datastore: DataStore,
         **kwargs
-    ) -> StageResult:
+    ) -> Tuple[pd.DataFrame, StageResult]:
         """Generate sequences using configured models."""
-        
-        # Generate with all configs (can be parallel)
+
         print(f"  Generating with {len(self.configs)} model configuration(s)...")
-        
+
         if len(self.configs) == 1:
-            # Single config
             results = await self._generate_with_config(self.configs[0], datastore)
         else:
-            # Multiple configs - run in parallel
-            tasks = [
-                self._generate_with_config(config, datastore)
-                for config in self.configs
-            ]
+            tasks = [self._generate_with_config(cfg, datastore) for cfg in self.configs]
             results_list = await asyncio.gather(*tasks)
             results = [item for sublist in results_list for item in sublist]
-        
-        # Convert to DataFrame
-        df_generated = pd.DataFrame(results)
-        
+
+        df_generated = pd.DataFrame(results) if results else pd.DataFrame(
+            columns=['sequence', 'model_name', 'temperature', 'sampling_params',
+                     'generation_method', 'parent_sequence']
+        )
         initial_count = len(df_generated)
-        
-        # Deduplicate if requested
-        if self.deduplicate:
+
+        if self.deduplicate and initial_count > 0:
             df_generated = df_generated.drop_duplicates(subset=['sequence']).reset_index(drop=True)
             deduplicated_count = initial_count - len(df_generated)
             if deduplicated_count > 0:
                 print(f"  Deduplicated: {deduplicated_count} sequences ({len(df_generated)} unique)")
-        
-        # Add to datastore
-        print(f"  Adding {len(df_generated)} sequences to datastore...")
-        
-        for idx, row in df_generated.iterrows():
-            seq_id = datastore.add_sequence(row['sequence'])
-            df_generated.at[idx, 'sequence_id'] = seq_id
-            
-            # Add generation metadata (flattened)
-            sampling_params = row.get('sampling_params', {}) or {}
-            datastore.add_generation_metadata(
-                seq_id,
-                model_name=row['model_name'],
-                temperature=row.get('temperature'),
-                top_k=sampling_params.get('top_k'),
-                top_p=sampling_params.get('top_p'),
-                num_return_sequences=sampling_params.get('num_return_sequences'),
-                do_sample=sampling_params.get('do_sample'),
-                repetition_penalty=sampling_params.get('repetition_penalty'),
-                max_length=sampling_params.get('max_length'),
-            )
-        
-        return StageResult(
+
+        if len(df_generated) > 0:
+            print(f"  Adding {len(df_generated)} sequences to datastore...")
+
+            # Batch-insert all sequences in one vectorized call
+            seq_ids = datastore.add_sequences_batch(df_generated['sequence'].tolist())
+            df_generated['sequence_id'] = seq_ids
+
+            # Store generation metadata per sequence
+            for row_idx, (seq_id, row) in enumerate(
+                zip(seq_ids, df_generated.itertuples(index=False))
+            ):
+                sampling_params = (getattr(row, 'sampling_params', None) or {})
+                datastore.add_generation_metadata(
+                    seq_id,
+                    model_name=row.model_name,
+                    temperature=getattr(row, 'temperature', None),
+                    top_k=sampling_params.get('top_k'),
+                    top_p=sampling_params.get('top_p'),
+                    num_return_sequences=sampling_params.get('num_return_sequences'),
+                    do_sample=sampling_params.get('do_sample'),
+                    repetition_penalty=sampling_params.get('repetition_penalty'),
+                    max_length=sampling_params.get('max_length'),
+                )
+
+        return df_generated, StageResult(
             stage_name=self.name,
-            input_count=0,  # No input for generation
+            input_count=0,
             output_count=len(df_generated),
             computed_count=initial_count,
-            metadata={
-                'deduplicated': initial_count - len(df_generated) if self.deduplicate else 0
-            }
+            metadata={'deduplicated': initial_count - len(df_generated) if self.deduplicate else 0},
         )
 
 
@@ -494,17 +490,19 @@ class GenerativePipeline(BasePipeline):
             print(f"Configs: {len(gen_stage.configs)}")
             print(f"{'='*60}")
             
-            # Execute generation
-            result = await gen_stage.process(pd.DataFrame(), self.datastore)
+            # Execute generation — returns (df_generated, StageResult)
+            df_generated, result = await gen_stage.process(pd.DataFrame(), self.datastore)
             self.stage_results[gen_stage.name] = result
-            
-            # Get generated sequences
-            df_generated = self.datastore.export_to_dataframe(
-                include_sequences=True,
-                include_predictions=False,
-                include_generation_metadata=True
-            )
-            
+
+            # If the generated DataFrame is empty or missing sequence_id, fall back to
+            # a DuckDB export that includes generation metadata columns
+            if df_generated.empty or 'sequence_id' not in df_generated.columns:
+                df_generated = self.datastore.export_to_dataframe(
+                    include_sequences=True,
+                    include_predictions=False,
+                    include_generation_metadata=True,
+                )
+
             self._stage_data[gen_stage.name] = df_generated
             
             if self.verbose:

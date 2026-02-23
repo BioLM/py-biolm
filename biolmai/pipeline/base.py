@@ -73,17 +73,20 @@ class Stage(ABC):
         df: pd.DataFrame,
         datastore: DataStore,
         **kwargs
-    ) -> StageResult:
+    ) -> Tuple[pd.DataFrame, StageResult]:
         """
         Process data through this stage.
-        
+
         Args:
             df: Input DataFrame (must have 'sequence' and 'sequence_id' columns)
             datastore: DataStore for caching
             **kwargs: Additional arguments
-        
+
         Returns:
-            StageResult with statistics
+            Tuple of (output_df, StageResult).  output_df is the DataFrame after
+            this stage has applied its transformation (predictions added, rows
+            filtered, cluster columns added, etc.).  Stages must NOT rely on
+            in-place mutation of the input df — return a new or filtered copy.
         """
         pass
     
@@ -235,10 +238,10 @@ class BasePipeline(ABC):
             if stage.depends_on:
                 print(f"Depends on: {', '.join(stage.depends_on)}")
         
-        # Execute stage
-        result = await stage.process(df_input, self.datastore)
+        # Execute stage — receives (output_df, StageResult) from every stage
+        df_out, result = await stage.process(df_input, self.datastore)
         result.elapsed_time = time.time() - start_time
-        
+
         # Mark stage complete
         self.datastore.mark_stage_complete(
             stage_id=stage_id,
@@ -248,12 +251,12 @@ class BasePipeline(ABC):
             output_count=result.output_count,
             status='completed'
         )
-        
+
         if self.verbose:
             print(f"\n{result}")
             print(f"{'='*60}")
-        
-        return df_input, result
+
+        return df_out, result
     
     async def run_async(self, enable_streaming: bool = False, **kwargs) -> Dict[str, StageResult]:
         """
@@ -350,13 +353,20 @@ class BasePipeline(ABC):
                     ]
                     results = await asyncio.gather(*tasks)
                     
+                    # Merge all parallel stage outputs: start from first output df
+                    # and add any new columns produced by the other stages.
+                    merged_df = results[0][0].copy()
                     for stage, (df_out, result) in zip(level_stages, results):
                         self.stage_results[stage.name] = result
                         self._stage_data[stage.name] = df_out
-                    
-                    # For parallel stages, use the output from the last stage
-                    # (In practice, you might want more sophisticated merging)
-                    df_current = results[-1][0]
+                        # Add columns introduced by this stage that are not yet in merged_df
+                        new_cols = [c for c in df_out.columns if c not in merged_df.columns]
+                        if new_cols and 'sequence_id' in merged_df.columns and 'sequence_id' in df_out.columns:
+                            merged_df = merged_df.merge(
+                                df_out[['sequence_id'] + new_cols],
+                                on='sequence_id', how='left'
+                            )
+                    df_current = merged_df
             
             self.status = 'completed'
             self.end_time = time.time()
