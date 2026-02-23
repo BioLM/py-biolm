@@ -162,7 +162,37 @@ class DuckDBDataStore:
                 completed_at TIMESTAMP
             )
         """)
-        
+
+        # Pipeline metadata (clustering results, stage diagnostics, etc.)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_metadata (
+                key VARCHAR PRIMARY KEY,
+                value VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Generation metadata (parameters used to produce each generated sequence)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS generation_metadata (
+                metadata_id INTEGER PRIMARY KEY,
+                sequence_id INTEGER,
+                model_name VARCHAR,
+                temperature DOUBLE,
+                top_k INTEGER,
+                top_p DOUBLE,
+                num_return_sequences INTEGER,
+                do_sample BOOLEAN,
+                repetition_penalty DOUBLE,
+                max_length INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_gen_meta_seq
+            ON generation_metadata(sequence_id)
+        """)
+
         # Initialize sequence counter
         result = self.conn.execute("SELECT MAX(sequence_id) FROM sequences").fetchone()
         self._sequence_counter = (result[0] or 0) + 1
@@ -175,6 +205,9 @@ class DuckDBDataStore:
         
         result = self.conn.execute("SELECT MAX(structure_id) FROM structures").fetchone()
         self._structure_counter = (result[0] or 0) + 1
+
+        result = self.conn.execute("SELECT MAX(metadata_id) FROM generation_metadata").fetchone()
+        self._generation_metadata_counter = (result[0] or 0) + 1
     
     @staticmethod
     def _hash_sequence(sequence: str) -> str:
@@ -504,14 +537,15 @@ class DuckDBDataStore:
         stage_name: str,
         stage_id: str,
         input_count: int,
-        output_count: int
+        output_count: int,
+        status: str = 'completed'
     ):
-        """Mark stage as complete."""
+        """Mark stage as complete (or failed/skipped)."""
         self.conn.execute("""
             INSERT OR REPLACE INTO stage_completions
             (stage_id, run_id, stage_name, status, input_count, output_count, completed_at)
-            VALUES (?, ?, ?, 'completed', ?, ?, ?)
-        """, [stage_id, run_id, stage_name, input_count, output_count, datetime.now()])
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [stage_id, run_id, stage_name, status, input_count, output_count, datetime.now()])
     
     def is_stage_complete(self, stage_id: str) -> bool:
         """Check if stage is complete."""
@@ -540,6 +574,198 @@ class DuckDBDataStore:
             COPY {table_name} TO '{output_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)
         """)
     
+    def add_generation_metadata(
+        self,
+        sequence_id: int,
+        model_name: str,
+        temperature: Optional[float] = None,
+        top_k: Optional[int] = None,
+        top_p: Optional[float] = None,
+        num_return_sequences: Optional[int] = None,
+        do_sample: Optional[bool] = None,
+        repetition_penalty: Optional[float] = None,
+        max_length: Optional[int] = None,
+    ):
+        """Store generation parameters for a sequence."""
+        metadata_id = self._generation_metadata_counter
+        self._generation_metadata_counter += 1
+        self.conn.execute("""
+            INSERT INTO generation_metadata
+            (metadata_id, sequence_id, model_name, temperature, top_k, top_p,
+             num_return_sequences, do_sample, repetition_penalty, max_length, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [
+            metadata_id, sequence_id, model_name, temperature, top_k, top_p,
+            num_return_sequences, do_sample, repetition_penalty, max_length, datetime.now()
+        ])
+
+    def export_to_dataframe(
+        self,
+        include_sequences: bool = True,
+        include_predictions: bool = True,
+        include_generation_metadata: bool = False,
+        prediction_types: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        """
+        Export data to a flat DataFrame using a single DuckDB SQL query.
+
+        Uses conditional aggregation (CASE WHEN pivot) — no per-type queries,
+        no pandas merges, no full table loads.
+
+        Args:
+            include_sequences: Always True; includes sequence_id, sequence, length.
+            include_predictions: Pivot prediction_type values into columns.
+            include_generation_metadata: Join generation_metadata columns.
+            prediction_types: Limit to specific prediction types (None = all).
+
+        Returns:
+            Wide-format DataFrame: one row per sequence, one column per prediction type.
+        """
+        # Determine which prediction types to pivot
+        if include_predictions:
+            if prediction_types is None:
+                rows = self.conn.execute(
+                    "SELECT DISTINCT prediction_type FROM predictions WHERE prediction_type IS NOT NULL"
+                ).fetchall()
+                prediction_types = [r[0] for r in rows]
+            else:
+                prediction_types = [pt for pt in prediction_types if pt]
+
+        # Build CASE WHEN pivot for predictions
+        pred_cols_sql = ""
+        if include_predictions and prediction_types:
+            cases = [
+                f"MAX(CASE WHEN p.prediction_type = '{pt}' THEN p.value END) AS \"{pt}\""
+                for pt in prediction_types
+            ]
+            pred_cols_sql = ",\n            " + ",\n            ".join(cases)
+
+        # Build generation metadata join
+        gen_join_sql = ""
+        gen_cols_sql = ""
+        if include_generation_metadata:
+            gen_join_sql = "LEFT JOIN generation_metadata gm ON s.sequence_id = gm.sequence_id"
+            gen_cols_sql = """,
+            gm.model_name AS gen_model_name,
+            gm.temperature AS gen_temperature,
+            gm.top_k AS gen_top_k,
+            gm.top_p AS gen_top_p"""
+
+        pred_join_sql = "LEFT JOIN predictions p ON s.sequence_id = p.sequence_id" if include_predictions and prediction_types else ""
+        group_extra = ", gm.model_name, gm.temperature, gm.top_k, gm.top_p" if include_generation_metadata else ""
+
+        query = f"""
+            SELECT
+                s.sequence_id,
+                s.sequence,
+                s.length{pred_cols_sql}{gen_cols_sql}
+            FROM sequences s
+            {pred_join_sql}
+            {gen_join_sql}
+            GROUP BY s.sequence_id, s.sequence, s.length{group_extra}
+        """
+        return self.conn.execute(query).df()
+
+    def get_uncached_sequence_ids(
+        self,
+        sequence_ids: List[int],
+        prediction_type: str,
+        model_name: str,
+    ) -> List[int]:
+        """
+        Return sequence_ids that do NOT yet have a given prediction (vectorized anti-join).
+
+        Replaces N individual has_prediction() calls with a single SQL query.
+
+        Args:
+            sequence_ids: Candidate sequence IDs to check.
+            prediction_type: Prediction type key.
+            model_name: Model name.
+
+        Returns:
+            List of sequence_ids with no cached prediction.
+        """
+        if not sequence_ids:
+            return []
+        ids_df = pd.DataFrame({'sequence_id': sequence_ids})
+        self.conn.register('_check_ids', ids_df)
+        result = self.conn.execute("""
+            SELECT c.sequence_id
+            FROM _check_ids c
+            LEFT JOIN predictions p
+                ON c.sequence_id = p.sequence_id
+                AND p.prediction_type = ?
+                AND p.model_name = ?
+            WHERE p.prediction_id IS NULL
+        """, [prediction_type, model_name]).fetchall()
+        self.conn.unregister('_check_ids')
+        return [r[0] for r in result]
+
+    def get_predictions_bulk(
+        self,
+        sequence_ids: List[int],
+        prediction_type: str,
+        model_name: str,
+    ) -> pd.DataFrame:
+        """
+        Fetch predictions for multiple sequences in a single JOIN query.
+
+        Replaces N individual get_predictions_by_sequence() calls.
+
+        Returns:
+            DataFrame with columns: sequence_id, value, metadata
+        """
+        if not sequence_ids:
+            return pd.DataFrame(columns=['sequence_id', 'value', 'metadata'])
+        ids_df = pd.DataFrame({'sequence_id': sequence_ids})
+        self.conn.register('_bulk_ids', ids_df)
+        result = self.conn.execute("""
+            SELECT p.sequence_id, p.value, p.metadata
+            FROM predictions p
+            INNER JOIN _bulk_ids b ON p.sequence_id = b.sequence_id
+            WHERE p.prediction_type = ? AND p.model_name = ?
+        """, [prediction_type, model_name]).df()
+        self.conn.unregister('_bulk_ids')
+        return result
+
+    def count_matching_sequences(self, sequences: List[str]) -> int:
+        """
+        Count how many of the given sequences already exist in the datastore.
+
+        Uses a single vectorized hash join instead of N individual lookups.
+        Safe to call from any context — registers DataFrame explicitly.
+        """
+        if not sequences:
+            return 0
+        hashes_df = pd.DataFrame({'hash': [self._hash_sequence(s) for s in sequences]})
+        self.conn.register('_count_hashes', hashes_df)
+        result = self.conn.execute("""
+            SELECT COUNT(*) AS cnt
+            FROM sequences s
+            INNER JOIN _count_hashes h ON s.hash = h.hash
+        """).fetchone()
+        self.conn.unregister('_count_hashes')
+        return result[0] if result else 0
+
+    def set_pipeline_metadata(self, key: str, value: Any):
+        """Upsert a key/value pair in the pipeline_metadata table."""
+        self.conn.execute("""
+            INSERT INTO pipeline_metadata (key, value, created_at) VALUES (?, ?, ?)
+            ON CONFLICT (key) DO UPDATE SET value = excluded.value
+        """, [key, json.dumps(value) if not isinstance(value, str) else value, datetime.now()])
+
+    def get_pipeline_metadata(self, key: str) -> Optional[Any]:
+        """Retrieve a value from pipeline_metadata by key."""
+        result = self.conn.execute(
+            "SELECT value FROM pipeline_metadata WHERE key = ?", [key]
+        ).fetchone()
+        if result is None:
+            return None
+        try:
+            return json.loads(result[0])
+        except (json.JSONDecodeError, TypeError):
+            return result[0]
+
     def close(self):
         """Close database connection."""
         self.conn.close()

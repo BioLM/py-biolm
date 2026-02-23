@@ -316,46 +316,45 @@ class MLMRemasker:
         
         return current_sequence, metadata
     
-    def generate_variants(
+    async def generate_variants(
         self,
         parent_sequence: str,
         num_variants: int = 100,
         deduplicate: bool = True
     ) -> List[Tuple[str, Dict[str, Any]]]:
         """
-        Generate multiple variants through remasking.
-        
+        Generate multiple variants through remasking (async).
+
         Args:
             parent_sequence: Starting sequence
             num_variants: Number of variants to generate
             deduplicate: Remove duplicate sequences
-        
+
         Returns:
             List of (variant_sequence, metadata) tuples
         """
         variants = []
         seen_sequences = {parent_sequence} if deduplicate else set()
-        
+
         attempts = 0
         max_attempts = num_variants * 10  # Avoid infinite loop
-        
+
         while len(variants) < num_variants and attempts < max_attempts:
             attempts += 1
-            
-            # Generate variant
-            variant_seq, metadata = self.generate_variant(parent_sequence, iteration=attempts)
-            
-            # Check for duplicates
+
+            # generate_variant is async — must be awaited
+            variant_seq, metadata = await self.generate_variant(parent_sequence, iteration=attempts)
+
             if deduplicate:
                 if variant_seq in seen_sequences:
                     continue
                 seen_sequences.add(variant_seq)
-            
+
             variants.append((variant_seq, metadata))
-        
+
         return variants
     
-    def iterative_refinement(
+    async def iterative_refinement(
         self,
         sequence: str,
         fitness_function: callable,
@@ -364,45 +363,41 @@ class MLMRemasker:
         keep_top_k: int = 5
     ) -> List[Tuple[str, float, Dict[str, Any]]]:
         """
-        Perform iterative refinement using remasking and a fitness function.
-        
+        Perform iterative refinement using remasking and a fitness function (async).
+
         Args:
             sequence: Starting sequence
             fitness_function: Function that scores sequences (higher is better)
             num_iterations: Number of refinement iterations
             population_size: Number of variants per iteration
             keep_top_k: Number of top sequences to keep per iteration
-        
+
         Returns:
             List of (sequence, fitness, metadata) tuples for final population
         """
         current_population = [(sequence, fitness_function(sequence), {})]
-        
+
         for iteration in range(num_iterations):
-            # Generate variants from current population
             new_variants = []
-            
+
             for parent_seq, parent_fitness, _ in current_population:
-                variants = self.generate_variants(
+                variants = await self.generate_variants(
                     parent_seq,
                     num_variants=population_size // len(current_population),
-                    deduplicate=True
+                    deduplicate=True,
                 )
-                
+
                 for variant_seq, metadata in variants:
                     fitness = fitness_function(variant_seq)
                     new_variants.append((variant_seq, fitness, metadata))
-            
-            # Combine with current population
+
             all_sequences = current_population + new_variants
-            
-            # Sort by fitness and keep top k
             all_sequences.sort(key=lambda x: x[1], reverse=True)
             current_population = all_sequences[:keep_top_k]
-            
-            if len(current_population) > 0:
+
+            if current_population:
                 print(f"Iteration {iteration + 1}: Best fitness = {current_population[0][1]:.3f}")
-        
+
         return current_population
 
 
