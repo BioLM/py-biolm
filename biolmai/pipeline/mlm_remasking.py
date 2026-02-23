@@ -17,6 +17,7 @@ class RemaskingConfig:
     Configuration for MLM remasking.
     
     Args:
+        model_name: MLM model to use (e.g., 'esm-150m', 'esm-650m', 'esm-3b', 'esm3', 'esmc')
         mask_fraction: Fraction of positions to mask (default: 0.15)
         mask_positions: Specific positions to mask, or 'auto' for random
         num_iterations: Number of remasking iterations (default: 1)
@@ -28,7 +29,24 @@ class RemaskingConfig:
         mask_strategy: Strategy for selecting positions ('random', 'low_confidence', 'blocks')
         block_size: Size of blocks for block masking (default: 3)
         confidence_threshold: Threshold for low-confidence masking (default: 0.8)
+    
+    Example:
+        >>> # ESM2 150M remasking
+        >>> config = RemaskingConfig(
+        ...     model_name='esm-150m',
+        ...     mask_fraction=0.15,
+        ...     num_iterations=5,
+        ...     temperature=1.0
+        ... )
+        >>> 
+        >>> # ESM3 with higher temperature
+        >>> config = RemaskingConfig(
+        ...     model_name='esm3',
+        ...     mask_fraction=0.20,
+        ...     temperature=1.5
+        ... )
     """
+    model_name: str = 'esm-150m'  # Default to ESM2 150M
     mask_fraction: float = 0.15
     mask_positions: Union[str, List[int]] = 'auto'
     num_iterations: int = 1
@@ -64,11 +82,12 @@ class MLMRemasker:
         self,
         config: RemaskingConfig,
         api_client=None,
-        model_name: str = 'esm2'
+        model_name: Optional[str] = None
     ):
         self.config = config
         self.api_client = api_client
-        self.model_name = model_name
+        # Use model_name from config, or override if provided
+        self.model_name = model_name or config.model_name
         self.random = random.Random(42)  # For reproducibility
     
     def select_mask_positions(
@@ -413,6 +432,7 @@ def create_remasker_from_dict(config_dict: Dict[str, Any], **kwargs) -> MLMRemas
 # Predefined configurations for common use cases
 
 CONSERVATIVE_CONFIG = RemaskingConfig(
+    model_name='esm-150m',
     mask_fraction=0.10,
     num_iterations=3,
     temperature=0.5,
@@ -420,6 +440,7 @@ CONSERVATIVE_CONFIG = RemaskingConfig(
 )
 
 MODERATE_CONFIG = RemaskingConfig(
+    model_name='esm-150m',
     mask_fraction=0.15,
     num_iterations=5,
     temperature=1.0,
@@ -427,6 +448,7 @@ MODERATE_CONFIG = RemaskingConfig(
 )
 
 AGGRESSIVE_CONFIG = RemaskingConfig(
+    model_name='esm-150m',
     mask_fraction=0.25,
     num_iterations=10,
     temperature=1.5,
