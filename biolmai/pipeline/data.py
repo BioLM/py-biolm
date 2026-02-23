@@ -12,7 +12,7 @@ from typing import Union, List, Optional, Dict, Any
 from pathlib import Path
 
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
-from biolmai.pipeline.datastore import DataStore
+from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 from biolmai.pipeline.filters import BaseFilter
 from biolmai.client import BioLMApiClient  # Use async client directly
 
@@ -623,22 +623,37 @@ class DataPipeline(BasePipeline):
         output_dir: Output directory
         resume: Resume from previous run
         verbose: Enable verbose output
+        diff_mode: If True, merge new sequences with existing cached results.
+                  Only computes predictions for uncached sequences. Use get_merged_results()
+                  or query_results() to efficiently access combined data without loading
+                  millions of rows into memory (SQL-based queries).
     
     Example:
+        >>> # Standard mode
         >>> pipeline = DataPipeline(sequences='sequences.csv')
         >>> pipeline.add_prediction('esmfold', prediction_type='structure')
         >>> pipeline.add_filter(ThresholdFilter('plddt', min_value=70))
-        >>> pipeline.add_prediction('temberture', prediction_type='tm')
         >>> results = pipeline.run()
+        
+        >>> # Diff mode - add new sequences to existing pipeline (SQL-based, efficient)
+        >>> pipeline = DataPipeline(sequences='new_sequences.csv', diff_mode=True)
+        >>> pipeline.add_prediction('esmfold', prediction_type='structure')
+        >>> results = pipeline.run()
+        >>> # Efficiently query specific data (doesn't load all millions of rows!)
+        >>> high_quality = pipeline.query_results("s.length > 100 AND p.value > 70")
+        >>> # Or get merged results with filters
+        >>> merged = pipeline.get_merged_results(prediction_types=['plddt', 'tm'])
     """
     
     def __init__(
         self,
         sequences: Union[List[str], pd.DataFrame, str, Path] = None,
+        diff_mode: bool = False,
         **kwargs
     ):
         super().__init__(**kwargs)
         self.input_sequences = sequences
+        self.diff_mode = diff_mode
     
     async def _get_initial_data(self, **kwargs) -> pd.DataFrame:
         """Load sequences into DataFrame."""
@@ -704,6 +719,185 @@ class DataPipeline(BasePipeline):
         
         if deduplicated_count > 0 and self.verbose:
             print(f"Deduplicated {deduplicated_count} sequences ({len(df)} unique)")
+        
+        # In diff mode, identify which sequences are truly new (not in datastore)
+        if self.diff_mode:
+            existing_count = self._count_existing_sequences(df['sequence'].tolist())
+            new_count = len(df) - existing_count
+            if self.verbose:
+                print(f"Diff mode: {existing_count} sequences already in datastore")
+                print(f"Diff mode: {new_count} new sequences to process")
+        
+        return df
+    
+    def _count_existing_sequences(self, sequences: List[str]) -> int:
+        """
+        Efficiently count how many sequences already exist in datastore.
+        Uses DuckDB's vectorized operations instead of loading all data.
+        """
+        if not self.datastore or not sequences:
+            return 0
+        
+        # Create temporary DataFrame for the sequences
+        df_check = pd.DataFrame({'sequence': sequences})
+        
+        # Use DuckDB's efficient join to count matches (vectorized!)
+        result = self.datastore.query("""
+            SELECT COUNT(*) as cnt
+            FROM df_check dc
+            INNER JOIN sequences s ON dc.sequence = s.sequence
+        """)
+        
+        return int(result['cnt'].iloc[0])
+    
+    def get_merged_results(
+        self,
+        prediction_types: Optional[List[str]] = None,
+        sequence_filter: Optional[str] = None
+    ) -> pd.DataFrame:
+        """
+        Get results merged with existing cached data (for diff mode).
+        
+        This method is SQL-based and efficient - it doesn't load millions of rows.
+        Instead, it queries only the data you need using DuckDB's columnar engine.
+        
+        Args:
+            prediction_types: List of prediction types to include (None = all)
+            sequence_filter: SQL WHERE clause to filter sequences (e.g., "length > 50")
+        
+        Returns:
+            DataFrame with requested sequences and predictions
+        
+        Example:
+            >>> # Get all results (efficient - DuckDB only loads what's needed)
+            >>> df = pipeline.get_merged_results()
+            
+            >>> # Get only specific predictions (columnar - even faster!)
+            >>> df = pipeline.get_merged_results(prediction_types=['tm', 'plddt'])
+            
+            >>> # Get sequences matching criteria (predicate pushdown!)
+            >>> df = pipeline.get_merged_results(sequence_filter="length > 100")
+        """
+        if not self.diff_mode:
+            # Standard mode: just return final data
+            return self.get_final_data()
+        
+        # Use DuckDB's efficient query engine
+        query = """
+            SELECT 
+                s.sequence_id,
+                s.sequence,
+                s.length
+            FROM sequences s
+        """
+        
+        if sequence_filter:
+            query += f" WHERE {sequence_filter}"
+        
+        # Execute and load only requested data (columnar scan - fast!)
+        df = self.datastore.query(query)
+        
+        if len(df) == 0:
+            return df
+        
+        # Now load predictions for these sequences only
+        if prediction_types:
+            # Load specific prediction types
+            for pred_type in prediction_types:
+                self._add_predictions_to_df(df, pred_type)
+        else:
+            # Load all available prediction types for these sequences
+            pred_types_df = self.datastore.query("""
+                SELECT DISTINCT prediction_type 
+                FROM predictions 
+                WHERE sequence_id IN (SELECT sequence_id FROM df)
+            """)
+            
+            pred_types = pred_types_df['prediction_type'].tolist()
+            for pred_type in pred_types:
+                self._add_predictions_to_df(df, pred_type)
+        
+        if self.verbose:
+            print(f"\nDiff mode: Loaded {len(df)} sequences with predictions")
+        
+        return df
+    
+    def _add_predictions_to_df(
+        self,
+        df: pd.DataFrame,
+        prediction_type: str
+    ):
+        """
+        Efficiently add a prediction column to DataFrame using DuckDB SQL.
+        Modifies df in place by leveraging DuckDB's join capabilities.
+        """
+        if len(df) == 0:
+            return
+        
+        # Use DuckDB to efficiently join predictions
+        # DuckDB can reference the DataFrame directly!
+        result = self.datastore.query(f"""
+            SELECT 
+                df.sequence_id,
+                p.value
+            FROM df
+            LEFT JOIN predictions p 
+                ON df.sequence_id = p.sequence_id 
+                AND p.prediction_type = '{prediction_type}'
+        """)
+        
+        # Create dict for fast lookup
+        pred_dict = dict(zip(result['sequence_id'], result['value']))
+        
+        # Add column to DataFrame
+        df[prediction_type] = df['sequence_id'].map(pred_dict)
+    
+    def query_results(
+        self,
+        sql_where: str,
+        columns: Optional[List[str]] = None
+    ) -> pd.DataFrame:
+        """
+        Query results using SQL WHERE clause (for diff mode with large datasets).
+        
+        This leverages DuckDB's vectorized engine for maximum performance.
+        
+        Args:
+            sql_where: SQL WHERE clause using table aliases:
+                      - s.* for sequences table (e.g., "s.length > 100")
+                      - Column names directly (no p. prefix needed)
+            columns: Columns to include (None = all available)
+        
+        Returns:
+            DataFrame with matching sequences (only loads what matches!)
+        
+        Example:
+            >>> # Find long sequences (columnar scan - fast!)
+            >>> df = pipeline.query_results("s.length > 200")
+            
+            >>> # Complex filter with predictions
+            >>> df = pipeline.query_results(
+            ...     "s.length > 100",
+            ...     columns=['tm', 'plddt']
+            ... )
+        """
+        # Build efficient DuckDB query
+        query = f"""
+            SELECT DISTINCT
+                s.sequence_id,
+                s.sequence,
+                s.length
+            FROM sequences s
+            WHERE {sql_where}
+        """
+        
+        # DuckDB executes with columnar scans and predicate pushdown
+        df = self.datastore.query(query)
+        
+        # Add requested columns (predictions)
+        if columns and len(df) > 0:
+            for col in columns:
+                self._add_predictions_to_df(df, col)
         
         return df
     

@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 from tqdm.auto import tqdm
 
-from biolmai.pipeline.datastore import DataStore
+from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 
 
 @dataclass

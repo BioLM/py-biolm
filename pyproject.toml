@@ -64,6 +64,8 @@ pipeline = [
     "biotite>=0.34.0",
     "biopython>=1.78",
     "scipy>=1.7.0",
+    "duckdb>=0.9.0",  # High-performance analytical database
+    "pyarrow>=10.0.0",  # Parquet support
 ]
 
 # Development dependencies
