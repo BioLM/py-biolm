@@ -144,6 +144,7 @@ class GenerationStage(Stage):
                     
                     # Create RemaskingConfig from GenerationConfig
                     remask_config = RemaskingConfig(
+                        model_name=config.model_name,  # Use model from GenerationConfig
                         mask_fraction=config.mask_fraction,
                         mask_positions=config.mask_positions,
                         num_iterations=config.sampling_params.get('num_iterations', 1),
