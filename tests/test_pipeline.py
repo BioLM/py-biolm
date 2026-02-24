@@ -24,11 +24,11 @@ class MockPredictionStage(Stage):
     async def process(self, df, datastore, **kwargs):
         """Mock processing - just add random values."""
         import numpy as np
-        
-        # Add mock predictions
+
+        df = df.copy()
         df[self.prediction_type] = np.random.uniform(50, 90, len(df))
-        
-        return StageResult(
+
+        return df, StageResult(
             stage_name=self.name,
             input_count=len(df),
             output_count=len(df),

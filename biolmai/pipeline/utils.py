@@ -1,5 +1,8 @@
 """
 Utility functions for pipeline operations.
+
+Also includes structure file conversion utilities (CIF ↔ PDB) for use with
+structure-conditioned generative models (AntiFold, HyperMPNN, etc.).
 """
 
 import pandas as pd
@@ -8,6 +11,7 @@ from typing import List, Optional, Union, Tuple, Dict, Any
 from pathlib import Path
 import hashlib
 import json
+import os
 
 
 def load_sequences_from_file(
@@ -440,3 +444,123 @@ def export_run_summary(pipeline, output_path: Union[str, Path]):
         json.dump(summary, f, indent=2)
     
     print(f"Exported run summary to {path}")
+
+
+# ---------------------------------------------------------------------------
+# Structure file conversion utilities
+# ---------------------------------------------------------------------------
+
+def cif_to_pdb(cif_path: str, output_path: Optional[str] = None) -> str:
+    """Convert a CIF structure file to PDB format.
+
+    Uses gemmi if available, falls back to biopython.
+
+    Args:
+        cif_path: Path to input CIF (.cif / .mmcif) file.
+        output_path: Destination PDB path. Defaults to same name with .pdb extension.
+
+    Returns:
+        Path to written PDB file.
+
+    Raises:
+        ImportError: If neither gemmi nor biopython is installed.
+    """
+    if output_path is None:
+        output_path = os.path.splitext(cif_path)[0] + '.pdb'
+
+    try:
+        import gemmi  # type: ignore
+        structure = gemmi.read_structure(cif_path)
+        structure.write_pdb(output_path)
+        return output_path
+    except ImportError:
+        pass
+
+    try:
+        from Bio.PDB import MMCIFParser, PDBIO  # type: ignore
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure('structure', cif_path)
+        io = PDBIO()
+        io.set_structure(structure)
+        io.save(output_path)
+        return output_path
+    except ImportError:
+        pass
+
+    raise ImportError(
+        "CIF→PDB conversion requires gemmi or biopython.\n"
+        "  pip install gemmi     # preferred\n"
+        "  pip install biopython # fallback"
+    )
+
+
+def pdb_to_cif(pdb_path: str, output_path: Optional[str] = None) -> str:
+    """Convert a PDB structure file to CIF format.
+
+    Uses gemmi if available, falls back to biopython.
+
+    Args:
+        pdb_path: Path to input PDB (.pdb / .ent) file.
+        output_path: Destination CIF path. Defaults to same name with .cif extension.
+
+    Returns:
+        Path to written CIF file.
+
+    Raises:
+        ImportError: If neither gemmi nor biopython is installed.
+    """
+    if output_path is None:
+        output_path = os.path.splitext(pdb_path)[0] + '.cif'
+
+    try:
+        import gemmi  # type: ignore
+        structure = gemmi.read_structure(pdb_path)
+        structure.make_mmcif_document().write_file(output_path)
+        return output_path
+    except ImportError:
+        pass
+
+    try:
+        from Bio.PDB import PDBParser, MMCIFIO  # type: ignore
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('structure', pdb_path)
+        io = MMCIFIO()
+        io.set_structure(structure)
+        io.save(output_path)
+        return output_path
+    except ImportError:
+        pass
+
+    raise ImportError(
+        "PDB→CIF conversion requires gemmi or biopython.\n"
+        "  pip install gemmi     # preferred\n"
+        "  pip install biopython # fallback"
+    )
+
+
+def load_structure_string(path: str) -> Tuple[str, str]:
+    """Load a structure file and return (format, content_string).
+
+    Args:
+        path: Path to a .pdb, .ent, .cif, or .mmcif file.
+
+    Returns:
+        Tuple of (format_str, content_str) where format_str is 'pdb' or 'cif'.
+
+    Raises:
+        ValueError: If file extension is not recognised.
+        FileNotFoundError: If file does not exist.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext in ('.pdb', '.ent'):
+        fmt = 'pdb'
+    elif ext in ('.cif', '.mmcif'):
+        fmt = 'cif'
+    else:
+        raise ValueError(
+            f"Unrecognised structure file extension '{ext}'. "
+            "Expected: .pdb, .ent, .cif, .mmcif"
+        )
+    with open(path, 'r') as fh:
+        content = fh.read()
+    return fmt, content

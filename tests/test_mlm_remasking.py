@@ -2,6 +2,7 @@
 Unit tests for MLM remasking functionality.
 """
 
+import asyncio
 import unittest
 import numpy as np
 
@@ -126,9 +127,9 @@ class TestMLMRemasker(unittest.TestCase):
         """Test mock prediction (no API)."""
         masked_seq = 'MKTAY<mask>AKQRQ'
         positions = [5]
-        
-        predicted, confidences = self.remasker.predict_masked_positions(
-            masked_seq, positions
+
+        predicted, confidences = asyncio.run(
+            self.remasker.predict_masked_positions(masked_seq, positions)
         )
         
         # Should return a sequence
@@ -143,7 +144,7 @@ class TestMLMRemasker(unittest.TestCase):
     
     def test_generate_variant(self):
         """Test generating single variant."""
-        variant, metadata = self.remasker.generate_variant(self.test_sequence)
+        variant, metadata = asyncio.run(self.remasker.generate_variant(self.test_sequence))
         
         # Should return a sequence
         self.assertIsInstance(variant, str)
@@ -163,10 +164,10 @@ class TestMLMRemasker(unittest.TestCase):
     
     def test_generate_variants_multiple(self):
         """Test generating multiple variants."""
-        variants = self.remasker.generate_variants(
+        variants = asyncio.run(self.remasker.generate_variants(
             self.test_sequence,
             num_variants=10
-        )
+        ))
         
         self.assertEqual(len(variants), 10)
         
@@ -181,11 +182,11 @@ class TestMLMRemasker(unittest.TestCase):
     
     def test_generate_variants_deduplication(self):
         """Test variant deduplication."""
-        variants = self.remasker.generate_variants(
+        variants = asyncio.run(self.remasker.generate_variants(
             self.test_sequence,
             num_variants=50,
             deduplicate=True
-        )
+        ))
         
         # Should have unique sequences
         sequences = [v[0] for v in variants]
@@ -193,11 +194,11 @@ class TestMLMRemasker(unittest.TestCase):
     
     def test_generate_variants_no_deduplication(self):
         """Test without deduplication."""
-        variants = self.remasker.generate_variants(
+        variants = asyncio.run(self.remasker.generate_variants(
             self.test_sequence,
             num_variants=10,
             deduplicate=False
-        )
+        ))
         
         # May have duplicates (with random generation, unlikely but possible)
         self.assertEqual(len(variants), 10)
@@ -211,13 +212,13 @@ class TestMLMRemasker(unittest.TestCase):
         config = RemaskingConfig(mask_fraction=0.1, num_iterations=2)
         remasker = MLMRemasker(config)
         
-        final_population = remasker.iterative_refinement(
+        final_population = asyncio.run(remasker.iterative_refinement(
             self.test_sequence,
             fitness_func,
             num_iterations=3,
             population_size=10,
             keep_top_k=3
-        )
+        ))
         
         # Should return population
         self.assertGreater(len(final_population), 0)

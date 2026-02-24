@@ -192,9 +192,9 @@ class TestStreamingBehavior:
         
         # Non-streaming process should return complete result at once
         start = time.time()
-        result = await stage.process(df, datastore)
+        _, result = await stage.process(df, datastore)
         elapsed = time.time() - start
-        
+
         # Should wait for all batches
         assert elapsed > 0.05, "Should wait for at least one batch"
         assert result.output_count == len(sequences), "Should process all sequences"
@@ -359,8 +359,8 @@ class TestDiffMode:
             verbose=False
         )
         
-        # Count existing
-        existing_count = pipeline._count_existing_sequences(all_seqs)
+        # Count existing (uses datastore.count_matching_sequences)
+        existing_count = pipeline.datastore.count_matching_sequences(all_seqs)
         assert existing_count == 3, f"Should find 3 existing sequences, found {existing_count}"
     
     def test_diff_mode_query_results(self, tmp_path, datastore):

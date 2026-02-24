@@ -9,7 +9,16 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 # Export DuckDB as DataStore for backward compatibility
 DataStore = DuckDBDataStore
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
-from biolmai.pipeline.generative import GenerativePipeline, GenerationConfig
+from biolmai.pipeline.generative import (
+    GenerativePipeline,
+    GenerationConfig,
+    DirectGenerationConfig,
+)
+try:
+    from biolmai.pipeline.visualization import PipelinePlotter
+except ImportError:
+    PipelinePlotter = None  # type: ignore[assignment,misc]
+from biolmai.pipeline.utils import cif_to_pdb, pdb_to_cif, load_structure_string
 from biolmai.pipeline.data import DataPipeline, SingleStepPipeline, Predict, Embed
 from biolmai.pipeline.filters import (
     ThresholdFilter,
@@ -41,6 +50,11 @@ __all__ = [
     'StageResult',
     'GenerativePipeline',
     'GenerationConfig',
+    'DirectGenerationConfig',
+    'PipelinePlotter',
+    'cif_to_pdb',
+    'pdb_to_cif',
+    'load_structure_string',
     'DataPipeline',
     'SingleStepPipeline',
     'Predict',

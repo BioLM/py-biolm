@@ -3,6 +3,7 @@ Base Pipeline classes for stage management and execution.
 """
 
 import asyncio
+import logging
 import uuid
 import time
 from abc import ABC, abstractmethod
@@ -12,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 import pandas as pd
 from tqdm.auto import tqdm
+
+_logger = logging.getLogger(__name__)
 
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 
@@ -207,6 +210,68 @@ class BasePipeline(ABC):
         
         return levels
     
+    def _reload_stage_output(
+        self,
+        stage: Stage,
+        df_input: pd.DataFrame,
+    ) -> Optional[pd.DataFrame]:
+        """Reconstruct a stage's output DataFrame from the datastore (for resume).
+
+        Returns the reloaded DataFrame, or None if it cannot be reconstructed
+        (caller should then re-run the stage normally).
+        """
+        if self.datastore is None or 'sequence_id' not in df_input.columns:
+            return None
+        try:
+            from biolmai.pipeline.data import PredictionStage, FilterStage, ClusteringStage
+            from biolmai.pipeline.generative import GenerationStage
+
+            if isinstance(stage, PredictionStage):
+                pred_df = self.datastore.get_predictions_bulk(
+                    df_input['sequence_id'].tolist(),
+                    stage.prediction_type,
+                    stage.model_name,
+                )
+                if pred_df.empty:
+                    return None
+                df = df_input.merge(
+                    pred_df[['sequence_id', 'value']].rename(
+                        columns={'value': stage.prediction_type}
+                    ),
+                    on='sequence_id',
+                    how='left',
+                )
+                return df[df[stage.prediction_type].notna()].copy()
+
+            elif isinstance(stage, FilterStage):
+                passed_ids = self.datastore.get_filter_results(self.run_id, stage.name)
+                if not passed_ids:
+                    return None
+                return df_input[df_input['sequence_id'].isin(set(passed_ids))].copy()
+
+            elif isinstance(stage, ClusteringStage):
+                assignments = self.datastore.get_pipeline_metadata(
+                    f"clustering_{stage.name}_assignments"
+                )
+                if assignments is None:
+                    return None
+                df = df_input.copy()
+                df['cluster_id'] = df['sequence'].map(assignments)
+                df['is_centroid'] = False
+                return df
+
+            elif isinstance(stage, GenerationStage):
+                return self.datastore.export_to_dataframe(
+                    include_sequences=True,
+                    include_predictions=False,
+                    include_generation_metadata=True,
+                )
+
+        except Exception as exc:
+            _logger.warning("Could not reload stage '%s' from datastore: %s", stage.name, exc)
+
+        return None
+
     async def _execute_stage(
         self,
         stage: Stage,
@@ -214,43 +279,49 @@ class BasePipeline(ABC):
     ) -> Tuple[pd.DataFrame, StageResult]:
         """Execute a single stage."""
         start_time = time.time()
-        
+
         # Check if stage is already complete (resumability)
         stage_id = f"{self.run_id}_{stage.name}"
-        if self.resume and self.datastore.is_stage_complete(stage_id):
+        if self.resume and self.datastore and self.datastore.is_stage_complete(stage_id):
             if self.verbose:
-                print(f"\n✓ Stage '{stage.name}' already complete (resuming)")
-            
-            # Load cached result
-            # This is a simplified version - in practice, we'd need to retrieve the actual data
-            result = StageResult(
-                stage_name=stage.name,
-                input_count=len(df_input),
-                output_count=len(df_input),  # Placeholder
-                elapsed_time=0
-            )
-            return df_input, result
-        
+                print(f"\n✓ Stage '{stage.name}' already complete — reloading from DB")
+
+            df_resumed = self._reload_stage_output(stage, df_input)
+            if df_resumed is not None:
+                if self.verbose:
+                    print(f"  Reloaded {len(df_resumed):,} rows")
+                return df_resumed, StageResult(
+                    stage_name=stage.name,
+                    input_count=len(df_input),
+                    output_count=len(df_resumed),
+                    elapsed_time=0.0,
+                    metadata={'resumed': True},
+                )
+            else:
+                if self.verbose:
+                    print(f"  Cannot reload from DB — re-running stage '{stage.name}'")
+
         if self.verbose:
             print(f"\n{'='*60}")
             print(f"Stage: {stage.name}")
             print(f"Input: {len(df_input):,} sequences")
             if stage.depends_on:
                 print(f"Depends on: {', '.join(stage.depends_on)}")
-        
-        # Execute stage — receives (output_df, StageResult) from every stage
-        df_out, result = await stage.process(df_input, self.datastore)
+
+        # Execute stage — pass run_id for filter result persistence
+        df_out, result = await stage.process(df_input, self.datastore, run_id=self.run_id)
         result.elapsed_time = time.time() - start_time
 
         # Mark stage complete
-        self.datastore.mark_stage_complete(
-            stage_id=stage_id,
-            run_id=self.run_id,
-            stage_name=stage.name,
-            input_count=result.input_count,
-            output_count=result.output_count,
-            status='completed'
-        )
+        if self.datastore:
+            self.datastore.mark_stage_complete(
+                stage_id=stage_id,
+                run_id=self.run_id,
+                stage_name=stage.name,
+                input_count=result.input_count,
+                output_count=result.output_count,
+                status='completed'
+            )
 
         if self.verbose:
             print(f"\n{result}")

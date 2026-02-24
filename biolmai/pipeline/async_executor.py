@@ -3,7 +3,7 @@ Async batch execution utilities with semaphore-based rate limiting.
 """
 
 import asyncio
-from typing import List, Callable, TypeVar, Any, Optional, Coroutine
+from typing import List, Callable, TypeVar, Any, Optional, Coroutine, Tuple
 from tqdm.asyncio import tqdm_asyncio
 import pandas as pd
 
@@ -189,7 +189,7 @@ class CachingExecutor:
         items: List[T],
         func: Callable[[T], Coroutine[Any, Any, R]],
         return_exceptions: bool = False
-    ) -> tuple[List[R], int, int]:
+    ) -> Tuple[List[R], int, int]:
         """
         Execute with caching.
         
