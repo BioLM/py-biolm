@@ -5,6 +5,11 @@ These tests make real API calls and test end-to-end functionality.
 Run with: make test-integration (requires BIOLMAI_TOKEN or BIOLM_API_KEY)
 """
 
+import pytest
+# Integration tests require the full pipeline extras (matplotlib, etc.) and a real
+# API key.  Skip the entire module if either is missing.
+pytest.importorskip("matplotlib", reason="pip install biolmai[pipeline] for integration tests")
+
 from biolmai.core.http import BioLMApiClient
 import unittest
 import tempfile
@@ -15,12 +20,7 @@ import numpy as np
 import os
 import time
 
-# Mark for pytest
-try:
-    import pytest
-    HAS_PYTEST = True
-except ImportError:
-    HAS_PYTEST = False
+HAS_PYTEST = True
 
 from biolmai.pipeline import (
     DataPipeline,

@@ -467,31 +467,30 @@ class DiversitySamplingFilter(BaseFilter):
                 return df_result
         
         # Normal sampling (resample=True or first time)
-        df_result = df.copy()
-        
         if self.method == 'random':
-            df_result = df.sample(n=self.n_samples, random_state=self.random_seed)
-        
+            df_result = df.sample(n=self.n_samples, random_state=self.random_seed).copy()
+
         elif self.method == 'top':
             if self.score_column is None:
                 raise ValueError("score_column must be specified for 'top' method")
             if self.score_column not in df.columns:
                 raise ValueError(f"Column '{self.score_column}' not found")
-            
-            # Sort by score and take top n
-            df_sorted = df.sort_values(self.score_column, ascending=False)
-            df_result = df_sorted.head(self.n_samples).copy()
-        
+
+            indices = df[self.score_column].nlargest(self.n_samples).index
+            df_result = df.loc[indices].copy()
+
         elif self.method == 'spread':
             # Sample with spread - divide into bins and sample evenly
             if self.score_column and self.score_column in df.columns:
-                # Sort by score and sample evenly across the range
-                df_sorted = df.sort_values(self.score_column)
-                indices = np.linspace(0, len(df_sorted) - 1, self.n_samples, dtype=int)
-                df_result = df_sorted.iloc[indices].copy()
+                sorted_indices = df[self.score_column].argsort().values
+                top_indices = sorted_indices[
+                    np.linspace(0, len(sorted_indices) - 1, self.n_samples, dtype=int)
+                ]
+                df_result = df.iloc[top_indices].copy()
             else:
-                # Fall back to random sampling
-                df_result = df.sample(n=self.n_samples, random_state=self.random_seed)
+                df_result = df.sample(n=self.n_samples, random_state=self.random_seed).copy()
+        else:
+            df_result = df.iloc[: self.n_samples].copy()
         
         # Mark as sampled
         df_result[self._sampled_marker_col] = True

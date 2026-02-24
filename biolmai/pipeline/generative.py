@@ -9,6 +9,7 @@ Supports:
 """
 
 import json
+import warnings
 import pandas as pd
 import numpy as np
 import asyncio
@@ -24,10 +25,42 @@ from biolmai.client import BioLMApiClient  # Use async client
 
 
 @dataclass
+class DirectGenerationConfig:
+    """
+    Configuration for structure-conditioned sequence generation.
+
+    Use with models such as ProteinMPNN, AntiFold, HyperMPNN, LigandMPNN.
+
+    Args:
+        model_name: BioLM model name (e.g. 'proteinmpnn', 'antifold').
+        structure_path: Path to a PDB or CIF file (first run / static structure).
+        structure_column: Column in the upstream DataFrame that holds structure
+            strings (for chained pipelines where structure was predicted upstream).
+        num_sequences: Number of sequences to generate per structure.
+        temperature: Sampling temperature.
+        top_k: Top-k sampling (optional).
+        chain_id: Chain to redesign (AntiFold / HyperMPNN).
+        fixed_positions: 0-indexed residue positions to keep fixed.
+    """
+    model_name: str
+    structure_path: Optional[str] = None
+    structure_column: Optional[str] = None
+    num_sequences: int = 100
+    temperature: float = 1.0
+    top_k: Optional[int] = None
+    chain_id: Optional[str] = None
+    fixed_positions: Optional[List[int]] = None
+
+
+@dataclass
 class GenerationConfig:
     """
     Configuration for sequence generation.
-    
+
+    .. deprecated::
+        Use :class:`RemaskingConfig` for MLM-based generation or
+        :class:`DirectGenerationConfig` for structure-conditioned models.
+
     Args:
         model_name: BioLM model name
         num_sequences: Number of sequences to generate
@@ -49,26 +82,45 @@ class GenerationConfig:
     mask_fraction: float = 0.15
     batch_size: int = 32
 
+    def __post_init__(self):
+        warnings.warn(
+            "GenerationConfig is deprecated. Use RemaskingConfig for MLM remasking "
+            "or DirectGenerationConfig for structure-conditioned generation.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
 
 class GenerationStage(Stage):
     """
     Stage for generating sequences using generative models.
-    
+
+    Accepts either the new typed configs (RemaskingConfig / DirectGenerationConfig)
+    or the legacy GenerationConfig list.
+
     Args:
-        name: Stage name
-        configs: List of GenerationConfig objects (for multi-model generation)
-        deduplicate: Whether to deduplicate generated sequences
+        name: Stage name.
+        config: Single RemaskingConfig or DirectGenerationConfig (new API).
+        configs: List of config objects — GenerationConfig, RemaskingConfig, or
+                 DirectGenerationConfig (old / multi-model API).
+        deduplicate: Whether to deduplicate generated sequences.
     """
-    
+
     def __init__(
         self,
         name: str = 'generation',
-        configs: Optional[List[GenerationConfig]] = None,
+        config: Optional[Union[RemaskingConfig, DirectGenerationConfig]] = None,
+        configs: Optional[List[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]] = None,
         deduplicate: bool = True,
         **kwargs
     ):
         super().__init__(name=name, **kwargs)
-        self.configs = configs or []
+        if config is not None:
+            self.configs = [config]
+        elif configs is not None:
+            self.configs = configs
+        else:
+            self.configs = []
         self.deduplicate = deduplicate
     
     @staticmethod
@@ -113,6 +165,97 @@ class GenerationStage(Stage):
         mlm_models = ['esm', 'esm1v', 'esm2', 'esm1b']
         return any(mlm in model_name.lower() for mlm in mlm_models)
     
+    async def _run_remasking(
+        self,
+        config: RemaskingConfig,
+        parent_sequence: str,
+        num_variants: int,
+    ) -> List[Dict]:
+        """Run MLM remasking generation using RemaskingConfig directly."""
+        print(f"  {config.model_name} (remasking): generating {num_variants} variants...")
+        api = BioLMApiClient(config.model_name)
+        try:
+            remasker = MLMRemasker(config, api_client=api, model_name=config.model_name)
+            variants = await remasker.generate_variants(
+                parent_sequence,
+                num_variants=num_variants,
+                deduplicate=True,
+            )
+            return [
+                {
+                    'sequence': seq,
+                    'model_name': config.model_name,
+                    'temperature': config.temperature,
+                    'sampling_params': {},
+                    'generation_method': 'remask',
+                    'parent_sequence': parent_sequence,
+                    'num_mutations': meta.get('num_mutations'),
+                    'mutation_rate': meta.get('mutation_rate'),
+                }
+                for seq, meta in variants
+            ]
+        finally:
+            await api.shutdown()
+
+    async def _run_direct_generation(
+        self,
+        config: DirectGenerationConfig,
+        datastore: DataStore,
+        df_input: pd.DataFrame,
+    ) -> List[Dict]:
+        """Run structure-conditioned generation using DirectGenerationConfig."""
+        # Resolve structure string(s)
+        if config.structure_column and config.structure_column in df_input.columns:
+            structure_strings = df_input[config.structure_column].dropna().tolist()
+        elif config.structure_path:
+            from biolmai.pipeline.utils import load_structure_string, cif_to_pdb
+            import tempfile
+            fmt, structure_str = load_structure_string(config.structure_path)
+            if fmt == 'cif':
+                with tempfile.NamedTemporaryFile(suffix='.pdb', delete=False) as f:
+                    pdb_path = f.name
+                cif_to_pdb(config.structure_path, pdb_path)
+                _, structure_str = load_structure_string(pdb_path)
+            structure_strings = [structure_str]
+        else:
+            raise ValueError(
+                "DirectGenerationConfig requires either structure_path or structure_column"
+            )
+
+        params: Dict[str, Any] = {
+            'num_sequences': config.num_sequences,
+            'temperature': config.temperature,
+        }
+        if config.top_k is not None:
+            params['top_k'] = config.top_k
+        if config.chain_id:
+            params['chain_id'] = config.chain_id
+        if config.fixed_positions:
+            params['fixed_positions'] = config.fixed_positions
+
+        results = []
+        api = BioLMApiClient(config.model_name)
+        try:
+            for structure_str in structure_strings:
+                print(f"  {config.model_name} (direct): generating {config.num_sequences} sequences...")
+                items = [{'structure': structure_str}]
+                raw = await api.generate(items=items, params=params)
+                if isinstance(raw, list):
+                    for item in raw:
+                        seq = item.get('sequence', str(item)) if isinstance(item, dict) else str(item)
+                        results.append({
+                            'sequence': seq,
+                            'model_name': config.model_name,
+                            'temperature': config.temperature,
+                            'sampling_params': params,
+                            'generation_method': 'direct',
+                            'parent_sequence': None,
+                        })
+        finally:
+            await api.shutdown()
+
+        return results
+
     async def _generate_with_config(
         self,
         config: GenerationConfig,
@@ -222,6 +365,26 @@ class GenerationStage(Stage):
         
         return results
     
+    async def _dispatch_config(
+        self,
+        cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig],
+        datastore: DataStore,
+        df_input: pd.DataFrame,
+    ) -> List[Dict]:
+        """Dispatch a single config to the appropriate generation method."""
+        if isinstance(cfg, RemaskingConfig):
+            parent = getattr(cfg, 'parent_sequence', None)
+            num = getattr(cfg, 'num_variants', 100)
+            if parent is None:
+                raise ValueError("RemaskingConfig requires a parent_sequence attribute")
+            return await self._run_remasking(cfg, parent_sequence=parent, num_variants=num)
+        elif isinstance(cfg, DirectGenerationConfig):
+            return await self._run_direct_generation(cfg, datastore, df_input)
+        elif isinstance(cfg, GenerationConfig):
+            return await self._generate_with_config(cfg, datastore)
+        else:
+            raise TypeError(f"Unsupported config type: {type(cfg)}")
+
     async def process(
         self,
         df: pd.DataFrame,
@@ -233,9 +396,9 @@ class GenerationStage(Stage):
         print(f"  Generating with {len(self.configs)} model configuration(s)...")
 
         if len(self.configs) == 1:
-            results = await self._generate_with_config(self.configs[0], datastore)
+            results = await self._dispatch_config(self.configs[0], datastore, df)
         else:
-            tasks = [self._generate_with_config(cfg, datastore) for cfg in self.configs]
+            tasks = [self._dispatch_config(cfg, datastore, df) for cfg in self.configs]
             results_list = await asyncio.gather(*tasks)
             results = [item for sublist in results_list for item in sublist]
 
@@ -331,15 +494,15 @@ class GenerativePipeline(BasePipeline):
     
     def __init__(
         self,
-        generation_configs: Optional[List[GenerationConfig]] = None,
+        generation_configs: Optional[List[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]] = None,
         deduplicate: bool = True,
         **kwargs
     ):
         super().__init__(**kwargs)
-        
+
         self.generation_configs = generation_configs or []
         self.deduplicate = deduplicate
-        
+
         # Add generation stage automatically
         if self.generation_configs:
             gen_stage = GenerationStage(
@@ -348,6 +511,14 @@ class GenerativePipeline(BasePipeline):
                 deduplicate=self.deduplicate
             )
             self.stages.insert(0, gen_stage)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.datastore:
+            self.datastore.close()
+        return False
     
     async def _get_initial_data(self, **kwargs) -> pd.DataFrame:
         """
@@ -478,43 +649,50 @@ class GenerativePipeline(BasePipeline):
     async def run_async(self, **kwargs) -> Dict[str, StageResult]:
         """
         Run the generative pipeline.
-        
+
         This override handles the special case of generation stage.
+        Idempotent: self.stages is always restored after execution.
         """
-        # Run generation stage first if it exists
-        if self.stages and isinstance(self.stages[0], GenerationStage):
-            gen_stage = self.stages[0]
-            
-            print(f"\n{'='*60}")
-            print(f"Stage: {gen_stage.name} (Generation)")
-            print(f"Configs: {len(gen_stage.configs)}")
-            print(f"{'='*60}")
-            
-            # Execute generation — returns (df_generated, StageResult)
-            df_generated, result = await gen_stage.process(pd.DataFrame(), self.datastore)
-            self.stage_results[gen_stage.name] = result
+        import copy as _copy
 
-            # If the generated DataFrame is empty or missing sequence_id, fall back to
-            # a DuckDB export that includes generation metadata columns
-            if df_generated.empty or 'sequence_id' not in df_generated.columns:
-                df_generated = self.datastore.export_to_dataframe(
-                    include_sequences=True,
-                    include_predictions=False,
-                    include_generation_metadata=True,
-                )
+        # Save original stages so the pipeline is idempotent (can be called again)
+        original_stages = self.stages
 
-            self._stage_data[gen_stage.name] = df_generated
-            
-            if self.verbose:
-                print(f"\n{result}")
+        try:
+            # Run generation stage first if it exists
+            if self.stages and isinstance(self.stages[0], GenerationStage):
+                gen_stage = self.stages[0]
+
+                print(f"\n{'='*60}")
+                print(f"Stage: {gen_stage.name} (Generation)")
+                print(f"Configs: {len(gen_stage.configs)}")
                 print(f"{'='*60}")
-            
-            # Remove generation stage from list (so base class doesn't run it again)
-            remaining_stages = self.stages[1:]
-            self.stages = remaining_stages
-        
-        # Run remaining stages using base class
-        return await super().run_async(**kwargs)
+
+                # Execute generation — returns (df_generated, StageResult)
+                df_generated, result = await gen_stage.process(pd.DataFrame(), self.datastore)
+                self.stage_results[gen_stage.name] = result
+                self._stage_data[gen_stage.name] = df_generated
+
+                if self.verbose:
+                    print(f"\n{result}")
+                    print(f"{'='*60}")
+
+                # Build patched stage list without mutating stage objects or self.stages.
+                # Each remaining stage gets a shallow copy with depends_on stripped of
+                # the generation stage name, so base-class dependency resolution works.
+                gen_name = gen_stage.name
+                remaining_stages = []
+                for s in self.stages[1:]:
+                    s_copy = _copy.copy(s)
+                    s_copy.depends_on = [d for d in s.depends_on if d != gen_name]
+                    remaining_stages.append(s_copy)
+                self.stages = remaining_stages
+
+            # Run remaining stages using base class
+            return await super().run_async(**kwargs)
+        finally:
+            # Always restore original stages so the pipeline remains idempotent
+            self.stages = original_stages
 
 
 # Convenience function for quick generation

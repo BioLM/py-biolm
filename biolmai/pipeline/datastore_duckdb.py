@@ -111,20 +111,25 @@ class DuckDBDataStore:
             ON predictions(prediction_type, model_name)
         """)
         
-        # Embeddings metadata table (actual arrays in Parquet files)
+        # Embeddings table — arrays stored inline as FLOAT[] (no per-file Parquet overhead)
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS embeddings (
                 embedding_id INTEGER PRIMARY KEY,
                 sequence_id INTEGER,
                 model_name VARCHAR,
                 layer INTEGER,
-                embedding_path VARCHAR,
+                values FLOAT[],
                 dimension INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Migration: add values column to existing databases that have embedding_path only
+        try:
+            self.conn.execute("ALTER TABLE embeddings ADD COLUMN values FLOAT[]")
+        except Exception:
+            pass  # Column already exists
         
-        # Structures metadata table (actual files on disk)
+        # Structures table — stores inline structure content (PDB/CIF strings)
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS structures (
                 structure_id INTEGER PRIMARY KEY,
@@ -132,11 +137,22 @@ class DuckDBDataStore:
                 model_name VARCHAR,
                 format VARCHAR,
                 structure_path VARCHAR,
+                structure_str TEXT,
                 plddt DOUBLE,
                 metadata VARCHAR,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Migration: add structure_str column to existing databases
+        try:
+            self.conn.execute("ALTER TABLE structures ADD COLUMN structure_str TEXT")
+        except Exception:
+            pass  # Column already exists
+        # Migration: add compressed structure_data BLOB column (replaces uncompressed TEXT)
+        try:
+            self.conn.execute("ALTER TABLE structures ADD COLUMN structure_data BLOB")
+        except Exception:
+            pass  # Column already exists
         
         # Pipeline runs table
         self.conn.execute("""
@@ -208,6 +224,24 @@ class DuckDBDataStore:
 
         result = self.conn.execute("SELECT MAX(metadata_id) FROM generation_metadata").fetchone()
         self._generation_metadata_counter = (result[0] or 0) + 1
+
+        # Filter results table — records which sequence_ids passed each filter stage
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS filter_results (
+                filter_id    INTEGER PRIMARY KEY,
+                run_id       TEXT NOT NULL,
+                stage_name   TEXT NOT NULL,
+                sequence_id  INTEGER NOT NULL,
+                passed       BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        self.conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_filter_results_lookup
+            ON filter_results(run_id, stage_name)
+        """)
+        result = self.conn.execute("SELECT MAX(filter_id) FROM filter_results").fetchone()
+        self._filter_id_counter = (result[0] or 0) + 1
     
     @staticmethod
     def _hash_sequence(sequence: str) -> str:
@@ -244,39 +278,46 @@ class DuckDBDataStore:
         # Remove duplicates within the batch
         df_new = df_new.drop_duplicates(subset=['hash'], keep='first')
         
-        if deduplicate:
-            # 🔥 Anti-join: find sequences NOT already in database
-            # This is vectorized and super fast!
-            df_to_insert = self.conn.execute("""
-                SELECT s.*
-                FROM df_new s
-                LEFT JOIN sequences t
-                ON s.hash = t.hash
-                WHERE t.hash IS NULL
+        # Register df_new explicitly — DuckDB scope introspection is fragile in async
+        self.conn.register('_seq_batch', df_new)
+        try:
+            if deduplicate:
+                # 🔥 Anti-join: find sequences NOT already in database
+                df_to_insert = self.conn.execute("""
+                    SELECT s.*
+                    FROM _seq_batch s
+                    LEFT JOIN sequences t ON s.hash = t.hash
+                    WHERE t.hash IS NULL
+                """).df()
+            else:
+                df_to_insert = df_new.copy()
+
+            # Assign IDs
+            if len(df_to_insert) > 0:
+                start_id = self._sequence_counter
+                df_to_insert['sequence_id'] = range(start_id, start_id + len(df_to_insert))
+                df_to_insert['created_at'] = datetime.now()
+
+                # Batch insert (vectorized!) - specify column order explicitly
+                self.conn.register('_seq_insert', df_to_insert)
+                try:
+                    self.conn.execute("""
+                        INSERT INTO sequences (sequence_id, sequence, length, hash, created_at)
+                        SELECT sequence_id, sequence, length, hash, created_at FROM _seq_insert
+                    """)
+                finally:
+                    self.conn.unregister('_seq_insert')
+
+                self._sequence_counter += len(df_to_insert)
+
+            # Get all IDs (including existing)
+            df_result = self.conn.execute("""
+                SELECT hash, sequence_id
+                FROM sequences
+                WHERE hash IN (SELECT hash FROM _seq_batch)
             """).df()
-        else:
-            df_to_insert = df_new
-        
-        # Assign IDs
-        if len(df_to_insert) > 0:
-            start_id = self._sequence_counter
-            df_to_insert['sequence_id'] = range(start_id, start_id + len(df_to_insert))
-            df_to_insert['created_at'] = datetime.now()
-            
-            # Batch insert (vectorized!) - specify column order explicitly
-            self.conn.execute("""
-                INSERT INTO sequences (sequence_id, sequence, length, hash, created_at)
-                SELECT sequence_id, sequence, length, hash, created_at FROM df_to_insert
-            """)
-            
-            self._sequence_counter += len(df_to_insert)
-        
-        # Get all IDs (including existing)
-        df_result = self.conn.execute("""
-            SELECT hash, sequence_id
-            FROM sequences
-            WHERE hash IN (SELECT hash FROM df_new)
-        """).df()
+        finally:
+            self.conn.unregister('_seq_batch')
         
         # Map back to original order
         hash_to_id = dict(zip(df_result['hash'], df_result['sequence_id']))
@@ -323,11 +364,15 @@ class DuckDBDataStore:
         else:
             df['metadata'] = None
         
-        # Batch insert - specify column order explicitly
-        self.conn.execute("""
-            INSERT INTO predictions (prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at)
-            SELECT prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at FROM df
-        """)
+        # Batch insert — register explicitly to avoid fragile DuckDB scope introspection
+        self.conn.register('_pred_batch', df)
+        try:
+            self.conn.execute("""
+                INSERT INTO predictions (prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at)
+                SELECT prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at FROM _pred_batch
+            """)
+        finally:
+            self.conn.unregister('_pred_batch')
         self._prediction_counter += len(df)
     
     def add_prediction(
@@ -438,35 +483,27 @@ class DuckDBDataStore:
         layer: Optional[int] = None
     ):
         """
-        Add embedding (stored in Parquet for efficiency).
-        
+        Add embedding stored inline in DuckDB as FLOAT[] (no per-file Parquet overhead).
+
         Args:
             sequence_id: Sequence ID
             model_name: Model name
             embedding: Numpy array
             layer: Optional layer number
         """
-        # Store embedding in Parquet file
         embedding_id = self._embedding_counter
         self._embedding_counter += 1
-        
-        embedding_path = self.embeddings_dir / f"emb_{embedding_id}.parquet"
-        
-        # Store as Parquet (columnar, compressed)
-        df_emb = pd.DataFrame({'values': [embedding.tolist()]})
-        df_emb.to_parquet(embedding_path, compression='snappy')
-        
-        # Store metadata in DuckDB
+
         self.conn.execute("""
-            INSERT INTO embeddings 
-            (embedding_id, sequence_id, model_name, layer, embedding_path, dimension, created_at)
+            INSERT INTO embeddings
+            (embedding_id, sequence_id, model_name, layer, values, dimension, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, [
             embedding_id,
             sequence_id,
             model_name,
             layer,
-            str(embedding_path),
+            embedding.tolist(),
             len(embedding),
             datetime.now()
         ])
@@ -479,7 +516,7 @@ class DuckDBDataStore:
     ) -> List[Dict]:
         """Get embeddings for a sequence."""
         seq_hash = self._hash_sequence(sequence)
-        
+
         sql = """
             SELECT e.*
             FROM embeddings e
@@ -487,20 +524,25 @@ class DuckDBDataStore:
             WHERE s.hash = ?
         """
         params = [seq_hash]
-        
+
         if model_name:
             sql += " AND e.model_name = ?"
             params.append(model_name)
-        
+
         df = self.conn.execute(sql, params).df()
         results = df.to_dict('records')
-        
-        # Optionally load embedding data from Parquet
+
         if load_data:
             for r in results:
-                df_emb = pd.read_parquet(r['embedding_path'])
-                r['embedding'] = np.array(df_emb['values'].iloc[0])
-        
+                vals = r.get('values')
+                if vals is not None:
+                    # Inline storage: values is a Python list from DuckDB FLOAT[]
+                    r['embedding'] = np.array(vals, dtype=np.float32)
+                elif r.get('embedding_path'):
+                    # Backward compat: old-style per-file Parquet
+                    df_emb = pd.read_parquet(r['embedding_path'])
+                    r['embedding'] = np.array(df_emb['values'].iloc[0])
+
         return results
     
     def create_pipeline_run(
@@ -510,17 +552,21 @@ class DuckDBDataStore:
         config: Dict,
         status: str = 'running'
     ):
-        """Create pipeline run record."""
+        """Create or update a pipeline run record (safe for resume runs)."""
+        now = datetime.now()
         self.conn.execute("""
             INSERT INTO pipeline_runs (run_id, pipeline_type, config, status, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (run_id) DO UPDATE SET
+                status = excluded.status,
+                updated_at = excluded.updated_at
         """, [
             run_id,
             pipeline_type,
             json.dumps(config),
             status,
-            datetime.now(),
-            datetime.now()
+            now,
+            now,
         ])
     
     def update_pipeline_run_status(self, run_id: str, status: str):
@@ -635,7 +681,9 @@ class DuckDBDataStore:
         pred_cols_sql = ""
         if include_predictions and prediction_types:
             cases = [
-                f"MAX(CASE WHEN p.prediction_type = '{pt}' THEN p.value END) AS \"{pt}\""
+                "MAX(CASE WHEN p.prediction_type = '{}' THEN p.value END) AS \"{}\"".format(
+                    pt.replace("'", "''"), pt.replace('"', '""')
+                )
                 for pt in prediction_types
             ]
             pred_cols_sql = ",\n            " + ",\n            ".join(cases)
@@ -689,16 +737,18 @@ class DuckDBDataStore:
             return []
         ids_df = pd.DataFrame({'sequence_id': sequence_ids})
         self.conn.register('_check_ids', ids_df)
-        result = self.conn.execute("""
-            SELECT c.sequence_id
-            FROM _check_ids c
-            LEFT JOIN predictions p
-                ON c.sequence_id = p.sequence_id
-                AND p.prediction_type = ?
-                AND p.model_name = ?
-            WHERE p.prediction_id IS NULL
-        """, [prediction_type, model_name]).fetchall()
-        self.conn.unregister('_check_ids')
+        try:
+            result = self.conn.execute("""
+                SELECT c.sequence_id
+                FROM _check_ids c
+                LEFT JOIN predictions p
+                    ON c.sequence_id = p.sequence_id
+                    AND p.prediction_type = ?
+                    AND p.model_name = ?
+                WHERE p.prediction_id IS NULL
+            """, [prediction_type, model_name]).fetchall()
+        finally:
+            self.conn.unregister('_check_ids')
         return [r[0] for r in result]
 
     def get_predictions_bulk(
@@ -719,13 +769,15 @@ class DuckDBDataStore:
             return pd.DataFrame(columns=['sequence_id', 'value', 'metadata'])
         ids_df = pd.DataFrame({'sequence_id': sequence_ids})
         self.conn.register('_bulk_ids', ids_df)
-        result = self.conn.execute("""
-            SELECT p.sequence_id, p.value, p.metadata
-            FROM predictions p
-            INNER JOIN _bulk_ids b ON p.sequence_id = b.sequence_id
-            WHERE p.prediction_type = ? AND p.model_name = ?
-        """, [prediction_type, model_name]).df()
-        self.conn.unregister('_bulk_ids')
+        try:
+            result = self.conn.execute("""
+                SELECT p.sequence_id, p.value, p.metadata
+                FROM predictions p
+                INNER JOIN _bulk_ids b ON p.sequence_id = b.sequence_id
+                WHERE p.prediction_type = ? AND p.model_name = ?
+            """, [prediction_type, model_name]).df()
+        finally:
+            self.conn.unregister('_bulk_ids')
         return result
 
     def count_matching_sequences(self, sequences: List[str]) -> int:
@@ -739,12 +791,14 @@ class DuckDBDataStore:
             return 0
         hashes_df = pd.DataFrame({'hash': [self._hash_sequence(s) for s in sequences]})
         self.conn.register('_count_hashes', hashes_df)
-        result = self.conn.execute("""
-            SELECT COUNT(*) AS cnt
-            FROM sequences s
-            INNER JOIN _count_hashes h ON s.hash = h.hash
-        """).fetchone()
-        self.conn.unregister('_count_hashes')
+        try:
+            result = self.conn.execute("""
+                SELECT COUNT(*) AS cnt
+                FROM sequences s
+                INNER JOIN _count_hashes h ON s.hash = h.hash
+            """).fetchone()
+        finally:
+            self.conn.unregister('_count_hashes')
         return result[0] if result else 0
 
     def set_pipeline_metadata(self, key: str, value: Any):
@@ -765,6 +819,187 @@ class DuckDBDataStore:
             return json.loads(result[0])
         except (json.JSONDecodeError, TypeError):
             return result[0]
+
+    # ------------------------------------------------------------------
+    # Structure methods
+    # ------------------------------------------------------------------
+
+    def add_structure(
+        self,
+        sequence_id: int,
+        model_name: str,
+        format: str,
+        structure_str: str,
+        plddt_mean: Optional[float] = None,
+    ) -> int:
+        """Store a structure gzip-compressed as BLOB (~8-12x smaller than plain TEXT).
+
+        Args:
+            sequence_id: Sequence ID.
+            model_name: Model that produced the structure (e.g. 'esmfold').
+            format: 'pdb' or 'cif'.
+            structure_str: Full structure file content as a string.
+            plddt_mean: Mean pLDDT score (optional).
+
+        Returns:
+            structure_id of the inserted row.
+        """
+        structure_id = self._structure_counter
+        self._structure_counter += 1
+        compressed = gzip.compress(structure_str.encode('utf-8'), compresslevel=6)
+        self.conn.execute("""
+            INSERT INTO structures
+            (structure_id, sequence_id, model_name, format, structure_data, plddt, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [structure_id, sequence_id, model_name, format, compressed, plddt_mean, datetime.now()])
+        return structure_id
+
+    def get_structure(
+        self,
+        sequence_id: int,
+        model_name: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Fetch the most recent structure for a sequence, decompressing on read.
+
+        Returns a dict with 'structure_str' key (always decompressed string) regardless
+        of whether data was stored compressed (structure_data BLOB) or as legacy plain TEXT.
+
+        Args:
+            sequence_id: Sequence ID.
+            model_name: Optional model filter.
+
+        Returns:
+            Dict with structure record, or None if not found.
+        """
+        sql = """
+            SELECT structure_id, sequence_id, model_name, format,
+                   structure_data, structure_str, structure_path, plddt, created_at
+            FROM structures
+            WHERE sequence_id = ?
+        """
+        params = [sequence_id]
+        if model_name:
+            sql += " AND model_name = ?"
+            params.append(model_name)
+        sql += " ORDER BY created_at DESC LIMIT 1"
+        df = self.conn.execute(sql, params).df()
+        if df.empty:
+            return None
+        record = df.iloc[0].to_dict()
+        # Decompress structure_data (new path) or fall back to structure_str (old data)
+        data_blob = record.pop('structure_data', None)
+        if data_blob is not None and not (isinstance(data_blob, float) and np.isnan(data_blob)):
+            try:
+                blob_bytes = bytes(data_blob) if not isinstance(data_blob, bytes) else data_blob
+                record['structure_str'] = gzip.decompress(blob_bytes).decode('utf-8')
+            except Exception:
+                pass  # fall back to whatever structure_str already holds
+        return record
+
+    def get_structures_bulk(self, sequence_ids: List[int]) -> pd.DataFrame:
+        """Fetch structures for multiple sequences, decompressing structure content.
+
+        Returns a DataFrame with a 'structure_str' column (always plain text) regardless
+        of whether data was stored compressed (structure_data BLOB) or as legacy plain TEXT.
+
+        Args:
+            sequence_ids: List of sequence IDs to look up.
+
+        Returns:
+            DataFrame with one row per structure record.
+        """
+        if not sequence_ids:
+            return pd.DataFrame(columns=['structure_id', 'sequence_id', 'model_name',
+                                         'format', 'structure_str', 'plddt'])
+        ids_df = pd.DataFrame({'sequence_id': sequence_ids})
+        self.conn.register('_struct_ids', ids_df)
+        try:
+            result = self.conn.execute("""
+                SELECT s.structure_id, s.sequence_id, s.model_name,
+                       s.format, s.structure_data, s.structure_str, s.plddt
+                FROM structures s
+                INNER JOIN _struct_ids b ON s.sequence_id = b.sequence_id
+            """).df()
+        finally:
+            self.conn.unregister('_struct_ids')
+
+        def _decompress_row(row):
+            blob = row.get('structure_data')
+            if blob is not None and not (isinstance(blob, float) and np.isnan(blob)):
+                try:
+                    blob_bytes = bytes(blob) if not isinstance(blob, bytes) else blob
+                    return gzip.decompress(blob_bytes).decode('utf-8')
+                except Exception:
+                    pass
+            return row.get('structure_str')
+
+        result['structure_str'] = result.apply(_decompress_row, axis=1)
+        result = result.drop(columns=['structure_data'], errors='ignore')
+        return result
+
+    # ------------------------------------------------------------------
+    # Filter results methods (for resume support)
+    # ------------------------------------------------------------------
+
+    def save_filter_results(
+        self,
+        run_id: str,
+        stage_name: str,
+        passed_sequence_ids: List[int],
+    ):
+        """Record which sequence_ids passed a filter stage (for resume support).
+
+        Args:
+            run_id: Pipeline run ID.
+            stage_name: Filter stage name.
+            passed_sequence_ids: IDs of sequences that passed the filter.
+        """
+        if not passed_sequence_ids:
+            return
+        rows = []
+        for seq_id in passed_sequence_ids:
+            rows.append({
+                'filter_id': self._filter_id_counter,
+                'run_id': run_id,
+                'stage_name': stage_name,
+                'sequence_id': seq_id,
+                'passed': True,
+                'created_at': datetime.now(),
+            })
+            self._filter_id_counter += 1
+
+        df = pd.DataFrame(rows)
+        self.conn.register('_filter_batch', df)
+        try:
+            self.conn.execute("""
+                INSERT INTO filter_results
+                (filter_id, run_id, stage_name, sequence_id, passed, created_at)
+                SELECT filter_id, run_id, stage_name, sequence_id, passed, created_at
+                FROM _filter_batch
+            """)
+        finally:
+            self.conn.unregister('_filter_batch')
+
+    def get_filter_results(
+        self,
+        run_id: str,
+        stage_name: str,
+    ) -> List[int]:
+        """Return sequence_ids that passed a given filter stage in a run.
+
+        Args:
+            run_id: Pipeline run ID.
+            stage_name: Filter stage name.
+
+        Returns:
+            List of sequence_ids that passed the filter, or empty list if no data.
+        """
+        rows = self.conn.execute("""
+            SELECT sequence_id
+            FROM filter_results
+            WHERE run_id = ? AND stage_name = ? AND passed = TRUE
+        """, [run_id, stage_name]).fetchall()
+        return [r[0] for r in rows]
 
     def close(self):
         """Close database connection."""

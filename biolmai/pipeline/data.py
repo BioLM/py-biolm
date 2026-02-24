@@ -76,35 +76,37 @@ class PredictionStage(Stage):
         from typing import AsyncIterator
         
         start_count = len(df)
-        
-        # Check cache for existing predictions
-        uncached_mask = df.apply(
-            lambda row: not datastore.has_prediction(
-                row['sequence'],
-                self.prediction_type,
-                self.model_name
-            ),
-            axis=1
+
+        # Ensure sequence_ids are present (normally added by _get_initial_data)
+        if 'sequence_id' not in df.columns:
+            df = df.copy()
+            df['sequence_id'] = datastore.add_sequences_batch(df['sequence'].tolist())
+
+        # Vectorized cache check: single anti-join, not N individual has_prediction() calls
+        uncached_ids = datastore.get_uncached_sequence_ids(
+            df['sequence_id'].tolist(), self.prediction_type, self.model_name
         )
-        
+        uncached_mask = df['sequence_id'].isin(uncached_ids)
         df_uncached = df[uncached_mask].copy()
         cached_count = start_count - len(df_uncached)
-        
+
         print(f"  Cached: {cached_count}/{start_count}")
         print(f"  To compute: {len(df_uncached)} (streaming)")
-        
-        # Yield cached results first
+
+        # Yield cached results first using bulk fetch (single JOIN, not N queries)
         if cached_count > 0:
             df_cached = df[~uncached_mask].copy()
-            # Load predictions for cached sequences
-            for idx, row in df_cached.iterrows():
-                pred = datastore.get_predictions_by_sequence(
-                    row['sequence'],
-                    self.prediction_type,
-                    self.model_name
+            pred_df = datastore.get_predictions_bulk(
+                df_cached['sequence_id'].tolist(), self.prediction_type, self.model_name
+            )
+            if not pred_df.empty:
+                df_cached = df_cached.merge(
+                    pred_df[['sequence_id', 'value']].rename(
+                        columns={'value': self.prediction_type}
+                    ),
+                    on='sequence_id',
+                    how='left',
                 )
-                if pred:
-                    df_cached.at[idx, self.prediction_type] = pred[0]['value']
             yield df_cached
         
         if len(df_uncached) == 0:
@@ -431,6 +433,13 @@ class FilterStage(Stage):
         print(f"  Filtered out: {filtered_count}/{start_count}")
         print(f"  Remaining: {len(df_filtered)}")
 
+        # Persist filter results for resume support
+        run_id = kwargs.get('run_id')
+        if run_id and 'sequence_id' in df_filtered.columns:
+            datastore.save_filter_results(
+                run_id, self.name, df_filtered['sequence_id'].tolist()
+            )
+
         return df_filtered, StageResult(
             stage_name=self.name,
             input_count=start_count,
@@ -458,6 +467,7 @@ class ClusteringStage(Stage):
         n_clusters: Optional[int] = None,
         similarity_metric: str = 'hamming',
         embedding_model: Optional[str] = None,
+        max_sample: Optional[int] = None,
         **kwargs
     ):
         super().__init__(name=name, **kwargs)
@@ -465,6 +475,7 @@ class ClusteringStage(Stage):
         self.n_clusters = n_clusters
         self.similarity_metric = similarity_metric
         self.embedding_model = embedding_model
+        self.max_sample = max_sample
         self.cluster_kwargs = kwargs
     
     async def process(
@@ -474,10 +485,31 @@ class ClusteringStage(Stage):
         **kwargs
     ) -> Tuple[pd.DataFrame, StageResult]:
         """Cluster sequences, add cluster columns, and return the enriched DataFrame."""
-        from biolmai.pipeline.clustering import SequenceClusterer
+        import warnings
+        from biolmai.pipeline.clustering import (
+            LARGE_DATASET_THRESHOLD,
+            VERY_LARGE_DATASET_THRESHOLD,
+            SequenceClusterer,
+        )
 
         start_count = len(df)
         df = df.copy()
+
+        n = start_count
+        if self.similarity_metric == 'hamming':
+            if n > VERY_LARGE_DATASET_THRESHOLD:
+                raise ValueError(
+                    f"ClusteringStage: {n} sequences with hamming distance requires "
+                    f"~{n**2 // 1_000_000}M comparisons. Use similarity_metric='embedding' "
+                    f"or max_sample<={VERY_LARGE_DATASET_THRESHOLD}."
+                )
+            elif n > LARGE_DATASET_THRESHOLD:
+                warnings.warn(
+                    f"ClusteringStage: {n} sequences with hamming distance is O(n²) expensive. "
+                    f"Consider similarity_metric='embedding' or max_sample={LARGE_DATASET_THRESHOLD}.",
+                    ResourceWarning,
+                    stacklevel=2,
+                )
 
         print(f"  Clustering {start_count} sequences using {self.method}...")
 
@@ -508,11 +540,14 @@ class ClusteringStage(Stage):
             embeddings = np.stack(embeddings_list)
 
         # Perform clustering
+        clusterer_kwargs = {k: v for k, v in self.cluster_kwargs.items()}
+        if self.max_sample is not None:
+            clusterer_kwargs['max_sample'] = self.max_sample
         clusterer = SequenceClusterer(
             method=self.method,
             n_clusters=self.n_clusters,
             similarity_metric=self.similarity_metric,
-            **self.cluster_kwargs
+            **clusterer_kwargs
         )
 
         result = clusterer.cluster(sequences, embeddings)
@@ -528,7 +563,7 @@ class ClusteringStage(Stage):
         if result.davies_bouldin_score is not None:
             print(f"  Davies-Bouldin score: {result.davies_bouldin_score:.3f}")
 
-        # Store clustering metadata via the dedicated method (uses pipeline_metadata table)
+        # Store summary metadata
         meta = {
             'method': self.method,
             'n_clusters': result.n_clusters,
@@ -537,6 +572,12 @@ class ClusteringStage(Stage):
             'cluster_sizes': result.cluster_sizes,
         }
         datastore.set_pipeline_metadata(f"clustering_{self.name}", meta)
+
+        # Store per-sequence assignments for resume support
+        assignments = {
+            seq: int(cid) for seq, cid in zip(sequences, result.cluster_ids.tolist())
+        }
+        datastore.set_pipeline_metadata(f"clustering_{self.name}_assignments", assignments)
 
         return df, StageResult(
             stage_name=self.name,
@@ -720,11 +761,16 @@ class DataPipeline(BasePipeline):
                 self._add_predictions_to_df(df, pred_type)
         else:
             # Load all available prediction types for these sequences
-            pred_types_df = self.datastore.query("""
-                SELECT DISTINCT prediction_type 
-                FROM predictions 
-                WHERE sequence_id IN (SELECT sequence_id FROM df)
-            """)
+            seq_ids_df = pd.DataFrame({'sequence_id': df['sequence_id'].tolist()})
+            self.datastore.conn.register('_merged_seq_ids', seq_ids_df)
+            try:
+                pred_types_df = self.datastore.conn.execute("""
+                    SELECT DISTINCT p.prediction_type
+                    FROM predictions p
+                    INNER JOIN _merged_seq_ids m ON p.sequence_id = m.sequence_id
+                """).df()
+            finally:
+                self.datastore.conn.unregister('_merged_seq_ids')
             
             pred_types = pred_types_df['prediction_type'].tolist()
             for pred_type in pred_types:
@@ -747,17 +793,20 @@ class DataPipeline(BasePipeline):
         if len(df) == 0:
             return
         
-        # Use DuckDB to efficiently join predictions
-        # DuckDB can reference the DataFrame directly!
-        result = self.datastore.query(f"""
-            SELECT 
-                df.sequence_id,
-                p.value
-            FROM df
-            LEFT JOIN predictions p 
-                ON df.sequence_id = p.sequence_id 
-                AND p.prediction_type = '{prediction_type}'
-        """)
+        # Use DuckDB to efficiently join predictions — register df explicitly first
+        self.datastore.conn.register('_pred_df', df)
+        try:
+            result = self.datastore.conn.execute("""
+                SELECT
+                    _pred_df.sequence_id,
+                    p.value
+                FROM _pred_df
+                LEFT JOIN predictions p
+                    ON _pred_df.sequence_id = p.sequence_id
+                    AND p.prediction_type = ?
+            """, [prediction_type]).df()
+        finally:
+            self.datastore.conn.unregister('_pred_df')
         
         # Create dict for fast lookup
         pred_dict = dict(zip(result['sequence_id'], result['value']))
@@ -814,6 +863,98 @@ class DataPipeline(BasePipeline):
         
         return df
     
+    # ------------------------------------------------------------------
+    # Data exploration helpers
+    # ------------------------------------------------------------------
+
+    def explore(self) -> Dict[str, Any]:
+        """Return summary stats for the pipeline's datastore (all via SQL).
+
+        Returns:
+            Dict with keys: sequences, embeddings, generated, completed_stages,
+            predictions (dict of prediction_type → count).
+        """
+        row = self.datastore.conn.execute("""
+            SELECT
+                (SELECT COUNT(*) FROM sequences)           AS seq_n,
+                (SELECT COUNT(*) FROM embeddings)          AS emb_n,
+                (SELECT COUNT(*) FROM generation_metadata) AS gen_n,
+                (SELECT COUNT(*) FROM stage_completions
+                 WHERE status = 'completed')               AS done_stages
+        """).fetchone()
+
+        pred_rows = self.datastore.conn.execute("""
+            SELECT prediction_type, COUNT(*) AS n
+            FROM predictions
+            GROUP BY prediction_type
+        """).fetchall()
+
+        return {
+            'sequences': int(row[0]),
+            'embeddings': int(row[1]),
+            'generated': int(row[2]),
+            'completed_stages': int(row[3]),
+            'predictions': {r[0]: int(r[1]) for r in pred_rows},
+        }
+
+    def stats(self, stage_name: Optional[str] = None) -> pd.DataFrame:
+        """Return per-stage counts from stage_completions.
+
+        Args:
+            stage_name: If provided, filter to that stage only.
+
+        Returns:
+            DataFrame with columns: stage_name, status, input_count,
+            output_count, completed_at.
+        """
+        if stage_name:
+            return self.datastore.query("""
+                SELECT stage_name, status, input_count, output_count, completed_at
+                FROM stage_completions
+                WHERE stage_name = ?
+                ORDER BY completed_at
+            """, [stage_name])
+        return self.datastore.query("""
+            SELECT stage_name, status, input_count, output_count, completed_at
+            FROM stage_completions
+            ORDER BY completed_at
+        """)
+
+    def query(self, sql: str, params=None) -> pd.DataFrame:
+        """Execute arbitrary SQL against the pipeline's DuckDB datastore.
+
+        Args:
+            sql: DuckDB SQL query string.
+            params: Optional list of query parameters.
+
+        Returns:
+            DataFrame with results.
+
+        Example:
+            >>> pipeline.query("SELECT * FROM sequences WHERE length > 100")
+        """
+        return self.datastore.query(sql, params)
+
+    def plot(self, kind: str = 'funnel', **kwargs):
+        """Convenience wrapper around PipelinePlotter.
+
+        Args:
+            kind: One of 'funnel', 'predictions', 'distributions'.
+            **kwargs: Forwarded to the underlying plotter method.
+        """
+        from biolmai.pipeline.visualization import PipelinePlotter
+        plotter = PipelinePlotter(self)
+        if kind == 'funnel':
+            return plotter.plot_funnel(self.stage_results, **kwargs)
+        elif kind == 'predictions':
+            return plotter.plot_predictions(**kwargs)
+        elif kind == 'distributions':
+            return plotter.plot_distributions(**kwargs)
+        else:
+            raise ValueError(
+                f"Unknown plot kind '{kind}'. Choose: 'funnel', 'predictions', 'distributions'"
+            )
+
     def add_prediction(
         self,
         model_name: str,
@@ -826,7 +967,7 @@ class DataPipeline(BasePipeline):
     ):
         """
         Add a prediction stage.
-        
+
         Args:
             model_name: BioLM model name
             action: API action ('predict', 'encode', 'score')
