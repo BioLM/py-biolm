@@ -1,10 +1,11 @@
 """Model API operations for BioLM."""
 import logging
-from typing import Optional, Union, List, Any
+from typing import Callable, Optional, Union, List, Any
 
 from biolmai.core.http import BioLMApi, BioLMApiClient
 from biolmai.core.utils import is_list_of_lists
 from biolmai.examples import ExampleGeneratorSync
+from biolmai.progress import rich_progress
 
 log = logging.getLogger("biolm_util")
 
@@ -23,50 +24,56 @@ class Model:
         self.api_key = api_key
         self._client = BioLMApi(name, api_key=api_key, **kwargs)
     
-    def predict(self, items: Union[Any, List[Any]], type: Optional[str] = None, params: Optional[dict] = None, **kwargs):
+    def predict(self, items: Union[Any, List[Any]], type: Optional[str] = None, params: Optional[dict] = None, progress: bool = True, progress_callback: Optional[Callable[[int, int], None]] = None, **kwargs):
         """Predict using the model.
         
         Args:
             items: Single item or list of items to predict.
             type: Type of item (e.g., 'sequence', 'pdb'). Required if items are not dicts.
             params: Optional parameters for the prediction.
+            progress: If True (default), show Rich progress bar (multiple items only).
+            progress_callback: Optional (completed, total) callback; overrides progress=True if provided.
             ``**kwargs``: Additional arguments (stop_on_error, output, file_path, etc.).
 
         Returns:
             Prediction results.
         """
         items_dicts = self._prepare_items(items, type)
-        return self._client.predict(items=items_dicts, params=params, **kwargs)
+        return self._run_with_progress("predict", items_dicts, params=params, progress=progress, progress_callback=progress_callback, **kwargs)
     
-    def encode(self, items: Union[Any, List[Any]], type: Optional[str] = None, params: Optional[dict] = None, **kwargs):
+    def encode(self, items: Union[Any, List[Any]], type: Optional[str] = None, params: Optional[dict] = None, progress: bool = True, progress_callback: Optional[Callable[[int, int], None]] = None, **kwargs):
         """Encode using the model.
         
         Args:
             items: Single item or list of items to encode.
             type: Type of item (e.g., 'sequence'). Required if items are not dicts.
             params: Optional parameters for the encoding.
+            progress: If True (default), show Rich progress bar (multiple items only).
+            progress_callback: Optional (completed, total) callback; overrides progress=True if provided.
             ``**kwargs``: Additional arguments (stop_on_error, output, file_path, etc.).
 
         Returns:
             Encoding results.
         """
         items_dicts = self._prepare_items(items, type)
-        return self._client.encode(items=items_dicts, params=params, **kwargs)
+        return self._run_with_progress("encode", items_dicts, params=params, progress=progress, progress_callback=progress_callback, **kwargs)
     
-    def generate(self, items: Union[Any, List[Any]], type: Optional[str] = None, params: Optional[dict] = None, **kwargs):
+    def generate(self, items: Union[Any, List[Any]], type: Optional[str] = None, params: Optional[dict] = None, progress: bool = True, progress_callback: Optional[Callable[[int, int], None]] = None, **kwargs):
         """Generate using the model.
         
         Args:
             items: Single item or list of items to generate from.
             type: Type of item (e.g., 'context', 'pdb'). Required if items are not dicts.
             params: Optional parameters for the generation.
+            progress: If True (default), show Rich progress bar (multiple items only).
+            progress_callback: Optional (completed, total) callback; overrides progress=True if provided.
             ``**kwargs``: Additional arguments (stop_on_error, output, file_path, etc.).
 
         Returns:
             Generation results.
         """
         items_dicts = self._prepare_items(items, type)
-        return self._client.generate(items=items_dicts, params=params, **kwargs)
+        return self._run_with_progress("generate", items_dicts, params=params, progress=progress, progress_callback=progress_callback, **kwargs)
     
     def lookup(self, query: Union[dict, List[dict]], **kwargs):
         """Lookup using the model.
@@ -79,6 +86,27 @@ class Model:
             Lookup results.
         """
         return self._client.lookup(query=query, **kwargs)
+
+    def _run_with_progress(
+        self,
+        action: str,
+        items_dicts: Union[List[dict], List[List[dict]]],
+        params: Optional[dict] = None,
+        progress: bool = True,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        **kwargs
+    ):
+        """Run predict/encode/generate with optional Rich progress or external callback."""
+        method = getattr(self._client, action)
+        if progress_callback is not None:
+            return method(items=items_dicts, params=params, progress_callback=progress_callback, **kwargs)
+        if progress and items_dicts:
+            is_lol = isinstance(items_dicts, (list, tuple)) and items_dicts and isinstance(items_dicts[0], (list, tuple))
+            total_items = sum(len(b) for b in items_dicts) if is_lol else len(items_dicts)
+            if total_items > 1:
+                with rich_progress(total_items, description=f"Processing {total_items} item(s) with {self.name}...") as callback:
+                    return method(items=items_dicts, params=params, progress_callback=callback, **kwargs)
+        return method(items=items_dicts, params=params, **kwargs)
     
     def get_example(self, action: Optional[str] = None, format: str = 'python', **kwargs) -> str:
         """Get SDK usage example for this model.
