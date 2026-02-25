@@ -689,7 +689,7 @@ class BioLMApiClient:
             self._semaphore = asyncio.Semaphore(self._semaphore_arg)
         return self._semaphore
 
-    async def _ensure_rate_limit(self):
+    async def _ensure_rate_limit(self, action: Optional[str] = None):
             if self._rate_limit_lock is None:
                 self._rate_limit_lock = asyncio.Lock()
             if self._rate_limit_initialized:
@@ -698,7 +698,8 @@ class BioLMApiClient:
                 if self._rate_limit_initialized:
                     return
                 if self._rate_limiter is None:
-                    schema = await self.schema(self.model_name, "encode")
+                    schema_action = (action or "encode").strip() or "encode"
+                    schema = await self.schema(self.model_name, schema_action)
                     throttle_rate = schema.get("throttle_rate") if schema else None
                     if throttle_rate:
                         max_calls, period = parse_rate_limit(throttle_rate)
@@ -820,7 +821,9 @@ class BioLMApiClient:
     async def _api_call(
         self, endpoint: str, payload: dict, raw: bool = False
     ) -> Union[dict, Tuple[Any, httpx.Response]]:
-        await self._ensure_rate_limit()
+        parts = endpoint.rstrip("/").split("/")
+        action = parts[-1] if parts else "encode"
+        await self._ensure_rate_limit(action=action)
         async with self._limit():
             resp = await self._http_client.post(endpoint, payload)
         content_type = resp.headers.get("Content-Type", "")
