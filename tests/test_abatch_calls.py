@@ -13,6 +13,7 @@ def random_sequence(length=5):
 
 @pytest.fixture(scope='function')
 def model():
+    # Pin to previous default (no retry) so tests that assert batch-level errors keep passing.
     return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
 
 @pytest.mark.asyncio
@@ -25,7 +26,7 @@ async def test_large_batch_encode_consistency(model):
     # 3. Universal client (sync, run in thread)
     loop = asyncio.get_event_loop()
     def run_biolm():
-        return BioLM(entity="esm2-8m", action="encode", items=items, raise_httpx=False)
+        return BioLM(entity="esm2-8m", action="encode", items=items, raise_httpx=False, retry_error_batches=False)
     results_biolm = await loop.run_in_executor(None, run_biolm)
     # All should be lists of the same length
     assert isinstance(results_async, list)
@@ -86,7 +87,7 @@ async def test_large_batch_encode_stop_on_error(model):
     loop = asyncio.get_event_loop()
     # This *does not* stop on errors
     def run_biolm():
-        return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=False, raise_httpx=False)
+        return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=False, raise_httpx=False, retry_error_batches=False)
     results_biolm = await loop.run_in_executor(None, run_biolm)
     # Should get the first batch and the second one should be errors
     assert len(results_async) == 16
@@ -172,7 +173,7 @@ async def test_biolm_stop_on_error_shorter_results(model):
     # BioLM: stop on error
     loop = asyncio.get_event_loop()
     def run_biolm():
-        return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=True, raise_httpx=False)
+        return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=True, raise_httpx=False, retry_error_batches=False)
     results_biolm = await loop.run_in_executor(None, run_biolm)
     # BioLM should have fewer results than the others
     assert len(results_biolm) < len(results_async)
@@ -207,3 +208,24 @@ async def test_predict_stop_on_error_vs_continue(model):
     assert "error" in results_stop[-1]
     # The first should be a valid prediction
     assert "logits" in results_stop[0]
+
+
+@pytest.mark.asyncio
+async def test_large_batch_encode_with_errors_retry_on():
+    """With retry_error_batches=True (default), failed batches are retried per item.
+    Good items in a bad batch get embeddings; bad items get errors. Order is preserved.
+    """
+    # 20 good, 5 BAD at indices 20-24, 15 good
+    items = [{"sequence": random_sequence()} for _ in range(20)] + \
+            [{"sequence": "BAD::BAD"} for _ in range(5)] + \
+            [{"sequence": random_sequence()} for _ in range(15)]
+    client = BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=True)
+    results = await client.encode(items=items, stop_on_error=False)
+    assert len(results) == len(items)
+    bad_indices = {20, 21, 22, 23, 24}
+    for i, r in enumerate(results):
+        assert isinstance(r, dict), f"index {i}"
+        if i in bad_indices:
+            assert "error" in r, f"index {i} should be error, got keys {list(r.keys())}"
+        else:
+            assert "embeddings" in r, f"index {i} should be embeddings, got keys {list(r.keys())}"
