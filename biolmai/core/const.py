@@ -19,9 +19,9 @@ else:
 USER_BIOLM_DIR = os.path.join(os.path.expanduser("~"), ".biolmai")
 ACCESS_TOK_PATH = os.path.join(USER_BIOLM_DIR, "credentials")
 GEN_TOKEN_URL = f"{BIOLMAI_BASE_DOMAIN}/ui/accounts/user-api-tokens/"
-MULTIPROCESS_THREADS = os.environ.get("BIOLMAI_THREADS", 1)
+MULTIPROCESS_THREADS = os.environ.get("BIOLMAI_THREADS", 16)
 if isinstance(MULTIPROCESS_THREADS, str) and not MULTIPROCESS_THREADS:
-    MULTIPROCESS_THREADS = 1
+    MULTIPROCESS_THREADS = 16
 if int(MULTIPROCESS_THREADS) > max_threads or int(MULTIPROCESS_THREADS) > 128:
     err = (
         f"Maximum threads allowed is 4x number of CPU cores ("

@@ -1702,14 +1702,12 @@ def run(model_name, action, input, output, format, input_format, type, params, b
         with console.status(f"[brand]Initializing {model_name} model...[/brand]"):
             model = Model(model_name)
         
-        # Determine batch size
-        if batch_size is None:
-            # Try to get from schema
+        # When --batch-size is set: pre-make batches (list-of-lists) so client does not auto-batch
+        if batch_size is not None:
             try:
                 from biolmai.core.http import BioLMApiClient
                 import asyncio
-                
-                async def get_batch_size():
+                async def get_schema_max():
                     client = BioLMApiClient(model_name, raise_httpx=False)
                     try:
                         schema = await client.schema(model_name, action)
@@ -1718,72 +1716,55 @@ def run(model_name, action, input, output, format, input_format, type, params, b
                     finally:
                         await client.shutdown()
                     return None
-                
-                batch_size = asyncio.run(get_batch_size())
+                schema_max = asyncio.run(get_schema_max())
+                effective_batch_size = min(batch_size, schema_max) if schema_max else batch_size
             except Exception:
-                # If we can't get batch size, use a reasonable default
-                batch_size = 100
+                effective_batch_size = batch_size
+            payload = [items[i:i + effective_batch_size] for i in range(0, len(items), effective_batch_size)]
+            if action == 'lookup':
+                payload = items  # lookup API expects flat list of queries
+        else:
+            payload = items
         
-        # Process items
-        results = []
-        
-        # Always show progress for multiple items, or if --progress flag is set
         show_progress = (progress or len(items) > 1) and len(items) > 0
+        total_items = len(items)
         
-        if show_progress:
-            # Show progress bar for batch processing
-            from rich.progress import BarColumn, TaskProgressColumn
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                console=console,
-            ) as progress_bar:
-                task = progress_bar.add_task(
-                    f"[brand]Processing {len(items)} item(s) with {model_name}...[/brand]",
-                    total=len(items)
-                )
-                
-                # Process in batches
-                for i in range(0, len(items), batch_size or len(items)):
-                    batch = items[i:i + (batch_size or len(items))]
-                    
-                    # Call appropriate model method
+        if action == 'lookup':
+            if show_progress:
+                with console.status(f"[brand]Processing {total_items} item(s) with {model_name}...[/brand]"):
+                    results = model.lookup(query=payload)
+            else:
+                results = model.lookup(query=payload)
+            if not isinstance(results, builtins.list):
+                results = [results]
+        else:
+            from biolmai.progress import rich_progress
+            if show_progress:
+                with rich_progress(
+                    total_items,
+                    description=f"[brand]Processing {total_items} item(s) with {model_name}...[/brand]",
+                    console=console,
+                ) as progress_callback:
                     if action == 'encode':
-                        batch_results = model.encode(items=batch, params=params_dict)
+                        results = model.encode(items=payload, params=params_dict, progress_callback=progress_callback)
                     elif action == 'predict':
-                        batch_results = model.predict(items=batch, params=params_dict)
+                        results = model.predict(items=payload, params=params_dict, progress_callback=progress_callback)
                     elif action == 'generate':
-                        batch_results = model.generate(items=batch, params=params_dict)
-                    elif action == 'lookup':
-                        batch_results = model.lookup(query=batch)
+                        results = model.generate(items=payload, params=params_dict, progress_callback=progress_callback)
                     else:
                         raise ValueError(f"Unknown action: {action}")
-                    
-                    # Handle single result vs list
-                    if not isinstance(batch_results, builtins.list):
-                        batch_results = [batch_results]
-                    
-                    results.extend(batch_results)
-                    progress_bar.update(task, advance=len(batch))
-        else:
-            # Process without progress bar (single item)
-            with console.status(f"[brand]Processing with {model_name}...[/brand]"):
-                if action == 'encode':
-                    results = model.encode(items=items, params=params_dict)
-                elif action == 'predict':
-                    results = model.predict(items=items, params=params_dict)
-                elif action == 'generate':
-                    results = model.generate(items=items, params=params_dict)
-                elif action == 'lookup':
-                    results = model.lookup(query=items)
-                else:
-                    raise ValueError(f"Unknown action: {action}")
-                
-                # Ensure results is a list
-                if not isinstance(results, builtins.list):
-                    results = [results]
+            else:
+                with console.status(f"[brand]Processing with {model_name}...[/brand]"):
+                    if action == 'encode':
+                        results = model.encode(items=payload, params=params_dict)
+                    elif action == 'predict':
+                        results = model.predict(items=payload, params=params_dict)
+                    elif action == 'generate':
+                        results = model.generate(items=payload, params=params_dict)
+                    else:
+                        raise ValueError(f"Unknown action: {action}")
+            if not isinstance(results, builtins.list):
+                results = [results]
         
         # Save output
         # CRITICAL: --format is for OUTPUT format only

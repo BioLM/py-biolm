@@ -231,7 +231,7 @@ def test_disk_output_skip_existing_file(tmp_path, model):
     # Verify file exists
     assert file_path.exists()
     
-    # Call with overwrite=False (default) - should skip API call and return existing data
+    # Call with overwrite=False - should skip API call and return existing data
     result = model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
     
     # Should return the existing file contents
