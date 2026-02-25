@@ -17,7 +17,6 @@ from typing import Optional, Union, List, Any, Dict, Tuple
 import aiofiles
 import httpx
 import httpx._content
-from async_lru import alru_cache
 from httpx import AsyncHTTPTransport
 from httpx import ByteStream
 from synchronicity import Synchronizer
@@ -631,6 +630,12 @@ class HttpClient:
         pass
 
 
+# Schema cache keyed by (model, action). Event-loop-agnostic so sync and async
+# callers (and tests under pytest-xdist) share the same cache without alru_cache's
+# "not safe to use across event loops" restriction.
+_SCHEMA_CACHE: Dict[Tuple[str, str], Optional[dict]] = {}
+
+
 class BioLMApiClient:
     def __init__(
         self,
@@ -734,7 +739,6 @@ class BioLMApiClient:
         else:
             yield
 
-    @alru_cache(maxsize=8)
     async def schema(
         self,
         model: str,
@@ -743,17 +747,23 @@ class BioLMApiClient:
         """
         Fetch the JSON schema for a given model and action, with caching.
         Returns the schema dict if successful, else None.
+        Uses a module-level cache keyed by (model, action) so it is safe to use
+        from any event loop (sync wrapper, async tests, pytest-xdist workers).
         """
+        key = (model, action)
+        if key in _SCHEMA_CACHE:
+            return _SCHEMA_CACHE[key]
         endpoint = f"schema/{model}/{action}/"
         try:
             resp = await self._http_client.get(endpoint)
             if resp.status_code == 200:
-                schema = resp.json()
-                return schema
+                result = resp.json()
             else:
-                return None
+                result = None
         except Exception:
-            return None
+            result = None
+        _SCHEMA_CACHE[key] = result
+        return result
 
     @staticmethod
     def extract_max_items(schema: dict) -> Optional[int]:
