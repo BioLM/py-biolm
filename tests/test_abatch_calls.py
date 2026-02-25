@@ -3,9 +3,11 @@ import random
 
 import pytest
 
+from biolmai import biolm
 from biolmai.biolmai import BioLM
-from biolmai.core.http import BioLMApiClient
+from biolmai.core.http import BioLMApiClient, BioLMApi
 from biolmai.core.utils import batch_iterable
+from biolmai.models import Model
 
 
 def random_sequence(length=5):
@@ -214,18 +216,61 @@ async def test_predict_stop_on_error_vs_continue(model):
 async def test_large_batch_encode_with_errors_retry_on():
     """With retry_error_batches=True (default), failed batches are retried per item.
     Good items in a bad batch get embeddings; bad items get errors. Order is preserved.
+    Exercise all public interfaces: async client, sync client (BioLMApi), BioLM(), biolm(), Model().
     """
     # 20 good, 5 BAD at indices 20-24, 15 good
     items = [{"sequence": random_sequence()} for _ in range(20)] + \
             [{"sequence": "BAD::BAD"} for _ in range(5)] + \
             [{"sequence": random_sequence()} for _ in range(15)]
-    client = BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=True)
-    results = await client.encode(items=items, stop_on_error=False)
-    assert len(results) == len(items)
     bad_indices = {20, 21, 22, 23, 24}
-    for i, r in enumerate(results):
-        assert isinstance(r, dict), f"index {i}"
-        if i in bad_indices:
-            assert "error" in r, f"index {i} should be error, got keys {list(r.keys())}"
-        else:
-            assert "embeddings" in r, f"index {i} should be embeddings, got keys {list(r.keys())}"
+    loop = asyncio.get_event_loop()
+
+    # 1. Async client (explicit default)
+    client_async = BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=True)
+    results_async = await client_async.encode(items=items, stop_on_error=False)
+
+    # 2. Sync client (BioLMApi)
+    client_sync = BioLMApi("esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=True)
+    results_sync = await loop.run_in_executor(
+        None,
+        lambda: client_sync.encode(items=items, stop_on_error=False),
+    )
+
+    # 3. BioLM() class
+    results_biolm = await loop.run_in_executor(
+        None,
+        lambda: BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=False, raise_httpx=False),
+    )
+
+    # 4. biolm() top-level function
+    results_biolm_fn = await loop.run_in_executor(
+        None,
+        lambda: biolm(entity="esm2-8m", action="encode", items=items, stop_on_error=False, raise_httpx=False),
+    )
+
+    # 5. Model() – user-facing wrapper over BioLMApi
+    def run_model():
+        model = Model("esm2-8m", raise_httpx=False, retry_error_batches=True)
+        return model.encode(items=items, stop_on_error=False, progress=False)
+    results_model = await loop.run_in_executor(None, run_model)
+
+    all_results = [
+        ("async", results_async),
+        ("sync", results_sync),
+        ("BioLM()", results_biolm),
+        ("biolm()", results_biolm_fn),
+        ("Model()", results_model),
+    ]
+    for name, results in all_results:
+        assert len(results) == len(items), f"{name}: length"
+        for i, r in enumerate(results):
+            assert isinstance(r, dict), f"{name} index {i}"
+            if i in bad_indices:
+                assert "error" in r, f"{name} index {i} should be error, got keys {list(r.keys())}"
+            else:
+                assert "embeddings" in r, f"{name} index {i} should be embeddings, got keys {list(r.keys())}"
+
+    # All interfaces must return the same pattern (order and content type per index)
+    for i in range(len(items)):
+        patterns = [("error" in res[i]) for _name, res in all_results]
+        assert all(p == patterns[0] for p in patterns), f"index {i}: mismatch across interfaces {[n for n, _ in all_results]}"
