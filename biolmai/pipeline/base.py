@@ -4,15 +4,15 @@ Base Pipeline classes for stage management and execution.
 
 import asyncio
 import logging
-import uuid
 import time
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Callable, Union, Set, Tuple
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import pandas as pd
-from tqdm.auto import tqdm
 
 _logger = logging.getLogger(__name__)
 
@@ -22,6 +22,7 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 @dataclass
 class StageResult:
     """Result from a pipeline stage."""
+
     stage_name: str
     input_count: int
     output_count: int
@@ -30,7 +31,7 @@ class StageResult:
     computed_count: int = 0
     elapsed_time: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def __repr__(self):
         return (
             f"StageResult({self.stage_name}: "
@@ -43,10 +44,10 @@ class StageResult:
 class Stage(ABC):
     """
     Abstract base class for pipeline stages.
-    
+
     A stage represents a single processing step in the pipeline.
     It can filter data, compute predictions, or transform sequences.
-    
+
     Args:
         name: Stage name (must be unique within pipeline)
         cache_key: Key for caching results (prediction_type for predictions)
@@ -54,14 +55,14 @@ class Stage(ABC):
         model_name: Model name for predictions/structures
         max_concurrent: Maximum concurrent API calls (for rate limiting)
     """
-    
+
     def __init__(
         self,
         name: str,
         cache_key: Optional[str] = None,
         depends_on: Optional[List[str]] = None,
         model_name: Optional[str] = None,
-        max_concurrent: int = 10
+        max_concurrent: int = 10,
     ):
         self.name = name
         self.cache_key = cache_key or name
@@ -69,13 +70,10 @@ class Stage(ABC):
         self.model_name = model_name
         self.max_concurrent = max_concurrent
         self._semaphore = asyncio.Semaphore(max_concurrent)
-    
+
     @abstractmethod
     async def process(
-        self,
-        df: pd.DataFrame,
-        datastore: DataStore,
-        **kwargs
+        self, df: pd.DataFrame, datastore: DataStore, **kwargs
     ) -> Tuple[pd.DataFrame, StageResult]:
         """
         Process data through this stage.
@@ -92,7 +90,7 @@ class Stage(ABC):
             in-place mutation of the input df — return a new or filtered copy.
         """
         pass
-    
+
     def __repr__(self):
         deps = f", depends_on={self.depends_on}" if self.depends_on else ""
         return f"{self.__class__.__name__}('{self.name}'{deps})"
@@ -101,13 +99,13 @@ class Stage(ABC):
 class BasePipeline(ABC):
     """
     Base class for all pipeline types.
-    
+
     Provides:
     - Stage management and dependency resolution
     - Async execution with progress tracking
     - Caching and resumability
     - Export and visualization
-    
+
     Args:
         datastore: DataStore instance for caching
         run_id: Unique run identifier (auto-generated if not provided)
@@ -115,14 +113,14 @@ class BasePipeline(ABC):
         resume: Whether to resume from previous run
         verbose: Enable verbose output
     """
-    
+
     def __init__(
         self,
         datastore: Optional[Union[DataStore, str, Path]] = None,
         run_id: Optional[str] = None,
-        output_dir: Union[str, Path] = 'pipeline_outputs',
+        output_dir: Union[str, Path] = "pipeline_outputs",
         resume: bool = False,
-        verbose: bool = True
+        verbose: bool = True,
     ):
         # Setup datastore
         if isinstance(datastore, DataStore):
@@ -133,34 +131,34 @@ class BasePipeline(ABC):
             # Auto-create datastore in output_dir
             output_path = Path(output_dir)
             output_path.mkdir(parents=True, exist_ok=True)
-            db_path = output_path / 'pipeline.db'
-            data_dir = output_path / 'pipeline_data'
+            db_path = output_path / "pipeline.db"
+            data_dir = output_path / "pipeline_data"
             self.datastore = DataStore(db_path, data_dir)
-        
+
         self.run_id = run_id or self._generate_run_id()
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.resume = resume
         self.verbose = verbose
-        
+
         # Stage management
         self.stages: List[Stage] = []
         self.stage_results: Dict[str, StageResult] = {}
         self._stage_data: Dict[str, pd.DataFrame] = {}  # Cache for stage outputs
-        
+
         # Pipeline state
         self.pipeline_type = self.__class__.__name__
-        self.status = 'initialized'
+        self.status = "initialized"
         self.start_time = None
         self.end_time = None
-    
+
     @staticmethod
     def _generate_run_id() -> str:
         """Generate unique run ID."""
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         short_uuid = str(uuid.uuid4())[:8]
-        return f'{timestamp}_{short_uuid}'
-    
+        return f"{timestamp}_{short_uuid}"
+
     def add_stage(self, stage: Stage):
         """Add a stage to the pipeline."""
         # Validate dependencies
@@ -169,47 +167,54 @@ class BasePipeline(ABC):
                 raise ValueError(
                     f"Stage '{stage.name}' depends on '{dep}' which hasn't been added yet"
                 )
-        
+
         self.stages.append(stage)
         if self.verbose:
             print(f"Added stage: {stage}")
-    
+
     def _resolve_dependencies(self) -> List[List[Stage]]:
         """
         Resolve stage dependencies and return execution order.
-        
+
         Returns:
             List of stage groups, where stages in each group can run in parallel
         """
         # Build dependency graph
         stage_map = {s.name: s for s in self.stages}
-        
+
         # Topological sort with level detection
         in_degree = {s.name: len(s.depends_on) for s in self.stages}
         levels = []
-        
+
         while in_degree:
             # Find all stages with no dependencies
-            current_level = [stage_map[name] for name, degree in in_degree.items() if degree == 0]
-            
+            current_level = [
+                stage_map[name] for name, degree in in_degree.items() if degree == 0
+            ]
+
             if not current_level:
                 remaining = list(in_degree.keys())
-                raise ValueError(f"Circular dependency detected among stages: {remaining}")
-            
+                raise ValueError(
+                    f"Circular dependency detected among stages: {remaining}"
+                )
+
             levels.append(current_level)
-            
+
             # Remove current level from graph
             for stage in current_level:
                 del in_degree[stage.name]
-            
+
             # Decrease in-degree for dependent stages
             for stage in current_level:
                 for other_stage in self.stages:
-                    if stage.name in other_stage.depends_on and other_stage.name in in_degree:
+                    if (
+                        stage.name in other_stage.depends_on
+                        and other_stage.name in in_degree
+                    ):
                         in_degree[other_stage.name] -= 1
-        
+
         return levels
-    
+
     def _reload_stage_output(
         self,
         stage: Stage,
@@ -220,26 +225,30 @@ class BasePipeline(ABC):
         Returns the reloaded DataFrame, or None if it cannot be reconstructed
         (caller should then re-run the stage normally).
         """
-        if self.datastore is None or 'sequence_id' not in df_input.columns:
+        if self.datastore is None or "sequence_id" not in df_input.columns:
             return None
         try:
-            from biolmai.pipeline.data import PredictionStage, FilterStage, ClusteringStage
+            from biolmai.pipeline.data import (
+                ClusteringStage,
+                FilterStage,
+                PredictionStage,
+            )
             from biolmai.pipeline.generative import GenerationStage
 
             if isinstance(stage, PredictionStage):
                 pred_df = self.datastore.get_predictions_bulk(
-                    df_input['sequence_id'].tolist(),
+                    df_input["sequence_id"].tolist(),
                     stage.prediction_type,
                     stage.model_name,
                 )
                 if pred_df.empty:
                     return None
                 df = df_input.merge(
-                    pred_df[['sequence_id', 'value']].rename(
-                        columns={'value': stage.prediction_type}
+                    pred_df[["sequence_id", "value"]].rename(
+                        columns={"value": stage.prediction_type}
                     ),
-                    on='sequence_id',
-                    how='left',
+                    on="sequence_id",
+                    how="left",
                 )
                 return df[df[stage.prediction_type].notna()].copy()
 
@@ -247,7 +256,7 @@ class BasePipeline(ABC):
                 passed_ids = self.datastore.get_filter_results(self.run_id, stage.name)
                 if not passed_ids:
                     return None
-                return df_input[df_input['sequence_id'].isin(set(passed_ids))].copy()
+                return df_input[df_input["sequence_id"].isin(set(passed_ids))].copy()
 
             elif isinstance(stage, ClusteringStage):
                 assignments = self.datastore.get_pipeline_metadata(
@@ -256,8 +265,8 @@ class BasePipeline(ABC):
                 if assignments is None:
                     return None
                 df = df_input.copy()
-                df['cluster_id'] = df['sequence'].map(assignments)
-                df['is_centroid'] = False
+                df["cluster_id"] = df["sequence"].map(assignments)
+                df["is_centroid"] = False
                 return df
 
             elif isinstance(stage, GenerationStage):
@@ -268,21 +277,25 @@ class BasePipeline(ABC):
                 )
 
         except Exception as exc:
-            _logger.warning("Could not reload stage '%s' from datastore: %s", stage.name, exc)
+            _logger.warning(
+                "Could not reload stage '%s' from datastore: %s", stage.name, exc
+            )
 
         return None
 
     async def _execute_stage(
-        self,
-        stage: Stage,
-        df_input: pd.DataFrame
+        self, stage: Stage, df_input: pd.DataFrame
     ) -> Tuple[pd.DataFrame, StageResult]:
         """Execute a single stage."""
         start_time = time.time()
 
         # Check if stage is already complete (resumability)
         stage_id = f"{self.run_id}_{stage.name}"
-        if self.resume and self.datastore and self.datastore.is_stage_complete(stage_id):
+        if (
+            self.resume
+            and self.datastore
+            and self.datastore.is_stage_complete(stage_id)
+        ):
             if self.verbose:
                 print(f"\n✓ Stage '{stage.name}' already complete — reloading from DB")
 
@@ -295,7 +308,7 @@ class BasePipeline(ABC):
                     input_count=len(df_input),
                     output_count=len(df_resumed),
                     elapsed_time=0.0,
-                    metadata={'resumed': True},
+                    metadata={"resumed": True},
                 )
             else:
                 if self.verbose:
@@ -309,7 +322,9 @@ class BasePipeline(ABC):
                 print(f"Depends on: {', '.join(stage.depends_on)}")
 
         # Execute stage — pass run_id for filter result persistence
-        df_out, result = await stage.process(df_input, self.datastore, run_id=self.run_id)
+        df_out, result = await stage.process(
+            df_input, self.datastore, run_id=self.run_id
+        )
         result.elapsed_time = time.time() - start_time
 
         # Mark stage complete
@@ -320,7 +335,7 @@ class BasePipeline(ABC):
                 stage_name=stage.name,
                 input_count=result.input_count,
                 output_count=result.output_count,
-                status='completed'
+                status="completed",
             )
 
         if self.verbose:
@@ -328,78 +343,82 @@ class BasePipeline(ABC):
             print(f"{'='*60}")
 
         return df_out, result
-    
-    async def run_async(self, enable_streaming: bool = False, **kwargs) -> Dict[str, StageResult]:
+
+    async def run_async(
+        self, enable_streaming: bool = False, **kwargs
+    ) -> Dict[str, StageResult]:
         """
         Run the pipeline asynchronously.
-        
+
         Args:
             enable_streaming: If True, stream results through per-sequence filters
                             for better parallelism and lower latency.
-        
+
         Returns:
             Dict mapping stage names to StageResults
         """
         self.start_time = time.time()
-        self.status = 'running'
-        
+        self.status = "running"
+
         # Create pipeline run record
         config = self._get_config()
         self.datastore.create_pipeline_run(
             run_id=self.run_id,
             pipeline_type=self.pipeline_type,
             config=config,
-            status='running'
+            status="running",
         )
-        
+
         try:
             # Get initial data
             df_current = await self._get_initial_data(**kwargs)
-            
+
             if self.verbose:
                 print(f"\n{'#'*60}")
                 print(f"# Pipeline: {self.pipeline_type}")
                 print(f"# Run ID: {self.run_id}")
                 print(f"# Initial sequences: {len(df_current):,}")
                 if enable_streaming:
-                    print(f"# Streaming: ENABLED")
+                    print("# Streaming: ENABLED")
                 print(f"{'#'*60}")
-            
+
             # Resolve dependencies and get execution order
             stage_levels = self._resolve_dependencies()
-            
+
             if self.verbose:
                 print(f"\nExecution plan: {len(stage_levels)} level(s)")
                 for i, level in enumerate(stage_levels):
                     stage_names = [s.name for s in level]
                     parallel_str = " (parallel)" if len(level) > 1 else ""
                     print(f"  Level {i+1}: {', '.join(stage_names)}{parallel_str}")
-            
+
             # Execute stages level by level
             processed_stages = set()  # Track which stages we've already processed
-            
+
             for level_idx, level_stages in enumerate(stage_levels):
                 if len(level_stages) == 1:
                     # Single stage in level
                     stage = level_stages[0]
-                    
+
                     # Skip if already processed via streaming
                     if stage.name in processed_stages:
                         continue
-                    
+
                     # Check if we can stream through this stage
                     next_stage = self._get_next_stage(stage, stage_levels, level_idx)
                     can_stream = (
-                        enable_streaming and
-                        next_stage is not None and
-                        next_stage.name not in processed_stages and
-                        hasattr(stage, 'process_streaming') and
-                        self._can_stream_to_next(stage, next_stage)
+                        enable_streaming
+                        and next_stage is not None
+                        and next_stage.name not in processed_stages
+                        and hasattr(stage, "process_streaming")
+                        and self._can_stream_to_next(stage, next_stage)
                     )
-                    
+
                     if can_stream:
                         # STREAMING: Process and pass results incrementally
-                        df_out = await self._execute_stage_streaming(stage, next_stage, df_current)
+                        df_out = await self._execute_stage_streaming(
+                            stage, next_stage, df_current
+                        )
                         self._stage_data[stage.name] = df_out
                         self._stage_data[next_stage.name] = df_out
                         df_current = df_out
@@ -417,94 +436,120 @@ class BasePipeline(ABC):
                     # Multiple stages in level - execute in parallel
                     if self.verbose:
                         print(f"\nExecuting {len(level_stages)} stages in parallel...")
-                    
+
                     tasks = [
-                        self._execute_stage(stage, df_current)
-                        for stage in level_stages
+                        self._execute_stage(stage, df_current) for stage in level_stages
                     ]
                     results = await asyncio.gather(*tasks)
-                    
-                    # Merge all parallel stage outputs: start from first output df
-                    # and add any new columns produced by the other stages.
-                    merged_df = results[0][0].copy()
+
+                    # Bug #4 fix: use intersection of all parallel stage outputs so that
+                    # FilterStages in parallel don't silently expand the row set.
+                    # Collect per-stage results and compute the common sequence_id set.
+                    all_seq_id_sets = []
                     for stage, (df_out, result) in zip(level_stages, results):
                         self.stage_results[stage.name] = result
                         self._stage_data[stage.name] = df_out
-                        # Add columns introduced by this stage that are not yet in merged_df
-                        new_cols = [c for c in df_out.columns if c not in merged_df.columns]
-                        if new_cols and 'sequence_id' in merged_df.columns and 'sequence_id' in df_out.columns:
+                        if "sequence_id" in df_out.columns:
+                            all_seq_id_sets.append(set(df_out["sequence_id"].tolist()))
+
+                    # Base: df_current rows whose sequence_id passed ALL parallel stages
+                    if all_seq_id_sets and "sequence_id" in df_current.columns:
+                        common_ids = all_seq_id_sets[0]
+                        for s in all_seq_id_sets[1:]:
+                            common_ids &= s
+                        merged_df = df_current[
+                            df_current["sequence_id"].isin(common_ids)
+                        ].copy()
+                    else:
+                        merged_df = results[0][0].copy()
+
+                    # Merge new columns from each stage onto the base
+                    for stage, (df_out, result) in zip(level_stages, results):
+                        new_cols = [
+                            c for c in df_out.columns if c not in merged_df.columns
+                        ]
+                        if (
+                            new_cols
+                            and "sequence_id" in merged_df.columns
+                            and "sequence_id" in df_out.columns
+                        ):
                             merged_df = merged_df.merge(
-                                df_out[['sequence_id'] + new_cols],
-                                on='sequence_id', how='left'
+                                df_out[["sequence_id"] + new_cols],
+                                on="sequence_id",
+                                how="left",
                             )
                     df_current = merged_df
-            
-            self.status = 'completed'
+                    # Update the last stage's _stage_data to the full merged result so that
+                    # get_final_data() returns all parallel-stage columns, not just one stage's.
+                    if level_stages:
+                        self._stage_data[level_stages[-1].name] = merged_df
+
+            self.status = "completed"
             self.end_time = time.time()
-            self.datastore.update_pipeline_run_status(self.run_id, 'completed')
-            
+            self.datastore.update_pipeline_run_status(self.run_id, "completed")
+
             if self.verbose:
                 total_time = self.end_time - self.start_time
                 print(f"\n{'#'*60}")
                 print(f"# Pipeline completed in {total_time:.1f}s")
                 print(f"# Final sequences: {len(df_current):,}")
                 print(f"{'#'*60}\n")
-            
+
             return self.stage_results
-        
-        except Exception as e:
-            self.status = 'failed'
+
+        except Exception:
+            self.status = "failed"
             self.end_time = time.time()
-            self.datastore.update_pipeline_run_status(self.run_id, 'failed')
+            self.datastore.update_pipeline_run_status(self.run_id, "failed")
             raise
-    
-    def _get_next_stage(self, current_stage: Stage, stage_levels: List[List[Stage]], current_level: int) -> Optional[Stage]:
+
+    def _get_next_stage(
+        self, current_stage: Stage, stage_levels: List[List[Stage]], current_level: int
+    ) -> Optional[Stage]:
         """Get the next stage after current_stage, if any."""
         if current_level + 1 >= len(stage_levels):
             return None
-        
+
         next_level = stage_levels[current_level + 1]
         if len(next_level) == 1:
             return next_level[0]
         return None  # Can't stream to multiple parallel stages
-    
+
     def _can_stream_to_next(self, current_stage: Stage, next_stage: Stage) -> bool:
         """Check if current stage can stream to next stage."""
         from biolmai.pipeline.data import FilterStage
-        
+
         # Can stream if next stage is a filter that doesn't require complete data
         if isinstance(next_stage, FilterStage):
             return not next_stage.requires_complete_data
-        
+
         # Can also stream to another prediction stage
         from biolmai.pipeline.data import PredictionStage
+
         if isinstance(next_stage, PredictionStage):
             return True
-        
+
         return False
-    
+
     async def _execute_stage_streaming(
-        self,
-        stage: Stage,
-        next_stage: Stage,
-        df: pd.DataFrame
+        self, stage: Stage, next_stage: Stage, df: pd.DataFrame
     ) -> pd.DataFrame:
         """
         Execute stage in streaming mode, passing results to next_stage incrementally.
-        
+
         Returns:
             Final output DataFrame after both stages
         """
         from biolmai.pipeline.data import FilterStage
-        
+
         if self.verbose:
             print(f"\n[Stage: {stage.name}] (streaming to {next_stage.name})")
-        
+
         # Collect output chunks
         output_chunks = []
         processed_count = 0
         filtered_count = 0
-        
+
         # Stream through both stages
         async for chunk_df in stage.process_streaming(df, self.datastore):
             # Pass chunk through next stage immediately
@@ -512,115 +557,140 @@ class BasePipeline(ABC):
                 # Filter the chunk
                 start_chunk_count = len(chunk_df)
                 filtered_chunk = next_stage.filter_func(chunk_df)
-                filtered_count += (start_chunk_count - len(filtered_chunk))
-                
+                filtered_count += start_chunk_count - len(filtered_chunk)
+
                 if len(filtered_chunk) > 0:
                     output_chunks.append(filtered_chunk)
                     processed_count += len(filtered_chunk)
-                    
+
                     if self.verbose and processed_count % 100 == 0:
                         print(f"  Processed: {processed_count} sequences (streaming)")
-        
+
         # Combine all chunks
         if output_chunks:
             df_out = pd.concat(output_chunks, ignore_index=True)
         else:
             df_out = pd.DataFrame(columns=df.columns)
-        
+
         # Record results for both stages
         self.stage_results[stage.name] = StageResult(
             stage_name=stage.name,
             input_count=len(df),
             output_count=len(df),  # All sequences processed
-            filtered_count=0
+            filtered_count=0,
         )
-        
+
         self.stage_results[next_stage.name] = StageResult(
             stage_name=next_stage.name,
             input_count=len(df),
             output_count=len(df_out),
-            filtered_count=filtered_count
+            filtered_count=filtered_count,
         )
-        
+
+        # Bug #1 fix: mark both stages complete so resume logic works correctly
+        if self.datastore:
+            stage_id = f"{self.run_id}_{stage.name}"
+            self.datastore.mark_stage_complete(
+                run_id=self.run_id,
+                stage_name=stage.name,
+                stage_id=stage_id,
+                input_count=len(df),
+                output_count=len(df),
+                status="completed",
+            )
+            next_stage_id = f"{self.run_id}_{next_stage.name}"
+            self.datastore.mark_stage_complete(
+                run_id=self.run_id,
+                stage_name=next_stage.name,
+                stage_id=next_stage_id,
+                input_count=len(df),
+                output_count=len(df_out),
+                status="completed",
+            )
+
         if self.verbose:
             print(f"  {stage.name}: processed {len(df)} sequences")
-            print(f"  {next_stage.name}: {len(df_out)} passed filter (filtered {filtered_count})")
-        
+            print(
+                f"  {next_stage.name}: {len(df_out)} passed filter (filtered {filtered_count})"
+            )
+
         return df_out
-    
+
     def run(self, enable_streaming: bool = False, **kwargs) -> Dict[str, StageResult]:
         """
         Run the pipeline synchronously.
-        
+
         This is a convenience wrapper around run_async().
         """
         return asyncio.run(self.run_async(enable_streaming=enable_streaming, **kwargs))
-    
+
     @abstractmethod
     async def _get_initial_data(self, **kwargs) -> pd.DataFrame:
         """
         Get initial DataFrame for the pipeline.
-        
+
         Must return DataFrame with at least 'sequence' column.
         Should add 'sequence_id' column by inserting into datastore.
         """
         pass
-    
+
     def _get_config(self) -> Dict:
         """Get pipeline configuration for serialization."""
         return {
-            'pipeline_type': self.pipeline_type,
-            'run_id': self.run_id,
-            'stages': [
+            "pipeline_type": self.pipeline_type,
+            "run_id": self.run_id,
+            "stages": [
                 {
-                    'name': s.name,
-                    'type': s.__class__.__name__,
-                    'depends_on': s.depends_on
+                    "name": s.name,
+                    "type": s.__class__.__name__,
+                    "depends_on": s.depends_on,
                 }
                 for s in self.stages
-            ]
+            ],
         }
-    
+
     def get_final_data(self) -> pd.DataFrame:
         """Get the final output DataFrame."""
         if not self._stage_data:
             raise RuntimeError("Pipeline has not been run yet")
-        
+
         # Return data from the last stage
         last_stage_name = self.stages[-1].name
         return self._stage_data.get(last_stage_name, pd.DataFrame())
-    
+
     def export_to_csv(self, output_path: Optional[Union[str, Path]] = None):
         """Export final results to CSV."""
         if output_path is None:
-            output_path = self.output_dir / f'{self.run_id}_final.csv'
-        
+            output_path = self.output_dir / f"{self.run_id}_final.csv"
+
         df = self.get_final_data()
         df.to_csv(output_path, index=False)
-        
+
         if self.verbose:
             print(f"Exported {len(df)} sequences to {output_path}")
-    
+
     def summary(self) -> pd.DataFrame:
         """Get pipeline summary statistics."""
         if not self.stage_results:
             print("Pipeline has not been run yet")
             return pd.DataFrame()
-        
+
         summary_data = []
         for stage_name, result in self.stage_results.items():
-            summary_data.append({
-                'Stage': result.stage_name,
-                'Input': result.input_count,
-                'Output': result.output_count,
-                'Filtered': result.filtered_count,
-                'Cached': result.cached_count,
-                'Computed': result.computed_count,
-                'Time (s)': f"{result.elapsed_time:.1f}"
-            })
-        
+            summary_data.append(
+                {
+                    "Stage": result.stage_name,
+                    "Input": result.input_count,
+                    "Output": result.output_count,
+                    "Filtered": result.filtered_count,
+                    "Cached": result.cached_count,
+                    "Computed": result.computed_count,
+                    "Time (s)": f"{result.elapsed_time:.1f}",
+                }
+            )
+
         return pd.DataFrame(summary_data)
-    
+
     def __repr__(self):
         return (
             f"{self.pipeline_type}("

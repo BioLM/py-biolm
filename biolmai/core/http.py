@@ -6,20 +6,18 @@ import json
 import os
 import threading
 import time
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict, namedtuple
 from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from itertools import chain
 from json import dumps as json_dumps
-from typing import Callable
-from typing import Optional, Union, List, Any, Dict, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import aiofiles
 import httpx
 import httpx._content
 from async_lru import alru_cache
-from httpx import AsyncHTTPTransport
-from httpx import ByteStream
+from httpx import AsyncHTTPTransport, ByteStream
 from synchronicity import Synchronizer
 
 try:
@@ -36,19 +34,22 @@ def custom_httpx_encode_json(json: Any) -> Tuple[Dict[str, str], ByteStream]:
     headers = {"Content-Length": content_length, "Content-Type": content_type}
     return headers, ByteStream(body)
 
+
 # fix encoding utf-8 bug
 httpx._content.encode_json = custom_httpx_encode_json
 
 import sys
 
+
 def debug(msg):
     sys.stderr.write(msg + "\n")
     sys.stderr.flush()
 
+
 import logging
 
 # Turn this on to dev lots of logs
-if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
+if os.environ.get("DEBUG", "").upper().strip() in ("TRUE", "1"):
     logging.basicConfig(
         level=logging.INFO,
         stream=sys.stderr,
@@ -56,22 +57,28 @@ if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
         force=True,  # Python 3.8+
     )
 
-from biolmai.core.const import BIOLMAI_BASE_API_URL, ACCESS_TOK_PATH
-from biolmai.core.utils import is_list_of_lists, batch_iterable
+from biolmai.core.const import ACCESS_TOK_PATH, BIOLMAI_BASE_API_URL
+from biolmai.core.utils import batch_iterable, is_list_of_lists
 
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
 
 # Connection pool limits
 DEFAULT_LIMITS = httpx.Limits(
-    max_connections=50,               # Total concurrent connections
-    max_keepalive_connections=20,    # Idle connections to keep alive (default)
-    keepalive_expiry=65.0            # Keep idle connections for 65s
+    max_connections=50,  # Total concurrent connections
+    max_keepalive_connections=20,  # Idle connections to keep alive (default)
+    keepalive_expiry=65.0,  # Keep idle connections for 65s
 )
 
 # Retry configuration for network errors
 MAX_RETRIES = 3
-RETRY_BACKOFF_BASE = 4.0  # Start with 1 second
+RETRY_BACKOFF_BASE = 4.0  # Start with 4 seconds
+
+# HTTP status codes that are transient and worth retrying with backoff.
+# 403: BioLM uses this for rate-limit / quota exceeded (not just auth failures)
+# 429: standard Too Many Requests
+# 502/503/504: transient gateway/server errors
+RETRY_STATUS_CODES = {403, 429, 502, 503, 504}
 
 # Mapping of httpx exception types to user-friendly error messages
 HTTPX_EXCEPTION_MESSAGES = {
@@ -96,7 +103,7 @@ LookupResult = namedtuple("LookupResult", ["data", "raw"])
 def _detect_execution_context() -> str:
     """
     Detect the execution environment.
-    
+
     Returns:
         'jupyter_with_loop': Jupyter/IPython with active event loop
         'jupyter_no_loop': Jupyter/IPython without active loop (rare)
@@ -106,61 +113,65 @@ def _detect_execution_context() -> str:
     """
     try:
         # Check if we're in Jupyter/IPython
-        if 'IPython' in sys.modules:
+        if "IPython" in sys.modules:
             from IPython import get_ipython
+
             ipython = get_ipython()
             if ipython is not None:
                 # Check if there's a running event loop
                 try:
                     loop = asyncio.get_running_loop()
-                    return 'jupyter_with_loop'
+                    return "jupyter_with_loop"
                 except RuntimeError:
-                    return 'jupyter_no_loop'
-        
+                    return "jupyter_no_loop"
+
         # Check if we're in an async context (but not Jupyter)
         try:
             loop = asyncio.get_running_loop()
-            return 'async_context'
+            return "async_context"
         except RuntimeError:
             pass
-        
-        return 'sync_script'
+
+        return "sync_script"
     except Exception:
-        return 'unknown'
+        return "unknown"
 
 
 def _ensure_nest_asyncio_for_jupyter():
     """
     Automatically apply nest_asyncio if we're in Jupyter with an active event loop.
-    
+
     This enables sync wrappers (BioLM, BioLMApi) to work in Jupyter without
     requiring users to manually call nest_asyncio.apply().
-    
+
     This function is idempotent - calling it multiple times is safe.
     """
     context = _detect_execution_context()
-    
-    if context == 'jupyter_with_loop':
+
+    if context == "jupyter_with_loop":
         try:
             import nest_asyncio
+
             # Check if already applied (nest_asyncio sets this flag)
-            if not getattr(nest_asyncio, '_applied', False):
+            if not getattr(nest_asyncio, "_applied", False):
                 nest_asyncio.apply()
         except ImportError:
             # nest_asyncio should be a dependency, but handle gracefully
             import warnings
+
             warnings.warn(
                 "nest_asyncio not available. Sync wrappers may not work in Jupyter. "
                 "Install nest_asyncio or use BioLMApiClient directly with await.",
-                UserWarning
+                UserWarning,
             )
         except Exception as e:
             # If nest_asyncio.apply() fails, log but don't crash
             import warnings
+
             warnings.warn(
                 f"Failed to apply nest_asyncio: {e}. "
                 "Sync wrappers may not work in Jupyter.",
-                UserWarning
+                UserWarning,
             )
 
 
@@ -170,13 +181,13 @@ class _SharedClientFactory:
     Clients are cached by event loop ID and configuration (base_url, headers, timeout, limits, http2, transport)
     to enable connection pooling across multiple HttpClient instances within the same event loop.
     """
-    
+
     def __init__(self):
         # Nested dict: loop_id -> config_key -> client
         self._cache: Dict[int, Dict[Tuple, httpx.AsyncClient]] = {}
         self._async_lock = asyncio.Lock()  # For async operations within a loop
         self._thread_lock = threading.Lock()  # For thread-safe cache access
-    
+
     def _make_cache_key(
         self,
         base_url: str,
@@ -184,34 +195,34 @@ class _SharedClientFactory:
         timeout: httpx.Timeout,
         limits: httpx.Limits,
         http2: bool,
-        transport: Optional[AsyncHTTPTransport]
+        transport: Optional[AsyncHTTPTransport],
     ) -> Tuple:
         """Create a hashable key from client configuration."""
         # Convert headers dict to sorted tuple for hashability
         headers_key = tuple(sorted(headers.items()))
-        
+
         # Extract timeout values
         # httpx.Timeout has connect, read, write, and pool attributes
         timeout_key = (
-            getattr(timeout, 'connect', None),
-            getattr(timeout, 'read', None),
-            getattr(timeout, 'write', None),
-            getattr(timeout, 'pool', None),
+            getattr(timeout, "connect", None),
+            getattr(timeout, "read", None),
+            getattr(timeout, "write", None),
+            getattr(timeout, "pool", None),
         )
-        
+
         # Extract limits values
         limits_key = (
             limits.max_connections,
             limits.max_keepalive_connections,
             limits.keepalive_expiry,
         )
-        
+
         # For transport, use http2 flag since transport is created with http2 parameter
         # We don't need to include the transport object itself in the key
         transport_key = http2
-        
+
         return (base_url, headers_key, timeout_key, limits_key, transport_key)
-    
+
     async def get_or_create_client(
         self,
         base_url: str,
@@ -219,7 +230,7 @@ class _SharedClientFactory:
         timeout: httpx.Timeout,
         limits: httpx.Limits,
         http2: bool,
-        transport: Optional[AsyncHTTPTransport]
+        transport: Optional[AsyncHTTPTransport],
     ) -> httpx.AsyncClient:
         """Get or create a shared httpx.AsyncClient instance for the current event loop."""
         # Get current event loop ID to ensure clients are loop-specific
@@ -229,33 +240,35 @@ class _SharedClientFactory:
         except RuntimeError:
             # No running loop, use a sentinel value
             loop_id = None
-        
-        cache_key = self._make_cache_key(base_url, headers, timeout, limits, http2, transport)
-        
+
+        cache_key = self._make_cache_key(
+            base_url, headers, timeout, limits, http2, transport
+        )
+
         # Thread-safe cache check
         with self._thread_lock:
             # Get or create loop-specific cache
             if loop_id not in self._cache:
                 self._cache[loop_id] = {}
-            
+
             loop_cache = self._cache[loop_id]
-            
+
             # Check if client exists and is still open
             if cache_key in loop_cache:
                 client = loop_cache[cache_key]
                 # Verify client is still valid (not closed)
-                if not getattr(client, 'is_closed', False):
+                if not getattr(client, "is_closed", False):
                     return client
                 # Client is closed, remove from cache
                 del loop_cache[cache_key]
-        
+
         # Async-safe client creation
         async with self._async_lock:
             # Double-check after acquiring async lock
             with self._thread_lock:
                 if loop_id in self._cache and cache_key in self._cache[loop_id]:
                     return self._cache[loop_id][cache_key]
-            
+
             # Create new client bound to current event loop
             if transport:
                 client = httpx.AsyncClient(
@@ -272,15 +285,15 @@ class _SharedClientFactory:
                     timeout=timeout,
                     limits=limits,
                 )
-            
+
             # Thread-safe cache update
             with self._thread_lock:
                 if loop_id not in self._cache:
                     self._cache[loop_id] = {}
                 self._cache[loop_id][cache_key] = client
-            
+
             return client
-    
+
     async def cleanup_all(self):
         """Close all cached clients and clear the cache."""
         # Get all clients thread-safely
@@ -289,17 +302,17 @@ class _SharedClientFactory:
             for loop_cache in self._cache.values():
                 clients_to_close.extend(loop_cache.values())
             self._cache.clear()
-        
+
         # Close clients async-safely
         async with self._async_lock:
             for client in clients_to_close:
                 try:
-                    if not getattr(client, 'is_closed', False):
+                    if not getattr(client, "is_closed", False):
                         await client.aclose()
                 except Exception:
                     # Ignore errors during cleanup
                     pass
-    
+
     async def cleanup_loop(self, loop_id: Optional[int] = None):
         """Clean up clients for a specific event loop (or current loop if None)."""
         if loop_id is None:
@@ -308,19 +321,19 @@ class _SharedClientFactory:
                 loop_id = id(loop)
             except RuntimeError:
                 return
-        
+
         # Get clients to close thread-safely
         clients_to_close = []
         with self._thread_lock:
             if loop_id in self._cache:
                 clients_to_close = list(self._cache[loop_id].values())
                 del self._cache[loop_id]
-        
+
         # Close clients async-safely
         async with self._async_lock:
             for client in clients_to_close:
                 try:
-                    if not getattr(client, 'is_closed', False):
+                    if not getattr(client, "is_closed", False):
                         await client.aclose()
                 except Exception:
                     pass
@@ -368,11 +381,14 @@ if not hasattr(_synchronizer, "sync"):
     if hasattr(_synchronizer, "create_blocking"):
         _synchronizer.sync = _synchronizer.create_blocking
     else:
-        raise ImportError(f"Your version of 'synchronicity' ({version('synchronicity')}) is incompatible.")
+        raise ImportError(
+            f"Your version of 'synchronicity' ({version('synchronicity')}) is incompatible."
+        )
 
 # Automatically apply nest_asyncio in Jupyter contexts
 # This must happen before BioLMApi wrapper is created
 _ensure_nest_asyncio_for_jupyter()
+
 
 def type_check(param_types: Dict[str, Any]):
     def decorator(func: Callable):
@@ -412,7 +428,9 @@ def type_check(param_types: Dict[str, Any]):
                     #         f"Parameter '{param}' must not be an empty {type(value).__name__}"
                     #     )
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -437,6 +455,7 @@ class AsyncRateLimiter:
             self._calls.append(time.monotonic())
         yield
 
+
 def parse_rate_limit(rate: str):
     # e.g. "1000/second", "60/minute"
     if not rate:
@@ -450,6 +469,7 @@ def parse_rate_limit(rate: str):
         return num, 60.0
     else:
         raise ValueError(f"Unknown rate period: {per}")
+
 
 class CredentialsProvider:
     @staticmethod
@@ -467,26 +487,27 @@ class CredentialsProvider:
             return {
                 "Cookie": f"access={access};refresh={refresh}",
             }
-        raise AssertionError("No credentials found. Set BIOLMAI_TOKEN (or BIOLM_TOKEN) or run `biolmai login`.")
+        raise AssertionError(
+            "No credentials found. Set BIOLMAI_TOKEN (or BIOLM_TOKEN) or run `biolmai login`."
+        )
 
 
 class HttpClient:
-
     def __init__(
-        self, 
-        base_url: str, 
-        headers: Dict[str, str], 
+        self,
+        base_url: str,
+        headers: Dict[str, str],
         timeout: httpx.Timeout,
         compress_requests: bool = True,
         compress_threshold: int = 256,
         limits: Optional[httpx.Limits] = None,
-        http2: bool = True
+        http2: bool = True,
     ):
         self._base_url = base_url.rstrip("/") + "/"
         self._headers = headers
         # Add Accept-Encoding: gzip to headers to support compressed responses
-        if 'Accept-Encoding' not in self._headers:
-            self._headers['Accept-Encoding'] = 'gzip, deflate'
+        if "Accept-Encoding" not in self._headers:
+            self._headers["Accept-Encoding"] = "gzip, deflate"
         self._timeout = timeout
         self._compress_requests = compress_requests
         self._compress_threshold = compress_threshold
@@ -504,41 +525,49 @@ class HttpClient:
             timeout=self._timeout,
             limits=self._limits,
             http2=self._http2,
-            transport=self._transport
+            transport=self._transport,
         )
 
     async def _post_with_retry(
-        self, 
-        client: httpx.AsyncClient, 
-        endpoint: str, 
-        **request_kwargs
+        self, client: httpx.AsyncClient, endpoint: str, **request_kwargs
     ) -> httpx.Response:
-        """POST with retry logic for network errors (ReadError, ConnectError, NetworkError)."""
+        """POST with retry logic for network errors and transient HTTP errors (rate limits, gateway errors)."""
         last_exception = None
-        
+
         for attempt in range(MAX_RETRIES):
             try:
-                return await client.post(endpoint, **request_kwargs)
+                resp = await client.post(endpoint, **request_kwargs)
             except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
                 last_exception = e
-                # Don't retry on the last attempt
                 if attempt < MAX_RETRIES - 1:
-                    # Exponential backoff: 1s, 2s, 4s
-                    wait_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    wait_time = RETRY_BACKOFF_BASE * (2**attempt)
                     await asyncio.sleep(wait_time)
                     continue
-                # Last attempt failed, re-raise
                 raise
-            # Don't retry on HTTP status errors (4xx, 5xx) - these are not network errors
-            except httpx.HTTPStatusError:
-                raise
-        
+
+            # Retry on transient HTTP errors (rate limits, gateway errors)
+            if resp.status_code in RETRY_STATUS_CODES and attempt < MAX_RETRIES - 1:
+                retry_after = resp.headers.get("Retry-After")
+                if retry_after:
+                    try:
+                        wait_time = float(retry_after)
+                    except ValueError:
+                        wait_time = RETRY_BACKOFF_BASE * (2**attempt)
+                else:
+                    wait_time = RETRY_BACKOFF_BASE * (2**attempt)
+                await asyncio.sleep(wait_time)
+                continue
+
+            return resp
+
         # Should never reach here, but just in case
         if last_exception:
             raise last_exception
         raise httpx.NetworkError("Failed to make request after retries")
 
-    async def post(self, endpoint: str, payload: dict, extra_headers: Optional[dict] = None) -> httpx.Response:
+    async def post(
+        self, endpoint: str, payload: dict, extra_headers: Optional[dict] = None
+    ) -> httpx.Response:
         """POST with optional *extra_headers* added just for this request."""
         client = await self.get_async_client()
         # Remove leading slash, ensure trailing slash
@@ -554,20 +583,23 @@ class HttpClient:
         if self._compress_requests:
             # Use the same JSON encoding as httpx to get accurate size
             json_bytes = json_dumps(payload, ensure_ascii=False).encode("utf-8")
-            
+
             if len(json_bytes) > self._compress_threshold:
                 # Compress in a thread pool to avoid blocking the event loop
                 # Use compression level 6 (good balance between speed and compression ratio)
                 # Use asyncio.to_thread() for Python 3.9+, fallback to run_in_executor for older versions
                 try:
-                    compressed_body = await asyncio.to_thread(gzip.compress, json_bytes, compresslevel=6)
+                    compressed_body = await asyncio.to_thread(
+                        gzip.compress, json_bytes, compresslevel=6
+                    )
                 except AttributeError:
                     # Python < 3.9: use run_in_executor
                     loop = asyncio.get_event_loop()
                     compressed_body = await loop.run_in_executor(
-                        None, functools.partial(gzip.compress, json_bytes, compresslevel=6)
+                        None,
+                        functools.partial(gzip.compress, json_bytes, compresslevel=6),
                     )
-                
+
                 if headers is None:
                     # Start with client's default headers but ensure we override Content-Type
                     headers = dict(client.headers)
@@ -586,7 +618,7 @@ class HttpClient:
                     client, endpoint, content=compressed_body, headers=headers
                 )
                 return r
-        
+
         # Default: send uncompressed JSON
         r = await self._post_with_retry(client, endpoint, json=payload, headers=headers)
         return r
@@ -597,7 +629,7 @@ class HttpClient:
         endpoint = endpoint.lstrip("/")
         if not endpoint.endswith("/"):
             endpoint += "/"
-        
+
         last_exception = None
         for attempt in range(MAX_RETRIES):
             try:
@@ -605,17 +637,16 @@ class HttpClient:
             except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
                 last_exception = e
                 if attempt < MAX_RETRIES - 1:
-                    wait_time = RETRY_BACKOFF_BASE * (2 ** attempt)
+                    wait_time = RETRY_BACKOFF_BASE * (2**attempt)
                     await asyncio.sleep(wait_time)
                     continue
                 raise
             except httpx.HTTPStatusError:
                 raise
-        
+
         if last_exception:
             raise last_exception
         raise httpx.NetworkError("Failed to make request after retries")
-
 
     async def __aenter__(self):
         return self
@@ -624,7 +655,7 @@ class HttpClient:
         await self.close()
 
     async def close(self):
-        """Close method for backward compatibility. 
+        """Close method for backward compatibility.
         Shared clients are managed by _SharedClientFactory and cleaned up on process exit.
         """
         # No-op: shared clients are cleaned up by the factory
@@ -640,8 +671,8 @@ class BioLMApiClient:
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         raise_httpx: bool = True,
         unwrap_single: bool = False,
-        semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = 16,
-        rate_limit: 'Optional[str]' = None,
+        semaphore: "Optional[Union[int, asyncio.Semaphore]]" = 16,
+        rate_limit: "Optional[str]" = None,
         retry_error_batches: bool = False,
         compress_requests: bool = True,
         compress_threshold: int = 256,
@@ -657,11 +688,11 @@ class BioLMApiClient:
         self.unwrap_single = unwrap_single
         self._headers = CredentialsProvider.get_auth_headers(api_key)
         self._http_client = HttpClient(
-            self.base_url, 
-            self._headers, 
+            self.base_url,
+            self._headers,
             self.timeout,
             compress_requests=compress_requests,
-            compress_threshold=compress_threshold
+            compress_threshold=compress_threshold,
         )
         self._semaphore = None
         self._semaphore_arg = semaphore  # Lazy-init: None, int, or asyncio.Semaphore
@@ -690,32 +721,32 @@ class BioLMApiClient:
         return self._semaphore
 
     async def _ensure_rate_limit(self):
-            if self._rate_limit_lock is None:
-                self._rate_limit_lock = asyncio.Lock()
+        if self._rate_limit_lock is None:
+            self._rate_limit_lock = asyncio.Lock()
+        if self._rate_limit_initialized:
+            return
+        async with self._rate_limit_lock:
             if self._rate_limit_initialized:
                 return
-            async with self._rate_limit_lock:
-                if self._rate_limit_initialized:
-                    return
-                if self._rate_limiter is None:
-                    schema = await self.schema(self.model_name, "encode")
-                    throttle_rate = schema.get("throttle_rate") if schema else None
-                    if throttle_rate:
-                        max_calls, period = parse_rate_limit(throttle_rate)
-                        self._rate_limiter = AsyncRateLimiter(max_calls, period)
-                self._rate_limit_initialized = True
+            if self._rate_limiter is None:
+                schema = await self.schema(self.model_name, "encode")
+                throttle_rate = schema.get("throttle_rate") if schema else None
+                if throttle_rate:
+                    max_calls, period = parse_rate_limit(throttle_rate)
+                    self._rate_limiter = AsyncRateLimiter(max_calls, period)
+            self._rate_limit_initialized = True
 
     @asynccontextmanager
     async def _limit(self):
         """
-         Usage:
-            # Default: 2 concurrent requests (cancellation protection)
-            # BioLMApiClient(...)
-            # No throttling: BioLMApiClient(..., semaphore=None)
-            # Custom concurrency limit: BioLMApiClient(..., semaphore=5)
-            # User's own semaphore: BioLMApiClient(..., semaphore=my_semaphore)
-            # RPS limit: BioLMApiClient(..., rate_limit="1000/second")
-            # Both: BioLMApiClient(..., semaphore=5, rate_limit="1000/second")
+        Usage:
+           # Default: 2 concurrent requests (cancellation protection)
+           # BioLMApiClient(...)
+           # No throttling: BioLMApiClient(..., semaphore=None)
+           # Custom concurrency limit: BioLMApiClient(..., semaphore=5)
+           # User's own semaphore: BioLMApiClient(..., semaphore=my_semaphore)
+           # RPS limit: BioLMApiClient(..., rate_limit="1000/second")
+           # Both: BioLMApiClient(..., semaphore=5, rate_limit="1000/second")
         """
         sem = await self._get_semaphore()
         if sem:
@@ -759,9 +790,9 @@ class BioLMApiClient:
         Returns the integer value if found, else None.
         """
         try:
-            props = schema.get('properties', {})
-            items_schema = props.get('items', {})
-            max_items = items_schema.get('maxItems')
+            props = schema.get("properties", {})
+            items_schema = props.get("items", {})
+            max_items = items_schema.get("maxItems")
             if isinstance(max_items, int):
                 return max_items
         except Exception:
@@ -799,9 +830,11 @@ class BioLMApiClient:
         if (
             self.retry_error_batches
             and isinstance(batch_results, dict)
-            and ('error' in batch_results or 'status_code' in batch_results)
+            and ("error" in batch_results or "status_code" in batch_results)
         ):
-            batch_results = await self._retry_batch_individually(func, batch, params, raw)
+            batch_results = await self._retry_batch_individually(
+                func, batch, params, raw
+            )
         return batch_results
 
     async def _fetch_rps_limit_async(self) -> Optional[int]:
@@ -812,7 +845,11 @@ class BioLMApiClient:
             resp = await self._http_client.get(f"/{self.model_name}/")
             if resp.status_code == 200:
                 meta = resp.json()
-                return meta.get("rps_limit") or meta.get("max_rps") or meta.get("requests_per_second")
+                return (
+                    meta.get("rps_limit")
+                    or meta.get("max_rps")
+                    or meta.get("requests_per_second")
+                )
         except Exception:
             pass
         return None
@@ -825,7 +862,12 @@ class BioLMApiClient:
             resp = await self._http_client.post(endpoint, payload)
         content_type = resp.headers.get("Content-Type", "")
 
-        assert hasattr(resp, 'status_code') or hasattr(resp, 'status') or 'status' in resp or 'status_code' in resp
+        assert (
+            hasattr(resp, "status_code")
+            or hasattr(resp, "status")
+            or "status" in resp
+            or "status_code" in resp
+        )
 
         # Read response content once and parse as JSON or use as text
         # Note: resp.json() and resp.text both consume the body stream, so we read text first, then parse
@@ -835,8 +877,8 @@ class BioLMApiClient:
         resp_text = None
         try:
             # Check if response is compressed
-            content_encoding = resp.headers.get('Content-Encoding', '').lower()
-            if content_encoding == 'gzip':
+            content_encoding = resp.headers.get("Content-Encoding", "").lower()
+            if content_encoding == "gzip":
                 # Response is compressed - httpx should have decompressed it automatically,
                 # but if not, we'll handle it
                 try:
@@ -848,17 +890,21 @@ class BioLMApiClient:
                         raw_bytes = resp.content
                         # Decompress in thread pool to avoid blocking
                         try:
-                            decompressed = await asyncio.to_thread(gzip.decompress, raw_bytes)
+                            decompressed = await asyncio.to_thread(
+                                gzip.decompress, raw_bytes
+                            )
                         except AttributeError:
                             loop = asyncio.get_event_loop()
-                            decompressed = await loop.run_in_executor(None, gzip.decompress, raw_bytes)
-                        resp_text = decompressed.decode('utf-8')
+                            decompressed = await loop.run_in_executor(
+                                None, gzip.decompress, raw_bytes
+                            )
+                        resp_text = decompressed.decode("utf-8")
                     except Exception:
-                        resp_text = ''
+                        resp_text = ""
             else:
                 # Not compressed, read normally
                 resp_text = resp.text
-            
+
             # Try to parse the text as JSON
             if resp_text:
                 try:
@@ -867,27 +913,29 @@ class BioLMApiClient:
                     # Not valid JSON, use as text
                     resp_json = resp_text
             else:
-                resp_json = ''
+                resp_json = ""
         except Exception:
             # If reading text fails, try json() as fallback (may also fail if body already consumed)
             try:
                 resp_json = resp.json()
             except Exception:
-                resp_text = ''
-                resp_json = ''
+                resp_text = ""
+                resp_json = ""
 
         assert resp.status_code
         # Check for errors: non-200 status OR top-level error/detail/description keys
         # Note: v3 can return validation errors (200 status) with item-specific errors
-        has_error_key = isinstance(resp_json, dict) and ('error' in resp_json or 'detail' in resp_json or 'description' in resp_json)
+        has_error_key = isinstance(resp_json, dict) and (
+            "error" in resp_json or "detail" in resp_json or "description" in resp_json
+        )
         is_error_status = resp.status_code >= 400
-        
+
         # Check if response has both error and results (partial success scenario)
         # In this case, we return the response as-is so batch processing can handle item-level errors
-        has_results = isinstance(resp_json, dict) and 'results' in resp_json
-        
+        has_results = isinstance(resp_json, dict) and "results" in resp_json
+
         if is_error_status or (has_error_key and not has_results):
-            if 'application/json' in content_type:
+            if "application/json" in content_type:
                 try:
                     # Copy to avoid mutating original response
                     if isinstance(resp_json, dict):
@@ -897,92 +945,144 @@ class BioLMApiClient:
                     # If the API already returns a dict with "error" or similar, normalize it
                     if isinstance(error_json, (dict, list)):
                         # Normalize error keys - ensure "error" key exists
-                        if isinstance(error_json, dict) and 'error' not in error_json:
-                            if 'detail' in error_json:
-                                error_json['error'] = error_json['detail']
-                            elif 'description' in error_json:
-                                error_json['error'] = error_json['description']
+                        if isinstance(error_json, dict) and "error" not in error_json:
+                            if "detail" in error_json:
+                                error_json["error"] = error_json["detail"]
+                            elif "description" in error_json:
+                                error_json["error"] = error_json["description"]
                         # Handle empty error strings - provide fallback message
-                        elif isinstance(error_json, dict) and 'error' in error_json:
-                            error_value = error_json.get('error')
-                            if not error_value or (isinstance(error_value, str) and not error_value.strip()):
+                        elif isinstance(error_json, dict) and "error" in error_json:
+                            error_value = error_json.get("error")
+                            if not error_value or (
+                                isinstance(error_value, str) and not error_value.strip()
+                            ):
                                 # Empty or whitespace-only error string - use fallback
-                                error_json['error'] = (
-                                    error_json.get('detail') or 
-                                    error_json.get('description') or 
-                                    f"API returned error status {resp.status_code}"
+                                error_json["error"] = (
+                                    error_json.get("detail")
+                                    or error_json.get("description")
+                                    or f"API returned error status {resp.status_code}"
                                 )
                         DEFAULT_STATUS_CODE = 502
-                        stat = error_json.get('status', DEFAULT_STATUS_CODE)
-                        error_json['status_code'] = resp.status_code or error_json.get('status_code', stat)
+                        stat = error_json.get("status", DEFAULT_STATUS_CODE)
+                        error_json["status_code"] = resp.status_code or error_json.get(
+                            "status_code", stat
+                        )
                         if raw:
                             return (error_json, resp)
+                        # Item-specific validation errors (e.g. "items__0__sequence": [...])
+                        # should be returned as dicts so parse_validation_errors() can route
+                        # the error to the specific item and retry_error_batches can recover
+                        # the valid items in the same batch.
+                        err_body = error_json.get("error", {})
+                        import re as _re
+
+                        if isinstance(err_body, dict) and any(
+                            _re.match(r"items__\d+__", k) for k in err_body
+                        ):
+                            return error_json
                         if self.raise_httpx:
                             # Use stored resp_text if available, otherwise use error_json as string
-                            error_msg = resp_text if resp_text is not None else str(resp_json)
-                            raise httpx.HTTPStatusError(message=error_msg, request=resp.request, response=resp)
+                            error_msg = (
+                                resp_text if resp_text is not None else str(resp_json)
+                            )
+                            raise httpx.HTTPStatusError(
+                                message=error_msg, request=resp.request, response=resp
+                            )
                         return error_json
                     else:
                         # If the JSON is not a dict or list, wrap it
-                        error_info = {'error': error_json, 'status_code': resp.status_code}
+                        error_info = {
+                            "error": error_json,
+                            "status_code": resp.status_code,
+                        }
                 except Exception:
                     # Use stored resp_text if available, otherwise use fallback message
-                    error_text = resp_text if resp_text is not None else f"API returned error status {resp.status_code}"
-                    error_info = {'error': error_text, 'status_code': resp.status_code}
+                    error_text = (
+                        resp_text
+                        if resp_text is not None
+                        else f"API returned error status {resp.status_code}"
+                    )
+                    error_info = {"error": error_text, "status_code": resp.status_code}
             else:
                 # Use stored resp_text if available, otherwise use fallback message
-                error_text = resp_text if resp_text is not None else f"API returned error status {resp.status_code}"
-                error_info = {'error': error_text, 'status_code': resp.status_code}
+                error_text = (
+                    resp_text
+                    if resp_text is not None
+                    else f"API returned error status {resp.status_code}"
+                )
+                error_info = {"error": error_text, "status_code": resp.status_code}
             if raw:
                 return (error_info, resp)
             if self.raise_httpx:
                 # Use stored resp_text if available, otherwise use error_info error as string
-                error_msg = resp_text if resp_text is not None else str(error_info.get('error', ''))
-                raise httpx.HTTPStatusError(message=error_msg, request=resp.request, response=resp)
+                error_msg = (
+                    resp_text
+                    if resp_text is not None
+                    else str(error_info.get("error", ""))
+                )
+                raise httpx.HTTPStatusError(
+                    message=error_msg, request=resp.request, response=resp
+                )
             return error_info
 
         # Success response (200 status, no error keys)
         # Use the already-parsed resp_json instead of calling resp.json() again
         if isinstance(resp_json, dict):
             data = resp_json
-        elif 'application/json' in content_type:
+        elif "application/json" in content_type:
             # If resp_json is not a dict but content-type says JSON, something went wrong
             # Use stored resp_text if available, otherwise use fallback message
-            error_msg = resp_text if resp_text is not None else f"Failed to parse JSON response (status {resp.status_code})"
+            error_msg = (
+                resp_text
+                if resp_text is not None
+                else f"Failed to parse JSON response (status {resp.status_code})"
+            )
             data = {"error": error_msg, "status_code": resp.status_code}
         else:
             # Use stored resp_text if available, otherwise use fallback message
-            error_msg = resp_text if resp_text is not None else f"Failed to read response body (status {resp.status_code})"
+            error_msg = (
+                resp_text
+                if resp_text is not None
+                else f"Failed to read response body (status {resp.status_code})"
+            )
             data = {"error": error_msg, "status_code": resp.status_code}
-        
+
         # If response has both error and results, it's a partial success scenario
         # Add status_code and return as-is so batch processing can handle item-level errors
-        if isinstance(data, dict) and 'error' in data and 'results' in data:
+        if isinstance(data, dict) and "error" in data and "results" in data:
             # Partial success: some items have errors, some have results
-            if 'status_code' not in data:
-                data['status_code'] = resp.status_code
+            if "status_code" not in data:
+                data["status_code"] = resp.status_code
             return (data, resp) if raw else data
-        
+
         # Pure success response - return as-is (will be formatted by _format_result)
         return (data, resp) if raw else data
 
-    async def call(self, func: str, items: List[dict], params: Optional[dict] = None, raw: bool = False):
+    async def call(
+        self,
+        func: str,
+        items: List[dict],
+        params: Optional[dict] = None,
+        raw: bool = False,
+    ):
         if not items:
             return items
 
         endpoint = f"{self.model_name}/{func}/"
         endpoint = endpoint.lstrip("/")
-        payload = {'items': items} if func != 'lookup' else {'query': items}
+        payload = {"items": items} if func != "lookup" else {"query": items}
         if params:
-            payload['params'] = params
+            payload["params"] = params
         try:
-            res = await self._api_call(endpoint, payload, raw=raw if func == 'lookup' else False)
+            res = await self._api_call(
+                endpoint, payload, raw=raw if func == "lookup" else False
+            )
         except Exception as e:
             if self.raise_httpx:
                 raise
             res = self._format_exception(e, 0)
         res = self._format_result(res)
-        if isinstance(res, dict) and ('error' in res or 'status_code' in res):
+        if isinstance(res, dict) and ("error" in res or "status_code" in res):
             return res
         elif isinstance(res, (list, tuple)):
             return list(res)
@@ -995,7 +1095,7 @@ class BioLMApiClient:
         items,
         params: Optional[dict] = None,
         stop_on_error: bool = False,
-        output: str = 'memory',
+        output: str = "memory",
         file_path: Optional[str] = None,
         raw: bool = False,
         overwrite: bool = False,
@@ -1006,12 +1106,12 @@ class BioLMApiClient:
         is_lol, first_n, rest_iter = is_list_of_lists(items)
 
         # Check if file exists and overwrite is False
-        if output == 'disk' and not overwrite:
+        if output == "disk" and not overwrite:
             path = file_path or f"{self.model_name}_{func}_output.jsonl"
             if os.path.exists(path):
                 # Read existing file and return its contents
                 results = []
-                async with aiofiles.open(path, 'r', encoding='utf-8') as file_handle:
+                async with aiofiles.open(path, encoding="utf-8") as file_handle:
                     async for line in file_handle:
                         line = line.strip()
                         if line:
@@ -1023,51 +1123,62 @@ class BioLMApiClient:
                 # Return in the same format as memory output would
                 if is_lol:
                     return results
-                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+                return (
+                    self._unwrap_single(results)
+                    if self.unwrap_single and len(results) == 1
+                    else results
+                )
 
         results = []
 
         def parse_validation_errors(batch_results, batch_size):
             """Parse validation errors with items__N__sequence keys and distribute to specific items.
-            
+
             Returns a list of results, one per item in the batch.
             - Items with validation errors get item-specific error dicts
             - Items without errors get the batch error dict (batch-level failure)
             - If results array exists, valid items get their results
             """
-            error_dict = batch_results.get('error', {})
-            status_code = batch_results.get('status_code', 0)
-            
-            # Check if this is a validation error with item-specific errors
-            is_validation_error = (
-                status_code == 200 and 
-                isinstance(error_dict, dict) and 
-                any(key.startswith('items__') and '__sequence' in key for key in error_dict.keys())
+            error_dict = batch_results.get("error", {})
+            status_code = batch_results.get("status_code", 0)
+
+            # Check if this is an item-specific validation error.
+            # The API can return these at 200 (partial success) OR at 4xx (e.g. 422
+            # Unprocessable Entity when a sequence contains invalid residues like 'X').
+            import re as _re
+
+            is_validation_error = isinstance(error_dict, dict) and any(
+                _re.match(r"items__\d+__", key) for key in error_dict.keys()
             )
-            
+
             if not is_validation_error:
                 # Batch-level error (4xx/5xx): apply to all items
                 return [batch_results] * batch_size
-            
+
             # Parse which items have validation errors
             import re
+
             error_item_indices = set()
             for key in error_dict.keys():
-                match = re.match(r'items__(\d+)__', key)
+                match = re.match(r"items__(\d+)__", key)
                 if match:
                     error_item_indices.add(int(match.group(1)))
-            
+
             # Check if response also has results (partial success scenario)
-            if 'results' in batch_results:
+            if "results" in batch_results:
                 # Partial success: some items have errors, some have results
-                results_list = batch_results.get('results', [])
+                results_list = batch_results.get("results", [])
                 item_results = []
                 for idx in range(batch_size):
                     if idx in error_item_indices:
                         # Item has validation error
                         item_error = {
-                            'error': {k: v for k, v in error_dict.items() if f'items__{idx}__' in k},
-                            'status_code': status_code
+                            "error": {
+                                k: v
+                                for k, v in error_dict.items()
+                                if f"items__{idx}__" in k
+                            },
+                            "status_code": status_code,
                         }
                         item_results.append(item_error)
                     elif idx < len(results_list):
@@ -1084,8 +1195,12 @@ class BioLMApiClient:
                     if idx in error_item_indices:
                         # Item has specific validation error
                         item_error = {
-                            'error': {k: v for k, v in error_dict.items() if f'items__{idx}__' in k},
-                            'status_code': status_code
+                            "error": {
+                                k: v
+                                for k, v in error_dict.items()
+                                if f"items__{idx}__" in k
+                            },
+                            "status_code": status_code,
                         }
                         item_results.append(item_error)
                     else:
@@ -1097,17 +1212,25 @@ class BioLMApiClient:
         if is_lol:
             all_batches_iter = chain(first_n, rest_iter)
             batches_list = list(all_batches_iter)
-            if output == 'disk':
+            if output == "disk":
                 path = file_path or f"{self.model_name}_{func}_output.jsonl"
                 use_concurrent_lol_disk = self._concurrent_batches and not stop_on_error
                 if use_concurrent_lol_disk:
+
                     async def process_batch_lol_disk(batch_idx: int, batch: list):
                         br = await self._process_single_batch(func, batch, params, raw)
                         return (batch_idx, batch, br)
 
-                    gathered = await asyncio.gather(*[process_batch_lol_disk(i, b) for i, b in enumerate(batches_list)])
+                    gathered = await asyncio.gather(
+                        *[
+                            process_batch_lol_disk(i, b)
+                            for i, b in enumerate(batches_list)
+                        ]
+                    )
                     gathered.sort(key=lambda x: x[0])
-                    async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                    async with aiofiles.open(
+                        path, "w", encoding="utf-8"
+                    ) as file_handle:
                         for _batch_idx, batch, batch_results in gathered:
                             if isinstance(batch_results, list):
                                 if func != "generate":
@@ -1116,22 +1239,33 @@ class BioLMApiClient:
                                         "This is a contract violation."
                                     )
                                 for res in batch_results:
-                                    await file_handle.write(json.dumps(res) + '\n')
+                                    await file_handle.write(json.dumps(res) + "\n")
                             else:
-                                item_results = parse_validation_errors(batch_results, len(batch))
+                                item_results = parse_validation_errors(
+                                    batch_results, len(batch)
+                                )
                                 for res in item_results:
-                                    await file_handle.write(json.dumps(res) + '\n')
+                                    await file_handle.write(json.dumps(res) + "\n")
                             await file_handle.flush()
                 else:
-                    async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                    async with aiofiles.open(
+                        path, "w", encoding="utf-8"
+                    ) as file_handle:
                         for batch in batches_list:
-                            batch_results = await self.call(func, batch, params=params, raw=raw)
+                            batch_results = await self.call(
+                                func, batch, params=params, raw=raw
+                            )
                             if (
-                                self.retry_error_batches and
-                                isinstance(batch_results, dict) and
-                                ('error' in batch_results or 'status_code' in batch_results)
+                                self.retry_error_batches
+                                and isinstance(batch_results, dict)
+                                and (
+                                    "error" in batch_results
+                                    or "status_code" in batch_results
+                                )
                             ):
-                                batch_results = await self._retry_batch_individually(func, batch, params, raw)
+                                batch_results = await self._retry_batch_individually(
+                                    func, batch, params, raw
+                                )
 
                             if isinstance(batch_results, list):
                                 # For 'generate' actions, models may return multiple results per item
@@ -1142,32 +1276,57 @@ class BioLMApiClient:
                                         "This is a contract violation."
                                     )
                                 for res in batch_results:
-                                    await file_handle.write(json.dumps(res) + '\n')
+                                    await file_handle.write(json.dumps(res) + "\n")
                             else:
                                 # Parse validation errors to distribute to specific items
-                                item_results = parse_validation_errors(batch_results, len(batch))
+                                item_results = parse_validation_errors(
+                                    batch_results, len(batch)
+                                )
                                 for res in item_results:
-                                    await file_handle.write(json.dumps(res) + '\n')
+                                    await file_handle.write(json.dumps(res) + "\n")
                             await file_handle.flush()
 
                             if stop_on_error and (
-                                (isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results)) or
-                                (isinstance(batch_results, list) and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results))
+                                (
+                                    isinstance(batch_results, dict)
+                                    and (
+                                        "error" in batch_results
+                                        or "status_code" in batch_results
+                                    )
+                                )
+                                or (
+                                    isinstance(batch_results, list)
+                                    and all(
+                                        isinstance(r, dict)
+                                        and ("error" in r or "status_code" in r)
+                                        for r in batch_results
+                                    )
+                                )
                             ):
                                 break
                 return
             else:
                 use_concurrent_lol_mem = self._concurrent_batches and not stop_on_error
                 if use_concurrent_lol_mem:
+
                     async def process_batch_lol_mem(batch_idx: int, batch: list):
                         br = await self._process_single_batch(func, batch, params, raw)
                         return (batch_idx, batch, br)
 
-                    gathered = await asyncio.gather(*[process_batch_lol_mem(i, b) for i, b in enumerate(batches_list)])
+                    gathered = await asyncio.gather(
+                        *[
+                            process_batch_lol_mem(i, b)
+                            for i, b in enumerate(batches_list)
+                        ]
+                    )
                     gathered.sort(key=lambda x: x[0])
                     for _batch_idx, batch, batch_results in gathered:
-                        if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                            item_results = parse_validation_errors(batch_results, len(batch))
+                        if isinstance(batch_results, dict) and (
+                            "error" in batch_results or "status_code" in batch_results
+                        ):
+                            item_results = parse_validation_errors(
+                                batch_results, len(batch)
+                            )
                             results.extend(item_results)
                         elif isinstance(batch_results, list):
                             if func != "generate":
@@ -1178,18 +1337,28 @@ class BioLMApiClient:
                             results.extend(batch_results)
                         else:
                             results.append(batch_results)
-                    return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+                    return (
+                        self._unwrap_single(results)
+                        if self.unwrap_single and len(results) == 1
+                        else results
+                    )
                 for batch in batches_list:
                     batch_results = await self.call(func, batch, params=params, raw=raw)
                     if (
-                        self.retry_error_batches and
-                        isinstance(batch_results, dict) and
-                        ('error' in batch_results or 'status_code' in batch_results)
+                        self.retry_error_batches
+                        and isinstance(batch_results, dict)
+                        and ("error" in batch_results or "status_code" in batch_results)
                     ):
-                        batch_results = await self._retry_batch_individually(func, batch, params, raw)
-                    if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                        batch_results = await self._retry_batch_individually(
+                            func, batch, params, raw
+                        )
+                    if isinstance(batch_results, dict) and (
+                        "error" in batch_results or "status_code" in batch_results
+                    ):
                         # Parse validation errors to distribute to specific items
-                        item_results = parse_validation_errors(batch_results, len(batch))
+                        item_results = parse_validation_errors(
+                            batch_results, len(batch)
+                        )
                         results.extend(item_results)
                         if stop_on_error:
                             break
@@ -1202,16 +1371,23 @@ class BioLMApiClient:
                                 "This is a contract violation."
                             )
                         results.extend(batch_results)
-                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                        if stop_on_error and all(
+                            isinstance(r, dict) and ("error" in r or "status_code" in r)
+                            for r in batch_results
+                        ):
                             break
                     else:
                         results.append(batch_results)
-                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+                return (
+                    self._unwrap_single(results)
+                    if self.unwrap_single and len(results) == 1
+                    else results
+                )
 
         all_items = chain(first_n, rest_iter)
         max_batch = await self._get_max_batch_size(self.model_name, func) or 1
 
-        if output == 'disk':
+        if output == "disk":
             path = file_path or f"{self.model_name}_{func}_output.jsonl"
             use_concurrent_disk = self._concurrent_batches and not stop_on_error
             if use_concurrent_disk:
@@ -1221,15 +1397,23 @@ class BioLMApiClient:
                     br = await self._process_single_batch(func, batch, params, raw)
                     return (batch_idx, batch, br)
 
-                gathered = await asyncio.gather(*[process_batch_disk(i, b) for i, b in enumerate(batches)])
+                gathered = await asyncio.gather(
+                    *[process_batch_disk(i, b) for i, b in enumerate(batches)]
+                )
                 gathered.sort(key=lambda x: x[0])
-                async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                async with aiofiles.open(path, "w", encoding="utf-8") as file_handle:
                     for _batch_idx, batch, batch_results in gathered:
-                        if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                            item_results = parse_validation_errors(batch_results, len(batch))
+                        if isinstance(batch_results, dict) and (
+                            "error" in batch_results or "status_code" in batch_results
+                        ):
+                            item_results = parse_validation_errors(
+                                batch_results, len(batch)
+                            )
                             for res in item_results:
-                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                                await file_handle.write(json.dumps(to_dump) + '\n')
+                                to_dump = (
+                                    res[0] if (raw and isinstance(res, tuple)) else res
+                                )
+                                await file_handle.write(json.dumps(to_dump) + "\n")
                         else:
                             if not isinstance(batch_results, list):
                                 batch_results = [batch_results]
@@ -1239,32 +1423,51 @@ class BioLMApiClient:
                                     "This is a contract violation."
                                 )
                             for res in batch_results:
-                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                                await file_handle.write(json.dumps(to_dump) + '\n')
+                                to_dump = (
+                                    res[0] if (raw and isinstance(res, tuple)) else res
+                                )
+                                await file_handle.write(json.dumps(to_dump) + "\n")
                         await file_handle.flush()
             else:
-                async with aiofiles.open(path, 'w', encoding='utf-8') as file_handle:
+                async with aiofiles.open(path, "w", encoding="utf-8") as file_handle:
                     for batch in batch_iterable(all_items, max_batch):
-                        batch_results = await self.call(func, batch, params=params, raw=raw)
+                        batch_results = await self.call(
+                            func, batch, params=params, raw=raw
+                        )
 
                         if (
-                            self.retry_error_batches and
-                            isinstance(batch_results, dict) and
-                            ('error' in batch_results or 'status_code' in batch_results)
+                            self.retry_error_batches
+                            and isinstance(batch_results, dict)
+                            and (
+                                "error" in batch_results
+                                or "status_code" in batch_results
+                            )
                         ):
-                            batch_results = await self._retry_batch_individually(func, batch, params, raw)
+                            batch_results = await self._retry_batch_individually(
+                                func, batch, params, raw
+                            )
                             # After retry, always treat as list
                             for res in batch_results:
-                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                                await file_handle.write(json.dumps(to_dump) + '\n')
+                                to_dump = (
+                                    res[0] if (raw and isinstance(res, tuple)) else res
+                                )
+                                await file_handle.write(json.dumps(to_dump) + "\n")
                             await file_handle.flush()
-                            if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                            if stop_on_error and all(
+                                isinstance(r, dict)
+                                and ("error" in r or "status_code" in r)
+                                for r in batch_results
+                            ):
                                 break
                             continue  # move to next batch
 
-                        if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                        if isinstance(batch_results, dict) and (
+                            "error" in batch_results or "status_code" in batch_results
+                        ):
                             for _ in batch:
-                                await file_handle.write(json.dumps(batch_results) + '\n')
+                                await file_handle.write(
+                                    json.dumps(batch_results) + "\n"
+                                )
                             await file_handle.flush()
                             if stop_on_error:
                                 break
@@ -1279,10 +1482,16 @@ class BioLMApiClient:
                                     "This is a contract violation."
                                 )
                             for res in batch_results:
-                                to_dump = res[0] if (raw and isinstance(res, tuple)) else res
-                                await file_handle.write(json.dumps(to_dump) + '\n')
+                                to_dump = (
+                                    res[0] if (raw and isinstance(res, tuple)) else res
+                                )
+                                await file_handle.write(json.dumps(to_dump) + "\n")
                             await file_handle.flush()
-                            if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                            if stop_on_error and all(
+                                isinstance(r, dict)
+                                and ("error" in r or "status_code" in r)
+                                for r in batch_results
+                            ):
                                 break
 
             return
@@ -1295,11 +1504,17 @@ class BioLMApiClient:
                     br = await self._process_single_batch(func, batch, params, raw)
                     return (batch_idx, batch, br)
 
-                gathered = await asyncio.gather(*[process_batch(i, b) for i, b in enumerate(batches)])
+                gathered = await asyncio.gather(
+                    *[process_batch(i, b) for i, b in enumerate(batches)]
+                )
                 gathered.sort(key=lambda x: x[0])
                 for _batch_idx, batch, batch_results in gathered:
-                    if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
-                        item_results = parse_validation_errors(batch_results, len(batch))
+                    if isinstance(batch_results, dict) and (
+                        "error" in batch_results or "status_code" in batch_results
+                    ):
+                        item_results = parse_validation_errors(
+                            batch_results, len(batch)
+                        )
                         results.extend(item_results)
                     elif isinstance(batch_results, list):
                         results.extend(batch_results)
@@ -1312,24 +1527,34 @@ class BioLMApiClient:
                                 "This is a contract violation."
                             )
                         results.extend(batch_results)
-                return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+                return (
+                    self._unwrap_single(results)
+                    if self.unwrap_single and len(results) == 1
+                    else results
+                )
 
             for batch_idx, batch in enumerate(batch_iterable(all_items, max_batch)):
                 batch_results = await self.call(func, batch, params=params, raw=raw)
 
                 if (
-                    self.retry_error_batches and
-                    isinstance(batch_results, dict) and
-                    ('error' in batch_results or 'status_code' in batch_results)
+                    self.retry_error_batches
+                    and isinstance(batch_results, dict)
+                    and ("error" in batch_results or "status_code" in batch_results)
                 ):
-                    batch_results = await self._retry_batch_individually(func, batch, params, raw)
+                    batch_results = await self._retry_batch_individually(
+                        func, batch, params, raw
+                    )
                     results.extend(batch_results)
-                    if stop_on_error and any(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                    if stop_on_error and any(
+                        isinstance(r, dict) and ("error" in r or "status_code" in r)
+                        for r in batch_results
+                    ):
                         break
                     continue  # move to next batch
 
-
-                if isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results):
+                if isinstance(batch_results, dict) and (
+                    "error" in batch_results or "status_code" in batch_results
+                ):
                     # Parse validation errors to distribute to specific items
                     item_results = parse_validation_errors(batch_results, len(batch))
                     results.extend(item_results)
@@ -1349,28 +1574,36 @@ class BioLMApiClient:
                             "This is a contract violation."
                         )
                     results.extend(batch_results)
-                    if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                    if stop_on_error and all(
+                        isinstance(r, dict) and ("error" in r or "status_code" in r)
+                        for r in batch_results
+                    ):
                         break
 
-            return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
+            return (
+                self._unwrap_single(results)
+                if self.unwrap_single and len(results) == 1
+                else results
+            )
 
     @staticmethod
-    def _format_result(res: Union[dict, List[dict], Tuple[dict, int]]) -> Union[dict, List[dict], Tuple[dict, int]]:
-        if isinstance(res, dict) and 'results' in res:
-            return res['results']
+    def _format_result(
+        res: Union[dict, List[dict], Tuple[dict, int]],
+    ) -> Union[dict, List[dict], Tuple[dict, int]]:
+        if isinstance(res, dict) and "results" in res:
+            return res["results"]
         elif isinstance(res, list):
             if all(isinstance(x, dict) for x in res):
                 return res
             raise ValueError("Unexpected response format")
-        elif isinstance(res, dict) and ('error' in res or 'status_code' in res):
+        elif isinstance(res, dict) and ("error" in res or "status_code" in res):
             return res
         return res
-
 
     def _format_exception(self, exc: Exception, index: int) -> dict:
         """Format an exception as an error dict, with fallback for empty error messages."""
         error_msg = str(exc)
-        
+
         # Handle empty or whitespace-only error messages
         if not error_msg or not error_msg.strip():
             # Check if it's a known httpx exception type
@@ -1380,7 +1613,7 @@ class BioLMApiClient:
             else:
                 # Fallback: use exception class name
                 error_msg = f"{exc_type.__name__}: Network or connection error occurred"
-        
+
         return {"error": error_msg, "index": index}
 
     @staticmethod
@@ -1389,79 +1622,109 @@ class BioLMApiClient:
             return result[0]
         return result
 
-    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    @type_check({"items": (list, tuple), "params": (dict, OrderedDict, None)})
     async def generate(
         self,
         *,
         items: List[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
-        output: str = 'memory',
+        output: str = "memory",
         file_path: Optional[str] = None,
         overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "generate",
+            items,
+            params=params,
+            stop_on_error=stop_on_error,
+            output=output,
+            file_path=file_path,
+            overwrite=overwrite,
         )
 
-    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    @type_check({"items": (list, tuple), "params": (dict, OrderedDict, None)})
     async def predict(
         self,
         *,
         items: List[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
-        output: str = 'memory',
+        output: str = "memory",
         file_path: Optional[str] = None,
         overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "predict",
+            items,
+            params=params,
+            stop_on_error=stop_on_error,
+            output=output,
+            file_path=file_path,
+            overwrite=overwrite,
         )
 
-    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    @type_check({"items": (list, tuple), "params": (dict, OrderedDict, None)})
     async def encode(
         self,
         *,
         items: List[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
-        output: str = 'memory',
+        output: str = "memory",
         file_path: Optional[str] = None,
         overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "encode",
+            items,
+            params=params,
+            stop_on_error=stop_on_error,
+            output=output,
+            file_path=file_path,
+            overwrite=overwrite,
         )
 
-    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    @type_check({"items": (list, tuple), "params": (dict, OrderedDict, None)})
     async def search(
         self,
         *,
         items: List[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
-        output: str = 'memory',
+        output: str = "memory",
         file_path: Optional[str] = None,
         overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "search", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "search",
+            items,
+            params=params,
+            stop_on_error=stop_on_error,
+            output=output,
+            file_path=file_path,
+            overwrite=overwrite,
         )
 
-    @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
+    @type_check({"items": (list, tuple), "params": (dict, OrderedDict, None)})
     async def score(
         self,
         *,
         items: List[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
-        output: str = 'memory',
+        output: str = "memory",
         file_path: Optional[str] = None,
         overwrite: bool = False,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "score", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "score",
+            items,
+            params=params,
+            stop_on_error=stop_on_error,
+            output=output,
+            file_path=file_path,
+            overwrite=overwrite,
         )
 
     async def lookup(
@@ -1469,7 +1732,7 @@ class BioLMApiClient:
         query: Union[dict, List[dict]],
         *,
         raw: bool = False,
-        output: str = 'memory',
+        output: str = "memory",
         file_path: Optional[str] = None,
     ):
         items = query if isinstance(query, list) else [query]
@@ -1491,10 +1754,12 @@ class BioLMApiClient:
     async def __aexit__(self, exc_type, exc, tb):
         await self.shutdown()
 
+
 # Log execution context for debugging (only if DEBUG env var is set)
-if os.environ.get("DEBUG", '').upper().strip() in ('TRUE', '1'):
+if os.environ.get("DEBUG", "").upper().strip() in ("TRUE", "1"):
     context = _detect_execution_context()
     debug(f"BioLMApi sync wrapper created in context: {context}")
+
 
 # Synchronous wrapper for compatibility
 # Note: nest_asyncio is automatically applied in Jupyter contexts
