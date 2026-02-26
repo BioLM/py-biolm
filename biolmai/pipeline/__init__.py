@@ -10,68 +10,78 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 DataStore = DuckDBDataStore
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
 from biolmai.pipeline.generative import (
-    GenerativePipeline,
-    GenerationConfig,
     DirectGenerationConfig,
+    FoldingEntity,
+    GenerationConfig,
+    GenerativePipeline,
 )
+
 try:
     from biolmai.pipeline.visualization import PipelinePlotter
 except ImportError:
     PipelinePlotter = None  # type: ignore[assignment,misc]
-from biolmai.pipeline.utils import cif_to_pdb, pdb_to_cif, load_structure_string
-from biolmai.pipeline.data import DataPipeline, SingleStepPipeline, Predict, Embed
+from biolmai.pipeline.clustering import (
+    ClusteringResult,
+    DiversityAnalyzer,
+    SequenceClusterer,
+    analyze_diversity,
+    cluster_sequences,
+)
+from biolmai.pipeline.data import (
+    CofoldingPredictionStage,
+    DataPipeline,
+    Embed,
+    Predict,
+    SingleStepPipeline,
+)
 from biolmai.pipeline.filters import (
-    ThresholdFilter,
-    HammingDistanceFilter,
-    SequenceLengthFilter,
-    RankingFilter,
     CustomFilter,
+    HammingDistanceFilter,
+    RankingFilter,
+    SequenceLengthFilter,
+    ThresholdFilter,
 )
 from biolmai.pipeline.mlm_remasking import (
-    MLMRemasker,
-    RemaskingConfig,
+    AGGRESSIVE_CONFIG,
     CONSERVATIVE_CONFIG,
     MODERATE_CONFIG,
-    AGGRESSIVE_CONFIG,
+    MLMRemasker,
+    RemaskingConfig,
 )
-from biolmai.pipeline.clustering import (
-    SequenceClusterer,
-    DiversityAnalyzer,
-    ClusteringResult,
-    cluster_sequences,
-    analyze_diversity,
-)
+from biolmai.pipeline.utils import cif_to_pdb, load_structure_string, pdb_to_cif
 
 __all__ = [
-    'DataStore',
-    'DuckDBDataStore',
-    'BasePipeline',
-    'Stage',
-    'StageResult',
-    'GenerativePipeline',
-    'GenerationConfig',
-    'DirectGenerationConfig',
-    'PipelinePlotter',
-    'cif_to_pdb',
-    'pdb_to_cif',
-    'load_structure_string',
-    'DataPipeline',
-    'SingleStepPipeline',
-    'Predict',
-    'Embed',
-    'ThresholdFilter',
-    'HammingDistanceFilter',
-    'SequenceLengthFilter',
-    'RankingFilter',
-    'CustomFilter',
-    'MLMRemasker',
-    'RemaskingConfig',
-    'CONSERVATIVE_CONFIG',
-    'MODERATE_CONFIG',
-    'AGGRESSIVE_CONFIG',
-    'SequenceClusterer',
-    'DiversityAnalyzer',
-    'ClusteringResult',
-    'cluster_sequences',
-    'analyze_diversity',
+    "DataStore",
+    "DuckDBDataStore",
+    "BasePipeline",
+    "Stage",
+    "StageResult",
+    "GenerativePipeline",
+    "GenerationConfig",
+    "DirectGenerationConfig",
+    "FoldingEntity",
+    "CofoldingPredictionStage",
+    "PipelinePlotter",
+    "cif_to_pdb",
+    "pdb_to_cif",
+    "load_structure_string",
+    "DataPipeline",
+    "SingleStepPipeline",
+    "Predict",
+    "Embed",
+    "ThresholdFilter",
+    "HammingDistanceFilter",
+    "SequenceLengthFilter",
+    "RankingFilter",
+    "CustomFilter",
+    "MLMRemasker",
+    "RemaskingConfig",
+    "CONSERVATIVE_CONFIG",
+    "MODERATE_CONFIG",
+    "AGGRESSIVE_CONFIG",
+    "SequenceClusterer",
+    "DiversityAnalyzer",
+    "ClusteringResult",
+    "cluster_sequences",
+    "analyze_diversity",
 ]
