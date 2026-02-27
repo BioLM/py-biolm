@@ -3,7 +3,7 @@ import logging
 from typing import Callable, Optional, Union, List, Any
 
 from biolmai.core.http import BioLMApi, BioLMApiClient
-from biolmai.core.utils import is_list_of_lists
+from biolmai.core.utils import prepare_items_for_api
 from biolmai.examples import ExampleGeneratorSync
 from biolmai.progress import rich_progress
 
@@ -168,27 +168,12 @@ class Model:
         finally:
             generator.shutdown()
     
-    def _prepare_items(self, items: Union[Any, List[Any]], type: Optional[str] = None) -> List[dict]:
-        """Prepare items for API calls."""
-        if isinstance(items, list):
-            items_list = items
-        else:
-            items_list = [items]
-        
-        is_lol, first_n, rest_iter = is_list_of_lists(items_list, check_n=10)
+    def _prepare_items(self, items: Union[Any, List[Any]], type: Optional[str] = None) -> Union[List[dict], List[List[dict]]]:
+        """Prepare items for API calls. Supports list, tuple, single value, and iterables (e.g. generators)."""
+        data, is_lol = prepare_items_for_api(items, type=type)
         if is_lol:
-            for batch in first_n:
-                if not all(isinstance(x, dict) for x in batch):
-                    raise ValueError("All items in each batch must be dicts when passing a list of lists.")
-            if type is not None:
-                raise ValueError("Do not specify `type` when passing a list of lists of dicts for `items`.")
-            return list(first_n) + list(rest_iter)
-        elif all(isinstance(v, dict) for v in items_list):
-            return items_list
-        else:
-            if type is None:
-                raise ValueError("If `items` are not dicts, `type` must be specified.")
-            return [{type: v} for v in items_list]
+            return data
+        return list(data)
 
 
 # Backward compatibility alias
@@ -224,26 +209,7 @@ class BioLM:
         Run the specified action on the entity with the given item(s).
         Returns the result(s), unpacked if a single item was provided.
         """
-        # Always pass a list of items
-        if isinstance(self.items, list):
-            items = self.items
-        else:
-            items = [self.items]
-
-        is_lol, first_n, rest_iter = is_list_of_lists(items, check_n=10)
-        if is_lol:
-            for batch in first_n:
-                if not all(isinstance(x, dict) for x in batch):
-                    raise ValueError("All items in each batch must be dicts when passing a list of lists.")
-            if self.type is not None:
-                raise ValueError("Do not specify `type` when passing a list of lists of dicts for `items`.")
-            items_dicts = list(first_n) + list(rest_iter)
-        elif all(isinstance(v, dict) for v in items):
-            items_dicts = items
-        else:
-            if self.type is None:
-                raise ValueError("If `items` are not dicts, `type` must be specified.")
-            items_dicts = [{self.type: v} for v in items]
+        items_dicts, _ = prepare_items_for_api(self.items, type=self.type)
 
         unwrap_single = self._class_kwargs.pop('unwrap_single', True)
 

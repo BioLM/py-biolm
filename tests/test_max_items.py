@@ -67,7 +67,8 @@ async def test_get_max_batch_size_returns_none_if_schema_malformed():
 
 @pytest.mark.asyncio
 async def test_schema_cache_is_used():
-    model_name = "test-model"
+    # Use a unique key so we don't collide with other tests that cache ("test-model", "encode")
+    model_name = "test-model-schema-cache"
     action = "encode"
     schema = {
         "properties": {

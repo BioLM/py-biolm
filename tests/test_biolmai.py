@@ -227,12 +227,11 @@ def test_encode_single_same_via_biolm_biolm_fn_model():
 
 
 def test_predict_single_same_via_biolm_biolm_fn_model():
-    """Predict single sequence gives same shape via BioLM(), biolm(), and Model()."""
+    """Predict single sequence gives same shape via BioLM(), biolm(), and Model() (default unwrap_single=True)."""
     items = [{"sequence": "MDNELE"}]
-    r_biolm = BioLM(entity="esmfold", action="predict", items=items, raise_httpx=False, unwrap_single=False)
-    r_fn = biolm(entity="esmfold", action="predict", items=items, raise_httpx=False, unwrap_single=False)
+    r_biolm = BioLM(entity="esmfold", action="predict", items=items, raise_httpx=False)
+    r_fn = biolm(entity="esmfold", action="predict", items=items, raise_httpx=False)
     r_model = Model("esmfold", raise_httpx=False).predict(items=items, progress=False)
     for name, r in [("BioLM", r_biolm), ("biolm()", r_fn), ("Model", r_model)]:
-        assert isinstance(r, list), f"{name}: expected list"
-        assert len(r) == 1, f"{name}: expected length 1"
-        assert "mean_plddt" in r[0] and "pdb" in r[0], f"{name}: expected keys"
+        assert isinstance(r, dict), f"{name}: expected dict (unwrap_single=True)"
+        assert "mean_plddt" in r and "pdb" in r, f"{name}: expected keys"
