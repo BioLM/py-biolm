@@ -204,5 +204,41 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*(client._api_call("endpoint", {}) for _ in range(5)))
         self.assertEqual(len(called), 5)
 
+    async def test_ensure_rate_limit_uses_request_action_for_schema(self):
+        """Schema used for throttle discovery must match the request action (e.g. predict), not always encode."""
+        client = BioLMApiClient("my-model")  # no explicit rate_limit so _ensure_rate_limit will call schema
+        self.assertIsNone(client._rate_limiter)
+
+        mock_schema = AsyncMock(return_value=None)
+        with patch.object(client, "schema", mock_schema):
+            class FakeResp:
+                status_code = 200
+                headers = {"Content-Type": "application/json"}
+                def json(self):
+                    return {"ok": True}
+            client._http_client.post = AsyncMock(return_value=FakeResp())
+
+            await client._api_call("my-model/predict/", {"items": [{}]})
+
+        mock_schema.assert_called_once_with("my-model", "predict")
+
+    async def test_ensure_rate_limit_uses_encode_action_when_endpoint_is_encode(self):
+        """When the request is to encode, schema should be fetched for encode."""
+        client = BioLMApiClient("other")  # no explicit rate_limit
+        self.assertIsNone(client._rate_limiter)
+
+        mock_schema = AsyncMock(return_value=None)
+        with patch.object(client, "schema", mock_schema):
+            class FakeResp:
+                status_code = 200
+                headers = {"Content-Type": "application/json"}
+                def json(self):
+                    return {"ok": True}
+            client._http_client.post = AsyncMock(return_value=FakeResp())
+
+            await client._api_call("other/encode/", {"items": [{}]})
+
+        mock_schema.assert_called_once_with("other", "encode")
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,9 @@ import random
 import httpx
 import pytest
 
+from biolmai import biolm
 from biolmai.biolmai import BioLM
+from biolmai.models import Model
 
 N = 6
 
@@ -209,3 +211,27 @@ def test_biolm_generate_num_samples():
     for idx, res in enumerate(result):
         assert isinstance(res, dict), f"Result at index {idx} is not a dict"
         assert expected_key in res, f"Expected key '{expected_key}' not found in result at index {idx}"
+
+
+def test_encode_single_same_via_biolm_biolm_fn_model():
+    """Encode single sequence gives same shape via BioLM(), biolm(), and Model()."""
+    items = "MSILVTRPSPAGEEL"
+    kw = dict(entity="esm2-8m", action="encode", type="sequence", items=items, raise_httpx=False)
+    r_biolm = BioLM(**kw)
+    r_fn = biolm(**kw)
+    r_model = Model("esm2-8m", raise_httpx=False).encode(items=items, type="sequence", progress=False)
+    for name, r in [("BioLM", r_biolm), ("biolm()", r_fn), ("Model", r_model)]:
+        assert isinstance(r, dict), f"{name}: expected dict"
+        assert "embeddings" in r, f"{name}: expected embeddings key"
+    assert set(r_biolm.keys()) == set(r_fn.keys()) == set(r_model.keys())
+
+
+def test_predict_single_same_via_biolm_biolm_fn_model():
+    """Predict single sequence gives same shape via BioLM(), biolm(), and Model() (default unwrap_single=True)."""
+    items = [{"sequence": "MDNELE"}]
+    r_biolm = BioLM(entity="esmfold", action="predict", items=items, raise_httpx=False)
+    r_fn = biolm(entity="esmfold", action="predict", items=items, raise_httpx=False)
+    r_model = Model("esmfold", raise_httpx=False).predict(items=items, progress=False)
+    for name, r in [("BioLM", r_biolm), ("biolm()", r_fn), ("Model", r_model)]:
+        assert isinstance(r, dict), f"{name}: expected dict (unwrap_single=True)"
+        assert "mean_plddt" in r and "pdb" in r, f"{name}: expected keys"

@@ -207,3 +207,24 @@ async def test_list_of_lists_concurrent_and_order(monkeypatch, client):
     assert len(call_times) == 3
     time_span = max(call_times) - min(call_times)
     assert time_span < 0.1
+
+
+@pytest.mark.asyncio
+async def test_progress_callback_invoked_per_batch(monkeypatch, client):
+    """progress_callback is called after each batch with (completed, total)."""
+    calls = []
+
+    def progress_callback(completed: int, total: int):
+        calls.append((completed, total))
+
+    async def fake_api_call(endpoint, payload, raw=False):
+        batch = payload["items"]
+        return {"results": [{"x": i} for i in range(len(batch))]}
+
+    monkeypatch.setattr(client, "_api_call", fake_api_call)
+    monkeypatch.setattr(client, "_get_max_batch_size", AsyncMock(return_value=2))
+    items = [{"sequence": f"SEQ{i}"} for i in range(5)]
+    results = await client.predict(items=items, progress_callback=progress_callback)
+    assert len(results) == 5
+    assert len(calls) >= 1
+    assert calls[-1] == (5, 5)

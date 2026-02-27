@@ -236,14 +236,14 @@ async def test_disk_output_skip_existing_file_async(tmp_path):
     # Verify file exists
     assert file_path.exists()
     
-    # Call with overwrite=False (default) - should skip API call and return existing data
+    # Call with overwrite=False - should skip API call and return existing data
     result = await model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
     
-    # Should return the existing file contents
-    assert isinstance(result, list)
-    assert len(result) == 1
-    assert result[0]["test"] == "initial"
-    assert result[0]["mean_plddt"] == 95.5
+    # Default unwrap_single=True: single line in file → single dict
+    assert isinstance(result, dict)
+    assert result["test"] == "initial"
+    assert result["mean_plddt"] == 95.5
+    assert result["pdb"] == "ATOM 1 N MET"
     
     # Verify file was not overwritten (still has initial data)
     async with aiofiles.open(file_path, 'r') as f:
@@ -252,6 +252,25 @@ async def test_disk_output_skip_existing_file_async(tmp_path):
     assert len(lines) == 1
     file_data = json.loads(lines[0])
     assert file_data["test"] == "initial"
+
+
+@pytest.mark.asyncio
+async def test_disk_output_skip_existing_file_async_unwrap_single_false(tmp_path):
+    """When file exists, overwrite=False, and unwrap_single=False, return list of one dict."""
+    model = BioLMApiClient("esmfold", raise_httpx=False, unwrap_single=False)
+    file_path = tmp_path / "existing.jsonl"
+    items = [{"sequence": "MDNELE"}]
+    initial_data = {"mean_plddt": 95.5, "pdb": "ATOM 1 N MET", "test": "list_of_one"}
+    async with aiofiles.open(file_path, 'w') as f:
+        await f.write(json.dumps(initial_data) + '\n')
+    assert file_path.exists()
+
+    result = await model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["test"] == "list_of_one"
+    assert result[0]["mean_plddt"] == 95.5
 
 
 @pytest.mark.asyncio

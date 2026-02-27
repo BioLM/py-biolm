@@ -17,7 +17,6 @@ from typing import Optional, Union, List, Any, Dict, Tuple
 import aiofiles
 import httpx
 import httpx._content
-from async_lru import alru_cache
 from httpx import AsyncHTTPTransport
 from httpx import ByteStream
 from synchronicity import Synchronizer
@@ -631,6 +630,12 @@ class HttpClient:
         pass
 
 
+# Schema cache keyed by (model, action). Event-loop-agnostic so sync and async
+# callers (and tests under pytest-xdist) share the same cache without alru_cache's
+# "not safe to use across event loops" restriction.
+_SCHEMA_CACHE: Dict[Tuple[str, str], Optional[dict]] = {}
+
+
 class BioLMApiClient:
     def __init__(
         self,
@@ -638,14 +643,15 @@ class BioLMApiClient:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
-        raise_httpx: bool = True,
-        unwrap_single: bool = False,
+        raise_httpx: bool = False,
+        unwrap_single: bool = True,
         semaphore: 'Optional[Union[int, asyncio.Semaphore]]' = 16,
         rate_limit: 'Optional[str]' = None,
-        retry_error_batches: bool = False,
+        retry_error_batches: bool = True,
         compress_requests: bool = True,
         compress_threshold: int = 256,
         concurrent_batches: bool = True,  # When True and stop_on_error=False, process batches in parallel (up to semaphore limit)
+        http2: bool = True,  # If False, use HTTP/1.1 so each request can use a separate connection (avoids server MAX_CONCURRENT_STREAMS cap)
     ):
         # Use base_url parameter if provided, otherwise use default from const
         final_base_url = base_url if base_url is not None else BIOLMAI_BASE_API_URL
@@ -661,7 +667,8 @@ class BioLMApiClient:
             self._headers, 
             self.timeout,
             compress_requests=compress_requests,
-            compress_threshold=compress_threshold
+            compress_threshold=compress_threshold,
+            http2=http2,
         )
         self._semaphore = None
         self._semaphore_arg = semaphore  # Lazy-init: None, int, or asyncio.Semaphore
@@ -689,7 +696,7 @@ class BioLMApiClient:
             self._semaphore = asyncio.Semaphore(self._semaphore_arg)
         return self._semaphore
 
-    async def _ensure_rate_limit(self):
+    async def _ensure_rate_limit(self, action: Optional[str] = None):
             if self._rate_limit_lock is None:
                 self._rate_limit_lock = asyncio.Lock()
             if self._rate_limit_initialized:
@@ -698,7 +705,8 @@ class BioLMApiClient:
                 if self._rate_limit_initialized:
                     return
                 if self._rate_limiter is None:
-                    schema = await self.schema(self.model_name, "encode")
+                    schema_action = (action or "encode").strip() or "encode"
+                    schema = await self.schema(self.model_name, schema_action)
                     throttle_rate = schema.get("throttle_rate") if schema else None
                     if throttle_rate:
                         max_calls, period = parse_rate_limit(throttle_rate)
@@ -731,7 +739,6 @@ class BioLMApiClient:
         else:
             yield
 
-    @alru_cache(maxsize=8)
     async def schema(
         self,
         model: str,
@@ -740,17 +747,23 @@ class BioLMApiClient:
         """
         Fetch the JSON schema for a given model and action, with caching.
         Returns the schema dict if successful, else None.
+        Uses a module-level cache keyed by (model, action) so it is safe to use
+        from any event loop (sync wrapper, async tests, pytest-xdist workers).
         """
+        key = (model, action)
+        if key in _SCHEMA_CACHE:
+            return _SCHEMA_CACHE[key]
         endpoint = f"schema/{model}/{action}/"
         try:
             resp = await self._http_client.get(endpoint)
             if resp.status_code == 200:
-                schema = resp.json()
-                return schema
+                result = resp.json()
             else:
-                return None
+                result = None
         except Exception:
-            return None
+            result = None
+        _SCHEMA_CACHE[key] = result
+        return result
 
     @staticmethod
     def extract_max_items(schema: dict) -> Optional[int]:
@@ -820,7 +833,9 @@ class BioLMApiClient:
     async def _api_call(
         self, endpoint: str, payload: dict, raw: bool = False
     ) -> Union[dict, Tuple[Any, httpx.Response]]:
-        await self._ensure_rate_limit()
+        parts = endpoint.rstrip("/").split("/")
+        action = parts[-1] if parts else "encode"
+        await self._ensure_rate_limit(action=action)
         async with self._limit():
             resp = await self._http_client.post(endpoint, payload)
         content_type = resp.headers.get("Content-Type", "")
@@ -998,7 +1013,8 @@ class BioLMApiClient:
         output: str = 'memory',
         file_path: Optional[str] = None,
         raw: bool = False,
-        overwrite: bool = False,
+        overwrite: bool = True,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ):
         if not items:
             return items
@@ -1097,12 +1113,26 @@ class BioLMApiClient:
         if is_lol:
             all_batches_iter = chain(first_n, rest_iter)
             batches_list = list(all_batches_iter)
+            total_items = sum(len(b) for b in batches_list) if progress_callback else 0
+            completed = 0
+            def _lol_progress(batch_len: int) -> None:
+                nonlocal completed
+                if progress_callback:
+                    completed += batch_len
+                    progress_callback(completed, total_items)
             if output == 'disk':
                 path = file_path or f"{self.model_name}_{func}_output.jsonl"
                 use_concurrent_lol_disk = self._concurrent_batches and not stop_on_error
                 if use_concurrent_lol_disk:
+                    progress_lock_lol = asyncio.Lock()
+                    completed_ref_lol_disk: list = [0]
+
                     async def process_batch_lol_disk(batch_idx: int, batch: list):
                         br = await self._process_single_batch(func, batch, params, raw)
+                        if progress_callback:
+                            async with progress_lock_lol:
+                                completed_ref_lol_disk[0] += len(batch)
+                                progress_callback(completed_ref_lol_disk[0], total_items)
                         return (batch_idx, batch, br)
 
                     gathered = await asyncio.gather(*[process_batch_lol_disk(i, b) for i, b in enumerate(batches_list)])
@@ -1149,7 +1179,7 @@ class BioLMApiClient:
                                 for res in item_results:
                                     await file_handle.write(json.dumps(res) + '\n')
                             await file_handle.flush()
-
+                            _lol_progress(len(batch))
                             if stop_on_error and (
                                 (isinstance(batch_results, dict) and ('error' in batch_results or 'status_code' in batch_results)) or
                                 (isinstance(batch_results, list) and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results))
@@ -1159,8 +1189,15 @@ class BioLMApiClient:
             else:
                 use_concurrent_lol_mem = self._concurrent_batches and not stop_on_error
                 if use_concurrent_lol_mem:
+                    progress_lock = asyncio.Lock()
+                    completed_ref_lol: list = [0]
+
                     async def process_batch_lol_mem(batch_idx: int, batch: list):
                         br = await self._process_single_batch(func, batch, params, raw)
+                        if progress_callback:
+                            async with progress_lock:
+                                completed_ref_lol[0] += len(batch)
+                                progress_callback(completed_ref_lol[0], total_items)
                         return (batch_idx, batch, br)
 
                     gathered = await asyncio.gather(*[process_batch_lol_mem(i, b) for i, b in enumerate(batches_list)])
@@ -1191,6 +1228,7 @@ class BioLMApiClient:
                         # Parse validation errors to distribute to specific items
                         item_results = parse_validation_errors(batch_results, len(batch))
                         results.extend(item_results)
+                        _lol_progress(len(batch))
                         if stop_on_error:
                             break
                     elif isinstance(batch_results, list):
@@ -1202,13 +1240,27 @@ class BioLMApiClient:
                                 "This is a contract violation."
                             )
                         results.extend(batch_results)
-                        if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
-                            break
                     else:
                         results.append(batch_results)
+                    _lol_progress(len(batch))
+                    if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
+                        break
                 return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
 
         all_items = chain(first_n, rest_iter)
+        if progress_callback is not None:
+            all_items = list(all_items)
+            total_items = len(all_items)
+        else:
+            total_items = 0
+        completed_flat = 0
+
+        def _flat_progress(batch_len: int) -> None:
+            nonlocal completed_flat
+            if progress_callback:
+                completed_flat += batch_len
+                progress_callback(completed_flat, total_items)
+
         max_batch = await self._get_max_batch_size(self.model_name, func) or 1
 
         if output == 'disk':
@@ -1216,9 +1268,15 @@ class BioLMApiClient:
             use_concurrent_disk = self._concurrent_batches and not stop_on_error
             if use_concurrent_disk:
                 batches = list(batch_iterable(all_items, max_batch))
+                progress_lock_disk = asyncio.Lock()
+                completed_flat_ref_disk: list = [0]
 
                 async def process_batch_disk(batch_idx: int, batch: list):
                     br = await self._process_single_batch(func, batch, params, raw)
+                    if progress_callback:
+                        async with progress_lock_disk:
+                            completed_flat_ref_disk[0] += len(batch)
+                            progress_callback(completed_flat_ref_disk[0], total_items)
                     return (batch_idx, batch, br)
 
                 gathered = await asyncio.gather(*[process_batch_disk(i, b) for i, b in enumerate(batches)])
@@ -1284,15 +1342,22 @@ class BioLMApiClient:
                             await file_handle.flush()
                             if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
                                 break
+                            _flat_progress(len(batch))
 
             return
         else:
             use_concurrent = self._concurrent_batches and not stop_on_error
             if use_concurrent:
                 batches = list(batch_iterable(all_items, max_batch))
+                progress_lock_flat = asyncio.Lock()
+                completed_flat_ref_mem: list = [0]
 
                 async def process_batch(batch_idx: int, batch: list):
                     br = await self._process_single_batch(func, batch, params, raw)
+                    if progress_callback:
+                        async with progress_lock_flat:
+                            completed_flat_ref_mem[0] += len(batch)
+                            progress_callback(completed_flat_ref_mem[0], total_items)
                     return (batch_idx, batch, br)
 
                 gathered = await asyncio.gather(*[process_batch(i, b) for i, b in enumerate(batches)])
@@ -1351,6 +1416,7 @@ class BioLMApiClient:
                     results.extend(batch_results)
                     if stop_on_error and all(isinstance(r, dict) and ('error' in r or 'status_code' in r) for r in batch_results):
                         break
+                _flat_progress(len(batch))
 
             return self._unwrap_single(results) if self.unwrap_single and len(results) == 1 else results
 
@@ -1398,10 +1464,12 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
-        overwrite: bool = False,
+        overwrite: bool = True,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "generate", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite,
+            progress_callback=progress_callback
         )
 
     @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
@@ -1413,10 +1481,12 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
-        overwrite: bool = False,
+        overwrite: bool = True,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "predict", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite,
+            progress_callback=progress_callback
         )
 
     @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
@@ -1428,10 +1498,12 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
-        overwrite: bool = False,
+        overwrite: bool = True,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
     ):
         return await self._batch_call_autoschema_or_manual(
-            "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
+            "encode", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite,
+            progress_callback=progress_callback
         )
 
     @type_check({'items': (list, tuple), 'params': (dict, OrderedDict, None)})
@@ -1443,7 +1515,7 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
-        overwrite: bool = False,
+        overwrite: bool = True,
     ):
         return await self._batch_call_autoschema_or_manual(
             "search", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
@@ -1458,7 +1530,7 @@ class BioLMApiClient:
         stop_on_error: bool = False,
         output: str = 'memory',
         file_path: Optional[str] = None,
-        overwrite: bool = False,
+        overwrite: bool = True,
     ):
         return await self._batch_call_autoschema_or_manual(
             "score", items, params=params, stop_on_error=stop_on_error, output=output, file_path=file_path, overwrite=overwrite
