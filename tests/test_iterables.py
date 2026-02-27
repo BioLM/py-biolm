@@ -3,7 +3,9 @@
 import pytest
 
 from biolmai import biolm
+from biolmai.biolmai import BioLM
 from biolmai.core.http import BioLMApi, BioLMApiClient
+from biolmai.models import Model
 
 
 def _gen_dicts(n):
@@ -94,3 +96,28 @@ class TestBiolmIterables:
         assert len(result) == 2
         # Generator should be exhausted
         assert list(gen) == []
+
+    def test_biolm_class_generator_of_dicts(self):
+        """BioLM() (class) accepts generators for items, same as biolm()."""
+        result = BioLM(entity="esm2-8m", action="encode", items=_gen_dicts(2), raise_httpx=False)
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert all("embeddings" in r for r in result)
+
+
+class TestModelIterables:
+    """Model().encode() accepts generators/iterators for items."""
+
+    def test_model_encode_generator_of_dicts(self):
+        model = Model("esm2-8m", raise_httpx=False)
+        result = model.encode(items=_gen_dicts(2), progress=False)
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert all("embeddings" in r for r in result)
+
+    def test_model_encode_generator_of_strings_with_type(self):
+        model = Model("esm2-8m", raise_httpx=False)
+        result = model.encode(items=_gen_strings(2), type="sequence", progress=False)
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert all("embeddings" in r for r in result)

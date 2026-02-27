@@ -3,10 +3,9 @@ import logging
 
 log = logging.getLogger("biolm_util")
 
-from itertools import chain
 from typing import Optional, Union, List, Any
 from biolmai.core.http import BioLMApi
-from biolmai.core.utils import is_list_of_lists
+from biolmai.core.utils import prepare_items_for_api
 
 
 class BioLM:
@@ -57,40 +56,7 @@ class BioLM:
         Run the specified action on the entity with the given item(s).
         Returns the result(s), unpacked if a single item was provided.
         """
-        # if not self.items:
-            # return self.items
-
-        # Always pass a list of items to BioLMModel
-        if isinstance(self.items, list):
-            items = self.items
-        elif isinstance(self.items, tuple):
-            items = self.items
-        elif isinstance(self.items, (str, bytes, dict)) or not hasattr(self.items, "__iter__"):
-            items = [self.items]
-        else:
-            # Generator, iterator, range, etc.
-            items = self.items
-
-        is_lol, first_n, rest_iter = is_list_of_lists(items, check_n=10)
-        is_reiterable = isinstance(items, (list, tuple))
-        if is_lol:
-            for batch in first_n:
-                if not all(isinstance(x, dict) for x in batch):
-                    raise ValueError("All items in each batch must be dicts when passing a list of lists.")
-            if self.type is not None:
-                raise ValueError("Do not specify `type` when passing a list of lists of dicts for `items`.")
-            items_dicts = list(first_n) + list(rest_iter)
-        elif is_reiterable and all(isinstance(v, dict) for v in items):
-            items_dicts = items
-        elif not is_reiterable and first_n and all(isinstance(v, dict) for v in first_n):
-            items_dicts = chain(first_n, rest_iter)
-        else:
-            if self.type is None:
-                raise ValueError("If `items` are not dicts, `type` must be specified.")
-            if is_reiterable:
-                items_dicts = [{self.type: v} for v in items]
-            else:
-                items_dicts = ({self.type: v} for v in chain(first_n, rest_iter))
+        items_dicts, _ = prepare_items_for_api(self.items, type=self.type)
 
         unwrap_single = self._class_kwargs.pop('unwrap_single', True)
 

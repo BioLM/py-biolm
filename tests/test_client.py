@@ -3,7 +3,10 @@ import logging
 
 import pytest
 
+from biolmai import biolm
+from biolmai.biolmai import BioLM
 from biolmai.core.http import BioLMApi
+from biolmai.models import Model
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +24,20 @@ def test_valid_sequence(model):
     assert "pdb" in res
     assert not "status_code" in res
     assert not "error" in res
+
+
+def test_valid_sequence_same_via_biolm_biolm_fn_model():
+    """Same single predict outcome via BioLMApi, BioLM(), biolm(), and Model() (default unwrap_single=True)."""
+    items = [{"sequence": "MDNELE"}]
+    kw = dict(items=items, stop_on_error=False)
+    api = BioLMApi("esmfold", raise_httpx=False, retry_error_batches=False)
+    r_api = api.predict(**kw)
+    r_biolm = BioLM(entity="esmfold", action="predict", items=items, raise_httpx=False, retry_error_batches=False)
+    r_fn = biolm(entity="esmfold", action="predict", items=items, raise_httpx=False, retry_error_batches=False)
+    r_model = Model("esmfold", raise_httpx=False, retry_error_batches=False).predict(items=items, stop_on_error=False, progress=False)
+    for name, r in [("BioLMApi", r_api), ("BioLM", r_biolm), ("biolm()", r_fn), ("Model", r_model)]:
+        assert isinstance(r, dict), f"{name}: expected dict (unwrap_single=True)"
+        assert "mean_plddt" in r and "pdb" in r, f"{name}: expected keys"
 
 def test_valid_sequences(model):
     result = model.predict(items=[{"sequence": "MDNELE"},
@@ -231,7 +248,7 @@ def test_disk_output_skip_existing_file(tmp_path, model):
     # Verify file exists
     assert file_path.exists()
     
-    # Call with overwrite=False (default) - should skip API call and return existing data
+    # Call with overwrite=False - should skip API call and return existing data
     result = model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
     
     # Should return the existing file contents
