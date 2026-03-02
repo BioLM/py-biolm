@@ -50,12 +50,12 @@ import os
 from pathlib import Path
 
 from biolmai.pipeline import (
-    DuckDBDataStore,
     DirectGenerationConfig,
+    DuckDBDataStore,
     GenerativePipeline,
     ThresholdFilter,
 )
-from biolmai.pipeline.data import DataPipeline, PredictionStage, FilterStage
+from biolmai.pipeline.data import DataPipeline, PredictionStage
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -96,8 +96,8 @@ _DSM_INPUT = SEED_SEQUENCE if SEED_SEQUENCE else "<mask>" * DSM_MAX_LENGTH
 # LP_LOOSE re-opens to the top ~45% for run 3 so ESMFold sees more candidates.
 LP_MODEL = "esmc-300m"
 LP_PRED_TYPE = "lp_score"
-LP_STRICT = -180.0     # run 1 + 2: keep sequences with log_prob ≥ -180  (~top 15%)
-LP_LOOSE  = -190.0     # run 3: relax to log_prob ≥ -190                  (~top 45%)
+LP_STRICT = -180.0  # run 1 + 2: keep sequences with log_prob ≥ -180  (~top 15%)
+LP_LOOSE = -190.0  # run 3: relax to log_prob ≥ -190                  (~top 45%)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,9 @@ def _valid_aa_filter(df):
     mask = df["sequence"].apply(lambda s: all(c in _STANDARD_AA for c in str(s)))
     n_removed = (~mask).sum()
     if n_removed:
-        print(f"  [seq_validation] Removed {n_removed} sequences with non-standard residues")
+        print(
+            f"  [seq_validation] Removed {n_removed} sequences with non-standard residues"
+        )
     return df[mask].copy()
 
 
@@ -175,7 +177,7 @@ def _add_downstream_stages(
 # ---------------------------------------------------------------------------
 async def run1(datastore: DuckDBDataStore) -> None:
     print("\n" + "=" * 60)
-    print("RUN 1: dsm-150m-base generation  (LP threshold = {})".format(LP_STRICT))
+    print(f"RUN 1: dsm-150m-base generation  (LP threshold = {LP_STRICT})")
     print("=" * 60)
 
     # Fire multiple configs to generate ~200 sequences total (6 × 32 = 192).
@@ -214,7 +216,9 @@ async def run1(datastore: DuckDBDataStore) -> None:
 
     df_final = pipeline.get_final_data()
     df_final.to_csv(OUTPUT_DIR / "run1_results.csv", index=False)
-    print(f"\nRun 1 (dsm-150m-base): {len(df_final)} sequences passed → run1_results.csv")
+    print(
+        f"\nRun 1 (dsm-150m-base): {len(df_final)} sequences passed → run1_results.csv"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +226,7 @@ async def run1(datastore: DuckDBDataStore) -> None:
 # ---------------------------------------------------------------------------
 async def run2(datastore: DuckDBDataStore) -> None:
     print("\n" + "=" * 60)
-    print("RUN 2: dsm-650m-base generation  (LP threshold = {})".format(LP_STRICT))
+    print(f"RUN 2: dsm-650m-base generation  (LP threshold = {LP_STRICT})")
     print("=" * 60)
 
     configs = [
@@ -232,7 +236,7 @@ async def run2(datastore: DuckDBDataStore) -> None:
             item_field="sequence",
             params={
                 "num_sequences": 32,
-                "temperature": 0.8,     # slightly lower temp for more focused sampling
+                "temperature": 0.8,  # slightly lower temp for more focused sampling
                 "step_divisor": 100,
                 "remasking": "low_confidence",
             },
@@ -243,7 +247,7 @@ async def run2(datastore: DuckDBDataStore) -> None:
     pipeline = GenerativePipeline(
         generation_configs=configs,
         deduplicate=True,
-        datastore=datastore,    # SAME datastore → cache shared with run 1
+        datastore=datastore,  # SAME datastore → cache shared with run 1
         run_id="dsm_run2",
         output_dir=str(OUTPUT_DIR),
         verbose=True,
@@ -258,7 +262,9 @@ async def run2(datastore: DuckDBDataStore) -> None:
 
     df_final = pipeline.get_final_data()
     df_final.to_csv(OUTPUT_DIR / "run2_results.csv", index=False)
-    print(f"\nRun 2 (dsm-650m-base): {len(df_final)} sequences passed → run2_results.csv")
+    print(
+        f"\nRun 2 (dsm-650m-base): {len(df_final)} sequences passed → run2_results.csv"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -266,11 +272,7 @@ async def run2(datastore: DuckDBDataStore) -> None:
 # ---------------------------------------------------------------------------
 async def run3(datastore: DuckDBDataStore) -> None:
     print("\n" + "=" * 60)
-    print(
-        "RUN 3: looser LP filter ({} → {})  — reprocess full DB".format(
-            LP_STRICT, LP_LOOSE
-        )
-    )
+    print(f"RUN 3: looser LP filter ({LP_STRICT} → {LP_LOOSE})  — reprocess full DB")
     print("=" * 60)
 
     # Export every sequence in the datastore together with its LP score.
@@ -304,7 +306,7 @@ async def run3(datastore: DuckDBDataStore) -> None:
     # so sequences already folded in runs 1+2 are skipped automatically.
     pipeline = DataPipeline(
         sequences=df_passing,
-        datastore=datastore,    # SAME datastore
+        datastore=datastore,  # SAME datastore
         run_id="mlm_run3",
         output_dir=str(OUTPUT_DIR),
         verbose=True,

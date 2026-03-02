@@ -37,11 +37,11 @@ from pathlib import Path
 from typing import List
 
 from biolmai.pipeline import (
-    DuckDBDataStore,
     DirectGenerationConfig,
+    DuckDBDataStore,
     GenerativePipeline,
-    ThresholdFilter,
     RankingFilter,
+    ThresholdFilter,
 )
 
 # ---------------------------------------------------------------------------
@@ -60,8 +60,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 N_PER_CONFIG = 100
 
 # Downstream filter thresholds
-TM_MIN = 50.0          # temberture-regression output is Tm in °C
-SOLUBILITY_MIN = 0.5   # soluprot output is 0-1 probability
+TM_MIN = 50.0  # temberture-regression output is Tm in °C
+SOLUBILITY_MIN = 0.5  # soluprot output is 0-1 probability
 
 # Final ranking: keep top N by Tm
 TOP_N_FINAL = 100
@@ -71,7 +71,7 @@ TOP_N_FINAL = 100
 MPNN_MODELS = [
     "protein-mpnn",
     "hyper-mpnn",
-    "global-label-membrane-mpnn",   # global transmembrane label variant
+    "global-label-membrane-mpnn",  # global transmembrane label variant
     "soluble-mpnn",
     "ligand-mpnn",
 ]
@@ -89,10 +89,10 @@ def build_generation_configs() -> List[DirectGenerationConfig]:
                 DirectGenerationConfig(
                     model_name=model,
                     structure_path=STRUCTURE_PATH,
-                    item_field='pdb',       # all MPNN variants take 'pdb' items
+                    item_field="pdb",  # all MPNN variants take 'pdb' items
                     params={
-                        'batch_size': N_PER_CONFIG,  # MPNN uses 'batch_size', not 'num_sequences'
-                        'temperature': temp,
+                        "batch_size": N_PER_CONFIG,  # MPNN uses 'batch_size', not 'num_sequences'
+                        "temperature": temp,
                     },
                 )
             )
@@ -108,7 +108,7 @@ async def main() -> None:
 
     generation_configs = build_generation_configs()
 
-    print(f"\n=== Multi-MPNN Pipeline ===")
+    print("\n=== Multi-MPNN Pipeline ===")
     print(f"  Structure      : {STRUCTURE_PATH}")
     print(f"  Models         : {', '.join(MPNN_MODELS)}")
     print(f"  Temperatures   : {TEMPERATURES}")
@@ -183,7 +183,7 @@ async def main() -> None:
         filter_func=RankingFilter(
             column="tm",
             n=TOP_N_FINAL,
-            ascending=False,    # highest Tm first
+            ascending=False,  # highest Tm first
         ),
         stage_name="rank_top100",
         depends_on=["filter_sol"],
@@ -207,7 +207,11 @@ async def main() -> None:
     print(f"\nTop {len(df_final)} designs saved → {out_csv}")
 
     if len(df_final) > 0:
-        cols = [c for c in ["sequence", "model_name", "temperature", "tm", "solubility"] if c in df_final.columns]
+        cols = [
+            c
+            for c in ["sequence", "model_name", "temperature", "tm", "solubility"]
+            if c in df_final.columns
+        ]
         best = df_final.nlargest(5, "tm")[cols]
         print("\nTop 5 by Tm:")
         print(best.to_string(index=False))
