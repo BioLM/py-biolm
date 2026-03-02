@@ -537,7 +537,7 @@ class HttpClient:
         for attempt in range(MAX_RETRIES):
             try:
                 resp = await client.post(endpoint, **request_kwargs)
-            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
+            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError, httpx.TimeoutException) as e:
                 last_exception = e
                 if attempt < MAX_RETRIES - 1:
                     wait_time = RETRY_BACKOFF_BASE * (2**attempt)
@@ -634,7 +634,7 @@ class HttpClient:
         for attempt in range(MAX_RETRIES):
             try:
                 return await client.get(endpoint)
-            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError) as e:
+            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError, httpx.TimeoutException) as e:
                 last_exception = e
                 if attempt < MAX_RETRIES - 1:
                     wait_time = RETRY_BACKOFF_BASE * (2**attempt)

@@ -421,9 +421,9 @@ class DuckDBDataStore:
                 SELECT prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at FROM _pred_batch
             """
             )
+            self._prediction_counter += len(df)
         finally:
             self.conn.unregister("_pred_batch")
-        self._prediction_counter += len(df)
 
     def add_prediction(
         self,
@@ -463,7 +463,7 @@ class DuckDBDataStore:
             [seq_hash, prediction_type, model_name],
         ).fetchone()
 
-        return result[0] > 0
+        return result is not None and result[0] > 0
 
     def query(self, sql: str, params: Optional[List] = None) -> pd.DataFrame:
         """
@@ -669,7 +669,7 @@ class DuckDBDataStore:
         """,
             [stage_id],
         ).fetchone()
-        return result[0] > 0
+        return result is not None and result[0] > 0
 
     def export_to_parquet(self, table_name: str, output_path: Union[str, Path]):
         """
@@ -714,7 +714,6 @@ class DuckDBDataStore:
             top_p = top_p if top_p is not None else sampling_params.get("top_p")
 
         metadata_id = self._generation_metadata_counter
-        self._generation_metadata_counter += 1
         self.conn.execute(
             """
             INSERT INTO generation_metadata
@@ -736,6 +735,7 @@ class DuckDBDataStore:
                 datetime.now(),
             ],
         )
+        self._generation_metadata_counter += 1
         return metadata_id
 
     def export_to_dataframe(
@@ -1014,7 +1014,6 @@ class DuckDBDataStore:
         """
         actual_plddt = plddt_mean if plddt_mean is not None else plddt
         structure_id = self._structure_counter
-        self._structure_counter += 1
         if structure_str is not None:
             compressed = gzip.compress(structure_str.encode("utf-8"), compresslevel=6)
         else:
@@ -1035,6 +1034,7 @@ class DuckDBDataStore:
                 datetime.now(),
             ],
         )
+        self._structure_counter += 1
         return structure_id
 
     def get_structure(
@@ -1236,7 +1236,7 @@ class DuckDBDataStore:
             prediction_id of the inserted row.
         """
         seq_id = self.add_sequence(sequence)
-        pred_id = self._prediction_counter
+        pred_id = self._prediction_counter  # captured before batch increments it
         self.add_predictions_batch(
             [
                 {
@@ -1248,7 +1248,7 @@ class DuckDBDataStore:
                 }
             ]
         )
-        return pred_id
+        return pred_id  # correct: add_predictions_batch increments after insert
 
     def get_predictions(
         self,
