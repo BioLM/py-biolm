@@ -302,9 +302,9 @@ class RankingFilter(BaseFilter):
             # ascending=True means select lowest values (nsmallest)
             # ascending=False means select highest values (nlargest)
             if self.method == 'bottom' or self.ascending:
-                return df_clean.nsmallest(min(self.n, len(df_clean)), self.column)
+                return df_clean.nsmallest(min(self.n, len(df_clean)), self.column).copy()
             else:
-                return df_clean.nlargest(min(self.n, len(df_clean)), self.column)
+                return df_clean.nlargest(min(self.n, len(df_clean)), self.column).copy()
     
     def __repr__(self):
         if self.method == 'percentile':

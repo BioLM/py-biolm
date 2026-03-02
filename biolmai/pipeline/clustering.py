@@ -166,12 +166,12 @@ class SequenceClusterer:
         if len(set(cluster_ids)) > 1 and n < LARGE_DATASET_THRESHOLD:
             try:
                 silhouette = silhouette_score(distance_matrix, cluster_ids, metric='precomputed')
-            except:
+            except Exception:
                 pass
             
             try:
                 davies_bouldin = davies_bouldin_score(distance_matrix, cluster_ids)
-            except:
+            except Exception:
                 pass
         
         # Count cluster sizes
@@ -206,14 +206,17 @@ class SequenceClusterer:
             sequences = [sequences[i] for i in sample_idx]
             n = len(sequences)
         
+        if not sequences:
+            return np.zeros((0, 0), dtype=np.float64)
+
         max_len = max(len(s) for s in sequences)
-        
+
         # Pad sequences to same length
         padded = [s.ljust(max_len, '-') for s in sequences]
-        
+
         # Convert to numpy array (more efficient than nested loops)
         seq_array = np.array([[ord(c) for c in s] for s in padded], dtype=np.int32)
-        
+
         # Vectorized distance computation
         # Broadcasting: (n,1,m) != (1,n,m) -> (n,n,m) then sum over m
         distances = np.sum(
@@ -477,9 +480,11 @@ class DiversityAnalyzer:
             Matrix of pairwise identities (0-1)
         """
         n = len(sequences)
+        if n == 0:
+            return np.zeros((0, 0), dtype=np.float64)
         max_len = max(len(s) for s in sequences)
         padded = [s.ljust(max_len, '-') for s in sequences]
-        
+
         identity_matrix = np.zeros((n, n))
         
         for i in range(n):

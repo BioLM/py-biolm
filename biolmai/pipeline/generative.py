@@ -305,8 +305,9 @@ class GenerationStage(Stage):
         print(
             f"  {config.model_name} (remasking): generating {num_variants} variants..."
         )
-        api = BioLMApiClient(config.model_name)
+        api = None
         try:
+            api = BioLMApiClient(config.model_name)
             remasker = MLMRemasker(config, api_client=api, model_name=config.model_name)
             variants = await remasker.generate_variants(
                 parent_sequence,
@@ -327,7 +328,8 @@ class GenerationStage(Stage):
                 for seq, meta in variants
             ]
         finally:
-            await api.shutdown()
+            if api:
+                await api.shutdown()
 
     async def _run_direct_generation(
         self,
@@ -350,10 +352,16 @@ class GenerationStage(Stage):
 
             fmt, structure_str = load_structure_string(config.structure_path)
             if fmt == "cif":
+                import os
+
                 with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False) as f:
                     pdb_path = f.name
-                cif_to_pdb(config.structure_path, pdb_path)
-                _, structure_str = load_structure_string(pdb_path)
+                try:
+                    cif_to_pdb(config.structure_path, pdb_path)
+                    _, structure_str = load_structure_string(pdb_path)
+                finally:
+                    if os.path.exists(pdb_path):
+                        os.remove(pdb_path)
             input_values = [structure_str]
         elif config.sequence is not None:
             input_values = [config.sequence]
@@ -374,12 +382,15 @@ class GenerationStage(Stage):
 
         # ---- Generate ----------------------------------------------------
         results: List[Dict] = []
-        api = BioLMApiClient(config.model_name)
+        api = None
         try:
+            api = BioLMApiClient(config.model_name)
             for input_value in input_values:
                 print(f"  {config.model_name} (direct): generating sequences...")
                 items = [{config.item_field: input_value}]
                 raw = await api.generate(items=items, params=params)
+                if isinstance(raw, dict) and "error" in raw:
+                    raise ValueError(f"API error from {config.model_name}: {raw.get('error')}")
                 for seq_data in self._extract_sequences(raw):
                     results.append(
                         {
@@ -394,7 +405,8 @@ class GenerationStage(Stage):
                         }
                     )
         finally:
-            await api.shutdown()
+            if api:
+                await api.shutdown()
 
         return results
 
@@ -422,9 +434,9 @@ class GenerationStage(Stage):
             )
 
             # Create async API client
-            api = BioLMApiClient(config.model_name)
-
+            api = None
             try:
+                api = BioLMApiClient(config.model_name)
                 if config.generation_method == "remask" or (
                     config.generation_method == "auto"
                     and self._is_masked_lm(config.model_name)
@@ -494,6 +506,10 @@ class GenerationStage(Stage):
                     # Generate (now async)
                     result = await api.generate(items=items, params=params)
 
+                    # Check for API errors
+                    if isinstance(result, dict) and "error" in result:
+                        raise ValueError(f"API error from {config.model_name}: {result.get('error')}")
+
                     # Extract sequences
                     if isinstance(result, list):
                         for item in result:
@@ -514,7 +530,8 @@ class GenerationStage(Stage):
                             )
 
             finally:
-                await api.shutdown()
+                if api:
+                    await api.shutdown()
 
         return results
 

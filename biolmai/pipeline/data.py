@@ -675,8 +675,9 @@ class CofoldingPredictionStage(Stage):
         computed = 0
         df = df.copy()
 
-        api = BioLMApiClient(self.model_name)
+        api = None
         try:
+            api = BioLMApiClient(self.model_name)
             for i in range(0, len(df), self.batch_size):
                 batch = df.iloc[i : i + self.batch_size]
                 items = [
@@ -700,7 +701,7 @@ class CofoldingPredictionStage(Stage):
                         else None
                     )
                     seq_id = row.get("sequence_id")
-                    if seq_id and cif:
+                    if seq_id is not None and cif:
                         datastore.add_structure(
                             seq_id,
                             model_name=self.model_name,
@@ -720,7 +721,8 @@ class CofoldingPredictionStage(Stage):
                         df.at[idx, "cif"] = cif
                     computed += 1
         finally:
-            await api.shutdown()
+            if api:
+                await api.shutdown()
 
         return df, StageResult(
             stage_name=self.name,
@@ -949,6 +951,8 @@ class DataPipeline(BasePipeline):
                 with open(path) as f:
                     for line in f:
                         line = line.strip()
+                        if not line:
+                            continue
                         if line.startswith(">"):
                             if current_seq:
                                 sequences.append("".join(current_seq))
@@ -959,6 +963,8 @@ class DataPipeline(BasePipeline):
                     if current_seq:
                         sequences.append("".join(current_seq))
 
+                if not sequences:
+                    raise ValueError(f"No sequences found in FASTA file: {path}")
                 df = pd.DataFrame({"sequence": sequences})
 
             else:
