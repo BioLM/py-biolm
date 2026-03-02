@@ -14,7 +14,11 @@ from pathlib import Path
 
 from biolmai.pipeline.data import DataPipeline
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
-from biolmai.pipeline.filters import RankingFilter, SequenceLengthFilter, ThresholdFilter
+from biolmai.pipeline.filters import (
+    RankingFilter,
+    SequenceLengthFilter,
+    ThresholdFilter,
+)
 
 # ---------------------------------------------------------------------------
 # Sequences — mix of thermostable and mesophilic proteins for a meaningful
@@ -88,10 +92,10 @@ def build_pipeline_batch2(db_path: Path, data_dir: Path, run_id: str):
     """
     ds = DuckDBDataStore(db_path=db_path, data_dir=data_dir)
     pipeline = DataPipeline(
-        sequences=SEQUENCES + NEW_SEQUENCES,   # all 32 sequences
+        sequences=SEQUENCES + NEW_SEQUENCES,  # all 32 sequences
         datastore=ds,
         run_id=run_id,
-        resume=False,   # new run_id, but predictions for old seqs come from cache
+        resume=False,  # new run_id, but predictions for old seqs come from cache
         verbose=True,
     )
     pipeline.add_filter(
@@ -116,7 +120,7 @@ def build_pipeline_batch2(db_path: Path, data_dir: Path, run_id: str):
         depends_on=["predict_tm"],
     )
     pipeline.add_filter(
-        RankingFilter("solubility", n=8, ascending=False),   # top 8 now
+        RankingFilter("solubility", n=8, ascending=False),  # top 8 now
         stage_name="top8_soluble",
         depends_on=["filter_tm", "predict_sol"],
     )
@@ -178,7 +182,7 @@ async def main():
         raise RuntimeError("BIOLMAI_TOKEN not set — source your .zshrc first")
 
     print(f"Running real pipeline on {len(SEQUENCES)} sequences")
-    print(f"Models: temberture-regression (Tm °C) + soluprot (solubility)")
+    print("Models: temberture-regression (Tm °C) + soluprot (solubility)")
     print()
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -201,14 +205,18 @@ async def main():
         print(f"\n{'='*60}")
         print(f"Sequences in store : {explore.get('sequences', '?')}")
         print(f"Predictions stored : {explore.get('predictions', '?')}")
-        print(f"\nStage summary:")
+        print("\nStage summary:")
         print(stats.to_string(index=False))
 
         print(f"\nTop {len(df1)} sequences (by solubility, Tm ≥ 40 °C):")
         print("-" * 60)
         show_cols = [c for c in ["sequence", "tm", "solubility"] if c in df1.columns]
         for _, row in df1[show_cols].iterrows():
-            seq_short = row["sequence"][:30] + "..." if len(row["sequence"]) > 30 else row["sequence"]
+            seq_short = (
+                row["sequence"][:30] + "..."
+                if len(row["sequence"]) > 30
+                else row["sequence"]
+            )
             tm_str = f"Tm={row['tm']:.1f}°C" if "tm" in row else ""
             sol_str = f"Sol={row['solubility']:.3f}" if "solubility" in row else ""
             print(f"  {seq_short:<33} {tm_str:<14} {sol_str}")
@@ -224,10 +232,12 @@ async def main():
 
         df2 = pipeline2.get_final_data()
         stats2 = pipeline2.stats()
-        print(f"\nResume stats:")
+        print("\nResume stats:")
         print(stats2.to_string(index=False))
 
-        assert len(df2) == len(df1), f"Resume produced different output: {len(df2)} vs {len(df1)}"
+        assert len(df2) == len(
+            df1
+        ), f"Resume produced different output: {len(df2)} vs {len(df1)}"
         print(f"\nResume reproduced same {len(df2)} sequences ✓")
         ds2.close()
 
@@ -237,7 +247,8 @@ async def main():
         print("=" * 60)
         # Reopen for final query
         _, ds3 = build_pipeline(db_path, data_dir, RUN_ID, resume=True)
-        high_quality = ds3.conn.execute("""
+        high_quality = ds3.conn.execute(
+            """
             SELECT s.sequence, tm.value as tm, sol.value as solubility
             FROM sequences s
             JOIN predictions tm ON s.sequence_id = tm.sequence_id
@@ -246,10 +257,15 @@ async def main():
                 AND sol.prediction_type = 'solubility'
             WHERE tm.value > 50 AND sol.value > 0.5
             ORDER BY tm.value DESC
-        """).df()
+        """
+        ).df()
         print(f"Found {len(high_quality)} sequences with Tm>50°C and solubility>0.5:")
         for _, row in high_quality.iterrows():
-            seq_short = row["sequence"][:35] + "..." if len(row["sequence"]) > 35 else row["sequence"]
+            seq_short = (
+                row["sequence"][:35] + "..."
+                if len(row["sequence"]) > 35
+                else row["sequence"]
+            )
             print(f"  Tm={row['tm']:.1f}°C  Sol={row['solubility']:.3f}  {seq_short}")
         ds3.close()
 
@@ -267,28 +283,34 @@ async def main():
         explore3 = pipeline3.explore()
         stats3 = pipeline3.stats()
 
-        print(f"\nStore after trickle:")
+        print("\nStore after trickle:")
         print(f"  Sequences in store : {explore3.get('sequences', '?')}  (was 20)")
         print(f"  Predictions stored : {explore3.get('predictions', '?')}")
 
         # Show cache efficiency from the stage results
         for stage_name, sr in pipeline3.stage_results.items():
-            if hasattr(sr, 'cached_count') and hasattr(sr, 'computed_count'):
+            if hasattr(sr, "cached_count") and hasattr(sr, "computed_count"):
                 if sr.cached_count or sr.computed_count:
-                    print(f"  {stage_name}: {sr.cached_count} cached, {sr.computed_count} new API calls")
+                    print(
+                        f"  {stage_name}: {sr.cached_count} cached, {sr.computed_count} new API calls"
+                    )
 
         print(f"\nTop {len(df3)} sequences after trickle (Tm ≥ 40, top-8 solubility):")
         print("-" * 60)
         show_cols = [c for c in ["sequence", "tm", "solubility"] if c in df3.columns]
         new_seqs_set = set(NEW_SEQUENCES)
         for _, row in df3[show_cols].iterrows():
-            seq_short = row["sequence"][:30] + "..." if len(row["sequence"]) > 30 else row["sequence"]
+            seq_short = (
+                row["sequence"][:30] + "..."
+                if len(row["sequence"]) > 30
+                else row["sequence"]
+            )
             tm_str = f"Tm={row['tm']:.1f}°C" if "tm" in row else ""
             sol_str = f"Sol={row['solubility']:.3f}" if "solubility" in row else ""
             tag = " ← NEW" if row["sequence"] in new_seqs_set else ""
             print(f"  {seq_short:<33} {tm_str:<14} {sol_str}{tag}")
 
-        print(f"\nStage summary (Run 3):")
+        print("\nStage summary (Run 3):")
         print(stats3.to_string(index=False))
 
         # Verify cache worked: predictions table should have grown by at most len(NEW_SEQUENCES)

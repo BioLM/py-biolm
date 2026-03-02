@@ -39,8 +39,8 @@ import os
 from pathlib import Path
 
 from biolmai.pipeline import (
-    DuckDBDataStore,
     DirectGenerationConfig,
+    DuckDBDataStore,
     GenerativePipeline,
     RankingFilter,
 )
@@ -53,9 +53,7 @@ if not TOKEN:
     raise RuntimeError("Set BIOLMAI_TOKEN env var before running")
 
 # Path to an antibody PDB containing heavy (H) and light (L) chains.
-STRUCTURE_PATH = os.environ.get(
-    "ANTIBODY_STRUCTURE_PATH", "examples/antibody.pdb"
-)
+STRUCTURE_PATH = os.environ.get("ANTIBODY_STRUCTURE_PATH", "examples/antibody.pdb")
 
 OUTPUT_DIR = Path("outputs/antibody_antifold")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -104,9 +102,9 @@ async def main() -> None:
 
     pipeline = GenerativePipeline(
         generation_configs=[
-            make_antifold_cfg(0.2),   # conservative — close to wild-type
-            make_antifold_cfg(0.5),   # moderate diversity
-            make_antifold_cfg(1.0),   # high diversity
+            make_antifold_cfg(0.2),  # conservative — close to wild-type
+            make_antifold_cfg(0.5),  # moderate diversity
+            make_antifold_cfg(1.0),  # high diversity
         ],
         deduplicate=True,
         datastore=datastore,
@@ -124,7 +122,7 @@ async def main() -> None:
         filter_func=RankingFilter(
             column="global_score",
             n=TOP_N,
-            ascending=True,    # AntiFold global_score: lower = better recovery
+            ascending=True,  # AntiFold global_score: lower = better recovery
         ),
         stage_name="filter_top10",
         depends_on=["generation"],
@@ -164,7 +162,7 @@ async def main() -> None:
         batch_size=1,
         max_concurrent=2,
         item_columns={"H": "heavy_chain", "L": "light_chain"},
-        params={"plddt": True},   # Request per-residue pLDDT in response
+        params={"plddt": True},  # Request per-residue pLDDT in response
     )
 
     # ------------------------------------------------------------------
