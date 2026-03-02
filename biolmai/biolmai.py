@@ -1,10 +1,12 @@
 """Main module."""
+
 import logging
 
 log = logging.getLogger("biolm_util")
 
 from itertools import chain
-from typing import Optional, Union, List, Any
+from typing import Any, List, Optional, Union
+
 from biolmai.core.http import BioLMApi
 from biolmai.core.utils import is_list_of_lists
 
@@ -14,7 +16,7 @@ class BioLM:
     Universal client for BioLM API.
 
     This is a convenience wrapper that creates a client, makes the request, and returns the result.
-    For long-running operations or when making multiple requests, consider using `BioLMApiClient` 
+    For long-running operations or when making multiple requests, consider using `BioLMApiClient`
     (async) or `BioLMApi` (sync) directly with proper cleanup via context managers or shutdown().
 
     Args:
@@ -31,6 +33,7 @@ class BioLM:
         compress_requests (bool): Enable gzip compression for POST requests. Default: True.
         compress_threshold (int): Minimum payload size in bytes to trigger compression. Default: 256.
     """
+
     def __new__(
         cls,
         *,
@@ -40,7 +43,7 @@ class BioLM:
         items: Union[Any, List[Any]],
         params: Optional[dict] = None,
         api_key: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         self = super().__new__(cls)
         self.entity = entity
@@ -58,14 +61,16 @@ class BioLM:
         Returns the result(s), unpacked if a single item was provided.
         """
         # if not self.items:
-            # return self.items
+        # return self.items
 
         # Always pass a list of items to BioLMModel
         if isinstance(self.items, list):
             items = self.items
         elif isinstance(self.items, tuple):
             items = self.items
-        elif isinstance(self.items, (str, bytes, dict)) or not hasattr(self.items, "__iter__"):
+        elif isinstance(self.items, (str, bytes, dict)) or not hasattr(
+            self.items, "__iter__"
+        ):
             items = [self.items]
         else:
             # Generator, iterator, range, etc.
@@ -76,13 +81,19 @@ class BioLM:
         if is_lol:
             for batch in first_n:
                 if not all(isinstance(x, dict) for x in batch):
-                    raise ValueError("All items in each batch must be dicts when passing a list of lists.")
+                    raise ValueError(
+                        "All items in each batch must be dicts when passing a list of lists."
+                    )
             if self.type is not None:
-                raise ValueError("Do not specify `type` when passing a list of lists of dicts for `items`.")
+                raise ValueError(
+                    "Do not specify `type` when passing a list of lists of dicts for `items`."
+                )
             items_dicts = list(first_n) + list(rest_iter)
         elif is_reiterable and all(isinstance(v, dict) for v in items):
             items_dicts = items
-        elif not is_reiterable and first_n and all(isinstance(v, dict) for v in first_n):
+        elif (
+            not is_reiterable and first_n and all(isinstance(v, dict) for v in first_n)
+        ):
             items_dicts = chain(first_n, rest_iter)
         else:
             if self.type is None:
@@ -92,16 +103,20 @@ class BioLM:
             else:
                 items_dicts = ({self.type: v} for v in chain(first_n, rest_iter))
 
-        unwrap_single = self._class_kwargs.pop('unwrap_single', True)
+        unwrap_single = self._class_kwargs.pop("unwrap_single", True)
 
         # Instantiate BioLMModel with correct settings
         # Need these for the `action` method on BioLMApi; other kwargs to BioLMApi init
-        action_kwargs = {k: v for k, v in dict(
-            stop_on_error=self._class_kwargs.pop('stop_on_error', None),
-            output=self._class_kwargs.pop('output', None),
-            file_path=self._class_kwargs.pop('file_path', None),
-            overwrite=self._class_kwargs.pop('overwrite', None),
-        ).items() if v is not None}
+        action_kwargs = {
+            k: v
+            for k, v in dict(
+                stop_on_error=self._class_kwargs.pop("stop_on_error", None),
+                output=self._class_kwargs.pop("output", None),
+                file_path=self._class_kwargs.pop("file_path", None),
+                overwrite=self._class_kwargs.pop("overwrite", None),
+            ).items()
+            if v is not None
+        }
 
         model = BioLMApi(
             self.entity,
@@ -112,22 +127,24 @@ class BioLM:
 
         # Map action to method
         action_map = {
-            'generate': model.generate,
-            'predict': model.predict,
-            'encode': model.encode,
-            'search': model.search,
-            'score': model.score,
-            'finetune': getattr(model, 'finetune', None),
-            'lookup': model.lookup,
+            "generate": model.generate,
+            "predict": model.predict,
+            "encode": model.encode,
+            "search": model.search,
+            "score": model.score,
+            "finetune": getattr(model, "finetune", None),
+            "lookup": model.lookup,
         }
         if self.action not in action_map or action_map[self.action] is None:
-            raise ValueError(f"Action '{self.action}' is not amongst the available actions {', '.join(action_map.keys())}.")
+            raise ValueError(
+                f"Action '{self.action}' is not amongst the available actions {', '.join(action_map.keys())}."
+            )
 
         # Prepare kwargs for the method
         method = action_map[self.action]
         kwargs = {
-            'items': items_dicts,
-            'params': self.params,
+            "items": items_dicts,
+            "params": self.params,
         }
         kwargs.update(action_kwargs)
         # Remove None values
@@ -140,13 +157,14 @@ class BioLM:
             # Ensure cleanup of HTTP connections
             # BioLMApi is a sync wrapper, so shutdown() should be available as sync method
             try:
-                if hasattr(model, 'shutdown'):
+                if hasattr(model, "shutdown"):
                     model.shutdown()
             except Exception:
                 # Ignore cleanup errors - connection will be closed on garbage collection
                 pass
 
         return result
+
 
 # Example usage:
 # result = BioLM(entity="esmfold", action="predict", type="sequence", item="MKT...").run()

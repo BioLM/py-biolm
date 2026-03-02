@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from itertools import chain
 from json import dumps as json_dumps
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Optional, Union
 
 import aiofiles
 import httpx
@@ -26,7 +26,7 @@ except ImportError:
     from importlib_metadata import version
 
 
-def custom_httpx_encode_json(json: Any) -> Tuple[Dict[str, str], ByteStream]:
+def custom_httpx_encode_json(json: Any) -> tuple[dict[str, str], ByteStream]:
     # disable ascii for json_dumps
     body = json_dumps(json, ensure_ascii=False).encode("utf-8")
     content_length = str(len(body))
@@ -38,7 +38,7 @@ def custom_httpx_encode_json(json: Any) -> Tuple[Dict[str, str], ByteStream]:
 # fix encoding utf-8 bug
 httpx._content.encode_json = custom_httpx_encode_json
 
-import sys
+import sys  # noqa: E402
 
 
 def debug(msg):
@@ -46,7 +46,7 @@ def debug(msg):
     sys.stderr.flush()
 
 
-import logging
+import logging  # noqa: E402
 
 # Turn this on to dev lots of logs
 if os.environ.get("DEBUG", "").upper().strip() in ("TRUE", "1"):
@@ -57,8 +57,8 @@ if os.environ.get("DEBUG", "").upper().strip() in ("TRUE", "1"):
         force=True,  # Python 3.8+
     )
 
-from biolmai.core.const import ACCESS_TOK_PATH, BIOLMAI_BASE_API_URL
-from biolmai.core.utils import batch_iterable, is_list_of_lists
+from biolmai.core.const import ACCESS_TOK_PATH, BIOLMAI_BASE_API_URL  # noqa: E402
+from biolmai.core.utils import batch_iterable, is_list_of_lists  # noqa: E402
 
 TIMEOUT_MINS = 20  # Match API server's keep-alive/timeout
 DEFAULT_TIMEOUT = httpx.Timeout(TIMEOUT_MINS * 60, connect=10.0)
@@ -120,14 +120,14 @@ def _detect_execution_context() -> str:
             if ipython is not None:
                 # Check if there's a running event loop
                 try:
-                    loop = asyncio.get_running_loop()
+                    asyncio.get_running_loop()
                     return "jupyter_with_loop"
                 except RuntimeError:
                     return "jupyter_no_loop"
 
         # Check if we're in an async context (but not Jupyter)
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             return "async_context"
         except RuntimeError:
             pass
@@ -163,6 +163,7 @@ def _ensure_nest_asyncio_for_jupyter():
                 "nest_asyncio not available. Sync wrappers may not work in Jupyter. "
                 "Install nest_asyncio or use BioLMApiClient directly with await.",
                 UserWarning,
+                stacklevel=2,
             )
         except Exception as e:
             # If nest_asyncio.apply() fails, log but don't crash
@@ -172,6 +173,7 @@ def _ensure_nest_asyncio_for_jupyter():
                 f"Failed to apply nest_asyncio: {e}. "
                 "Sync wrappers may not work in Jupyter.",
                 UserWarning,
+                stacklevel=2,
             )
 
 
@@ -184,19 +186,19 @@ class _SharedClientFactory:
 
     def __init__(self):
         # Nested dict: loop_id -> config_key -> client
-        self._cache: Dict[int, Dict[Tuple, httpx.AsyncClient]] = {}
+        self._cache: dict[int, dict[tuple, httpx.AsyncClient]] = {}
         self._async_lock = asyncio.Lock()  # For async operations within a loop
         self._thread_lock = threading.Lock()  # For thread-safe cache access
 
     def _make_cache_key(
         self,
         base_url: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
         timeout: httpx.Timeout,
         limits: httpx.Limits,
         http2: bool,
         transport: Optional[AsyncHTTPTransport],
-    ) -> Tuple:
+    ) -> tuple:
         """Create a hashable key from client configuration."""
         # Convert headers dict to sorted tuple for hashability
         headers_key = tuple(sorted(headers.items()))
@@ -226,7 +228,7 @@ class _SharedClientFactory:
     async def get_or_create_client(
         self,
         base_url: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
         timeout: httpx.Timeout,
         limits: httpx.Limits,
         http2: bool,
@@ -390,7 +392,7 @@ if not hasattr(_synchronizer, "sync"):
 _ensure_nest_asyncio_for_jupyter()
 
 
-def type_check(param_types: Dict[str, Any]):
+def type_check(param_types: dict[str, Any]):
     def decorator(func: Callable):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -473,7 +475,7 @@ def parse_rate_limit(rate: str):
 
 class CredentialsProvider:
     @staticmethod
-    def get_auth_headers(api_key: Optional[str] = None) -> Dict[str, str]:
+    def get_auth_headers(api_key: Optional[str] = None) -> dict[str, str]:
         if api_key:
             return {"Authorization": f"Token {api_key}"}
         api_token = os.environ.get("BIOLMAI_TOKEN") or os.environ.get("BIOLM_TOKEN")
@@ -496,7 +498,7 @@ class HttpClient:
     def __init__(
         self,
         base_url: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
         timeout: httpx.Timeout,
         compress_requests: bool = True,
         compress_threshold: int = 256,
@@ -537,7 +539,12 @@ class HttpClient:
         for attempt in range(MAX_RETRIES):
             try:
                 resp = await client.post(endpoint, **request_kwargs)
-            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError, httpx.TimeoutException) as e:
+            except (
+                httpx.ReadError,
+                httpx.ConnectError,
+                httpx.NetworkError,
+                httpx.TimeoutException,
+            ) as e:
                 last_exception = e
                 if attempt < MAX_RETRIES - 1:
                     wait_time = RETRY_BACKOFF_BASE * (2**attempt)
@@ -634,7 +641,12 @@ class HttpClient:
         for attempt in range(MAX_RETRIES):
             try:
                 return await client.get(endpoint)
-            except (httpx.ReadError, httpx.ConnectError, httpx.NetworkError, httpx.TimeoutException) as e:
+            except (
+                httpx.ReadError,
+                httpx.ConnectError,
+                httpx.NetworkError,
+                httpx.TimeoutException,
+            ) as e:
                 last_exception = e
                 if attempt < MAX_RETRIES - 1:
                     wait_time = RETRY_BACKOFF_BASE * (2**attempt)
@@ -806,7 +818,7 @@ class BioLMApiClient:
         return None
 
     async def _retry_batch_individually(
-        self, func: str, batch: List[dict], params: Optional[dict], raw: bool
+        self, func: str, batch: list[dict], params: Optional[dict], raw: bool
     ) -> list:
         """Retry a failed batch by calling the API once per item. Returns list of results."""
         out = []
@@ -821,7 +833,7 @@ class BioLMApiClient:
     async def _process_single_batch(
         self,
         func: str,
-        batch: List[dict],
+        batch: list[dict],
         params: Optional[dict],
         raw: bool,
     ):
@@ -856,7 +868,7 @@ class BioLMApiClient:
 
     async def _api_call(
         self, endpoint: str, payload: dict, raw: bool = False
-    ) -> Union[dict, Tuple[Any, httpx.Response]]:
+    ) -> Union[dict, tuple[Any, httpx.Response]]:
         await self._ensure_rate_limit()
         async with self._limit():
             resp = await self._http_client.post(endpoint, payload)
@@ -1061,7 +1073,7 @@ class BioLMApiClient:
     async def call(
         self,
         func: str,
-        items: List[dict],
+        items: list[dict],
         params: Optional[dict] = None,
         raw: bool = False,
     ):
@@ -1533,7 +1545,7 @@ class BioLMApiClient:
                     else results
                 )
 
-            for batch_idx, batch in enumerate(batch_iterable(all_items, max_batch)):
+            for _batch_idx, batch in enumerate(batch_iterable(all_items, max_batch)):
                 batch_results = await self.call(func, batch, params=params, raw=raw)
 
                 if (
@@ -1588,8 +1600,8 @@ class BioLMApiClient:
 
     @staticmethod
     def _format_result(
-        res: Union[dict, List[dict], Tuple[dict, int]],
-    ) -> Union[dict, List[dict], Tuple[dict, int]]:
+        res: Union[dict, list[dict], tuple[dict, int]],
+    ) -> Union[dict, list[dict], tuple[dict, int]]:
         if isinstance(res, dict) and "results" in res:
             return res["results"]
         elif isinstance(res, list):
@@ -1626,7 +1638,7 @@ class BioLMApiClient:
     async def generate(
         self,
         *,
-        items: List[dict],
+        items: list[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
         output: str = "memory",
@@ -1647,7 +1659,7 @@ class BioLMApiClient:
     async def predict(
         self,
         *,
-        items: List[dict],
+        items: list[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
         output: str = "memory",
@@ -1668,7 +1680,7 @@ class BioLMApiClient:
     async def encode(
         self,
         *,
-        items: List[dict],
+        items: list[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
         output: str = "memory",
@@ -1689,7 +1701,7 @@ class BioLMApiClient:
     async def search(
         self,
         *,
-        items: List[dict],
+        items: list[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
         output: str = "memory",
@@ -1710,7 +1722,7 @@ class BioLMApiClient:
     async def score(
         self,
         *,
-        items: List[dict],
+        items: list[dict],
         params: Optional[dict] = None,
         stop_on_error: bool = False,
         output: str = "memory",
@@ -1729,7 +1741,7 @@ class BioLMApiClient:
 
     async def lookup(
         self,
-        query: Union[dict, List[dict]],
+        query: Union[dict, list[dict]],
         *,
         raw: bool = False,
         output: str = "memory",

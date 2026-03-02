@@ -206,7 +206,6 @@ def test_diff_mode_skips_existing_sequences(tmp_path):
         p2 = _make_pipeline(tmp_path, sequences=SEQS, diff_mode=True)
         p2.add_prediction("temberture", prediction_type="tm")
         p2.run()
-        call_count = mock_inst.predict.call_count
 
     # Only the 2 new sequences should have been predicted
     total_items_called = sum(

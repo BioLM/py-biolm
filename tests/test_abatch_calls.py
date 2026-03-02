@@ -9,11 +9,15 @@ from biolmai.core.utils import batch_iterable
 
 
 def random_sequence(length=5):
-    return ''.join(random.choices('ACDEFGHIKLMNPQRSTVWYB', k=length))
+    return "".join(random.choices("ACDEFGHIKLMNPQRSTVWYB", k=length))
 
-@pytest.fixture(scope='function')
+
+@pytest.fixture(scope="function")
 def model():
-    return BioLMApiClient("esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
+    return BioLMApiClient(
+        "esm2-8m", raise_httpx=False, unwrap_single=False, retry_error_batches=False
+    )
+
 
 @pytest.mark.asyncio
 async def test_large_batch_encode_consistency(model):
@@ -24,8 +28,10 @@ async def test_large_batch_encode_consistency(model):
     results_internal = await model._batch_call_autoschema_or_manual("encode", items)
     # 3. Universal client (sync, run in thread)
     loop = asyncio.get_event_loop()
+
     def run_biolm():
         return BioLM(entity="esm2-8m", action="encode", items=items, raise_httpx=False)
+
     results_biolm = await loop.run_in_executor(None, run_biolm)
     # All should be lists of the same length
     assert isinstance(results_async, list)
@@ -45,22 +51,37 @@ async def test_large_batch_encode_consistency(model):
         # Optionally, check values are equal (if deterministic)
         # assert r1 == r2 == r3
 
+
 @pytest.mark.asyncio
 async def test_large_batch_encode_with_errors(model):
-    items = [{"sequence": random_sequence()} for _ in range(20)] + \
-            [{"sequence": "BAD::BAD"} for _ in range(5)] + \
-            [{"sequence": random_sequence()} for _ in range(15)]
+    items = (
+        [{"sequence": random_sequence()} for _ in range(20)]
+        + [{"sequence": "BAD::BAD"} for _ in range(5)]
+        + [{"sequence": random_sequence()} for _ in range(15)]
+    )
     results_async = await model.encode(items=items, stop_on_error=False)
-    results_internal = await model._batch_call_autoschema_or_manual("encode", items, stop_on_error=False)
+    results_internal = await model._batch_call_autoschema_or_manual(
+        "encode", items, stop_on_error=False
+    )
     loop = asyncio.get_event_loop()
+
     def run_biolm():
-        return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=False, raise_httpx=False)
+        return BioLM(
+            entity="esm2-8m",
+            action="encode",
+            items=items,
+            stop_on_error=False,
+            raise_httpx=False,
+        )
+
     results_biolm = await loop.run_in_executor(None, run_biolm)
     assert len(results_async) == len(items)
     assert len(results_internal) == len(items)
     assert len(results_biolm) == len(items)
     error_indices = set(range(16, 24)) | set(range(24, 32))  # 16–31 inclusive
-    for i, (r1, r2, r3) in enumerate(zip(results_async, results_internal, results_biolm)):
+    for i, (r1, r2, r3) in enumerate(
+        zip(results_async, results_internal, results_biolm)
+    ):
         assert isinstance(r1, dict)
         assert isinstance(r2, dict)
         assert isinstance(r3, dict)
@@ -71,22 +92,35 @@ async def test_large_batch_encode_with_errors(model):
             assert "embeddings" in r2
             assert "embeddings" in r3
 
+
 @pytest.mark.asyncio
 async def test_large_batch_encode_stop_on_error(model):
-    items = [{"sequence": random_sequence()} for _ in range(10)] + \
-            [{"sequence": "BAD::BAD"}] + \
-            [{"sequence": random_sequence()} for _ in range(10)]
+    items = (
+        [{"sequence": random_sequence()} for _ in range(10)]
+        + [{"sequence": "BAD::BAD"}]
+        + [{"sequence": random_sequence()} for _ in range(10)]
+    )
     assert len(items) == 21
     max_batch = await model._get_max_batch_size(model.model_name, "encode") or 1
     assert max_batch == 8
     # Batch size for this model is 8. If stopping on errors, we should have 8 good results
     results_async = await model.encode(items=items, stop_on_error=True)
     # Same here
-    results_internal = await model._batch_call_autoschema_or_manual("encode", items, stop_on_error=True)
+    results_internal = await model._batch_call_autoschema_or_manual(
+        "encode", items, stop_on_error=True
+    )
     loop = asyncio.get_event_loop()
+
     # This *does not* stop on errors
     def run_biolm():
-        return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=False, raise_httpx=False)
+        return BioLM(
+            entity="esm2-8m",
+            action="encode",
+            items=items,
+            stop_on_error=False,
+            raise_httpx=False,
+        )
+
     results_biolm = await loop.run_in_executor(None, run_biolm)
     # Should get the first batch and the second one should be errors
     assert len(results_async) == 16
@@ -101,18 +135,25 @@ async def test_large_batch_encode_stop_on_error(model):
     assert "embeddings" in results_internal[1]
     assert "embeddings" in results_biolm[1]
 
+
 @pytest.mark.asyncio
 async def test_large_batch_encode_stop_on_error_autocompute(model):
-    items = [{"sequence": random_sequence()} for _ in range(10)] + \
-            [{"sequence": "BAD::BAD"}] + \
-            [{"sequence": random_sequence()} for _ in range(10)]
+    items = (
+        [{"sequence": random_sequence()} for _ in range(10)]
+        + [{"sequence": "BAD::BAD"}]
+        + [{"sequence": random_sequence()} for _ in range(10)]
+    )
     assert len(items) == 21
     max_batch = await model._get_max_batch_size(model.model_name, "encode") or 1
     batches = list(batch_iterable(items, max_batch))
     print("Batch sizes:", [len(b) for b in batches])
     # Find which batch contains the error
-    error_batch_idx = next(i for i, batch in enumerate(batches) if any("BAD::BAD" in d["sequence"] for d in batch))
-    expected = sum(len(b) for b in batches[:error_batch_idx+1])
+    error_batch_idx = next(
+        i
+        for i, batch in enumerate(batches)
+        if any("BAD::BAD" in d["sequence"] for d in batch)
+    )
+    expected = sum(len(b) for b in batches[: error_batch_idx + 1])
     results_async = await model.encode(items=items, stop_on_error=True)
     assert len(results_async) == expected
 
@@ -159,20 +200,33 @@ async def test_large_batch_encode_stop_on_error_autocompute(model):
 #         # After the first error, there should be no more results
 #         # (already enforced by the length check above)
 
+
 @pytest.mark.asyncio
 async def test_biolm_stop_on_error_shorter_results(model):
     # 10 valid, 1 invalid, 10 valid
-    items = [{"sequence": random_sequence()} for _ in range(10)] + \
-            [{"sequence": "BAD::BAD"}] + \
-            [{"sequence": random_sequence()} for _ in range(10)]
+    items = (
+        [{"sequence": random_sequence()} for _ in range(10)]
+        + [{"sequence": "BAD::BAD"}]
+        + [{"sequence": random_sequence()} for _ in range(10)]
+    )
     items = [[item] for item in items]
     # Async client and old method: continue on error
     results_async = await model.encode(items=items, stop_on_error=False)
-    results_internal = await model._batch_call_autoschema_or_manual("encode", items, stop_on_error=False)
+    results_internal = await model._batch_call_autoschema_or_manual(
+        "encode", items, stop_on_error=False
+    )
     # BioLM: stop on error
     loop = asyncio.get_event_loop()
+
     def run_biolm():
-        return BioLM(entity="esm2-8m", action="encode", items=items, stop_on_error=True, raise_httpx=False)
+        return BioLM(
+            entity="esm2-8m",
+            action="encode",
+            items=items,
+            stop_on_error=True,
+            raise_httpx=False,
+        )
+
     results_biolm = await loop.run_in_executor(None, run_biolm)
     # BioLM should have fewer results than the others
     assert len(results_biolm) < len(results_async)
@@ -186,13 +240,14 @@ async def test_biolm_stop_on_error_shorter_results(model):
     for r in results_biolm[:10]:
         assert "embeddings" in r
 
+
 @pytest.mark.asyncio
 async def test_predict_stop_on_error_vs_continue(model):
     # 1 valid, 1 invalid, 1 valid
     items = [
         [{"sequence": "MDN<mask>LE"}],
         [{"sequence": "MENDELSEMYEFFF<mask>EFMLYRRTELSYYYUPPPPPU::"}],
-        [{"sequence": "MD<mask>ELE"}]
+        [{"sequence": "MD<mask>ELE"}],
     ]
     # stop_on_error=False: should return all results
     results_continue = await model.predict(items=items, stop_on_error=False)

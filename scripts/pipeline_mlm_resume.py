@@ -211,7 +211,7 @@ async def run1(datastore: DuckDBDataStore) -> None:
     results = await pipeline.run_async()
 
     print("\nRun 1 stage results:")
-    for name, result in results.items():
+    for _name, result in results.items():
         print(f"  {result}")
 
     df_final = pipeline.get_final_data()
@@ -257,7 +257,7 @@ async def run2(datastore: DuckDBDataStore) -> None:
     results = await pipeline.run_async()
 
     print("\nRun 2 stage results:")
-    for name, result in results.items():
+    for _name, result in results.items():
         print(f"  {result}")
 
     df_final = pipeline.get_final_data()
@@ -326,7 +326,7 @@ async def run3(datastore: DuckDBDataStore) -> None:
     results = await pipeline.run_async()
 
     print("\nRun 3 stage results:")
-    for name, result in results.items():
+    for _name, result in results.items():
         print(f"  {result}")
 
     df_final = pipeline.get_final_data()

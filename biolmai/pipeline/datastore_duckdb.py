@@ -14,7 +14,7 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 import duckdb
 import numpy as np
@@ -92,7 +92,7 @@ class DuckDBDataStore:
         # Create unique index for deduplication
         self.conn.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_sequence_hash 
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_sequence_hash
             ON sequences(hash)
         """
         )
@@ -115,13 +115,13 @@ class DuckDBDataStore:
         # Indexes for fast queries
         self.conn.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_pred_seq 
+            CREATE INDEX IF NOT EXISTS idx_pred_seq
             ON predictions(sequence_id)
         """
         )
         self.conn.execute(
             """
-            CREATE INDEX IF NOT EXISTS idx_pred_type 
+            CREATE INDEX IF NOT EXISTS idx_pred_type
             ON predictions(prediction_type, model_name)
         """
         )
@@ -292,8 +292,8 @@ class DuckDBDataStore:
         return hashlib.sha256(sequence.encode()).hexdigest()[:16]
 
     def add_sequences_batch(
-        self, sequences: List[str], deduplicate: bool = True
-    ) -> List[int]:
+        self, sequences: list[str], deduplicate: bool = True
+    ) -> list[int]:
         """
         Add multiple sequences efficiently using anti-join deduplication.
 
@@ -378,7 +378,7 @@ class DuckDBDataStore:
         """Add single sequence (convenience wrapper)."""
         return self.add_sequences_batch([sequence])[0]
 
-    def add_predictions_batch(self, data: List[Dict[str, Any]]):
+    def add_predictions_batch(self, data: list[dict[str, Any]]):
         """
         Batch add predictions efficiently.
 
@@ -431,7 +431,7 @@ class DuckDBDataStore:
         prediction_type: str,
         model_name: str,
         value: Optional[float],
-        metadata: Optional[Dict] = None,
+        metadata: Optional[dict] = None,
     ):
         """Add single prediction (convenience wrapper)."""
         self.add_predictions_batch(
@@ -453,11 +453,11 @@ class DuckDBDataStore:
         seq_hash = self._hash_sequence(sequence)
         result = self.conn.execute(
             """
-            SELECT COUNT(*) 
+            SELECT COUNT(*)
             FROM predictions p
             JOIN sequences s ON p.sequence_id = s.sequence_id
-            WHERE s.hash = ? 
-            AND p.prediction_type = ? 
+            WHERE s.hash = ?
+            AND p.prediction_type = ?
             AND p.model_name = ?
         """,
             [seq_hash, prediction_type, model_name],
@@ -465,7 +465,7 @@ class DuckDBDataStore:
 
         return result is not None and result[0] > 0
 
-    def query(self, sql: str, params: Optional[List] = None) -> pd.DataFrame:
+    def query(self, sql: str, params: Optional[list] = None) -> pd.DataFrame:
         """
         Execute arbitrary SQL query and return DataFrame.
 
@@ -567,7 +567,7 @@ class DuckDBDataStore:
 
     def get_embeddings_by_sequence(
         self, sequence: str, model_name: Optional[str] = None, load_data: bool = False
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Get embeddings for a sequence."""
         seq_hash = self._hash_sequence(sequence)
 
@@ -600,7 +600,7 @@ class DuckDBDataStore:
         return results
 
     def create_pipeline_run(
-        self, run_id: str, pipeline_type: str, config: Dict, status: str = "running"
+        self, run_id: str, pipeline_type: str, config: dict, status: str = "running"
     ):
         """Create or update a pipeline run record (safe for resume runs)."""
         now = datetime.now()
@@ -626,7 +626,7 @@ class DuckDBDataStore:
         """Update pipeline run status."""
         self.conn.execute(
             """
-            UPDATE pipeline_runs 
+            UPDATE pipeline_runs
             SET status = ?, updated_at = ?
             WHERE run_id = ?
         """,
@@ -664,7 +664,7 @@ class DuckDBDataStore:
         """Check if stage is complete."""
         result = self.conn.execute(
             """
-            SELECT COUNT(*) FROM stage_completions 
+            SELECT COUNT(*) FROM stage_completions
             WHERE stage_id = ? AND status = 'completed'
         """,
             [stage_id],
@@ -700,7 +700,7 @@ class DuckDBDataStore:
         repetition_penalty: Optional[float] = None,
         max_length: Optional[int] = None,
         sampling_params: Optional[
-            Dict
+            dict
         ] = None,  # extra params stored but not in dedicated columns
     ) -> int:
         """Store generation parameters for a sequence.
@@ -743,7 +743,7 @@ class DuckDBDataStore:
         include_sequences: bool = True,
         include_predictions: bool = True,
         include_generation_metadata: bool = False,
-        prediction_types: Optional[List[str]] = None,
+        prediction_types: Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """
         Export data to a flat DataFrame using a single DuckDB SQL query.
@@ -819,9 +819,9 @@ class DuckDBDataStore:
 
     def get_embeddings_bulk(
         self,
-        sequence_ids: List[int],
+        sequence_ids: list[int],
         model_name: Optional[str] = None,
-    ) -> Dict[int, np.ndarray]:
+    ) -> dict[int, np.ndarray]:
         """
         Fetch embeddings for multiple sequences in a single JOIN query.
 
@@ -844,7 +844,7 @@ class DuckDBDataStore:
                 FROM embeddings e
                 INNER JOIN _emb_bulk_ids b ON e.sequence_id = b.sequence_id
             """
-            params: List[Any] = []
+            params: list[Any] = []
             if model_name:
                 sql += " AND e.model_name = ?"
                 params.append(model_name)
@@ -852,7 +852,7 @@ class DuckDBDataStore:
         finally:
             self.conn.unregister("_emb_bulk_ids")
 
-        result: Dict[int, np.ndarray] = {}
+        result: dict[int, np.ndarray] = {}
         for _, row in df.iterrows():
             vals = row.get("values")
             if vals is not None and not (isinstance(vals, float) and np.isnan(vals)):
@@ -867,10 +867,10 @@ class DuckDBDataStore:
 
     def get_uncached_sequence_ids(
         self,
-        sequence_ids: List[int],
+        sequence_ids: list[int],
         prediction_type: str,
         model_name: str,
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Return sequence_ids that do NOT yet have a given prediction (vectorized anti-join).
 
@@ -907,7 +907,7 @@ class DuckDBDataStore:
 
     def get_predictions_bulk(
         self,
-        sequence_ids: List[int],
+        sequence_ids: list[int],
         prediction_type: str,
         model_name: str,
     ) -> pd.DataFrame:
@@ -937,7 +937,7 @@ class DuckDBDataStore:
             self.conn.unregister("_bulk_ids")
         return result
 
-    def count_matching_sequences(self, sequences: List[str]) -> int:
+    def count_matching_sequences(self, sequences: list[str]) -> int:
         """
         Count how many of the given sequences already exist in the datastore.
 
@@ -1041,7 +1041,7 @@ class DuckDBDataStore:
         self,
         sequence_id: int,
         model_name: Optional[str] = None,
-    ) -> Optional[Dict]:
+    ) -> Optional[dict]:
         """Fetch the most recent structure for a sequence, decompressing on read.
 
         Returns a dict with 'structure_str' key (always decompressed string) regardless
@@ -1083,7 +1083,7 @@ class DuckDBDataStore:
                 pass  # fall back to whatever structure_str already holds
         return record
 
-    def get_structures_bulk(self, sequence_ids: List[int]) -> pd.DataFrame:
+    def get_structures_bulk(self, sequence_ids: list[int]) -> pd.DataFrame:
         """Fetch structures for multiple sequences, decompressing structure content.
 
         Returns a DataFrame with a 'structure_str' column (always plain text) regardless
@@ -1142,7 +1142,7 @@ class DuckDBDataStore:
         self,
         run_id: str,
         stage_name: str,
-        passed_sequence_ids: List[int],
+        passed_sequence_ids: list[int],
     ):
         """Record which sequence_ids passed a filter stage (for resume support).
 
@@ -1185,7 +1185,7 @@ class DuckDBDataStore:
         self,
         run_id: str,
         stage_name: str,
-    ) -> List[int]:
+    ) -> list[int]:
         """Return sequence_ids that passed a given filter stage in a run.
 
         Args:
@@ -1228,7 +1228,7 @@ class DuckDBDataStore:
         prediction_type: str,
         model_name: str,
         value: Optional[float],
-        metadata: Optional[Dict] = None,
+        metadata: Optional[dict] = None,
     ) -> int:
         """Add a prediction, creating the sequence if it doesn't exist.
 
@@ -1258,7 +1258,7 @@ class DuckDBDataStore:
     ) -> pd.DataFrame:
         """Return predictions for a sequence_id as a DataFrame."""
         sql = "SELECT * FROM predictions WHERE sequence_id = ?"
-        params: List[Any] = [sequence_id]
+        params: list[Any] = [sequence_id]
         if prediction_type:
             sql += " AND prediction_type = ?"
             params.append(prediction_type)
@@ -1267,7 +1267,7 @@ class DuckDBDataStore:
             params.append(model_name)
         return self.conn.execute(sql, params).df()
 
-    def get_generation_metadata(self, sequence_id: int) -> List[Dict]:
+    def get_generation_metadata(self, sequence_id: int) -> list[dict]:
         """Return generation metadata records for a sequence_id."""
         df = self.conn.execute(
             "SELECT * FROM generation_metadata WHERE sequence_id = ?", [sequence_id]
@@ -1278,7 +1278,7 @@ class DuckDBDataStore:
         self,
         sequence: str,
         model_name: Optional[str] = None,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Return structure records for a sequence string (decompressed)."""
         seq_hash = self._hash_sequence(sequence)
         sql = """
@@ -1287,7 +1287,7 @@ class DuckDBDataStore:
             JOIN sequences s ON st.sequence_id = s.sequence_id
             WHERE s.hash = ?
         """
-        params: List[Any] = [seq_hash]
+        params: list[Any] = [seq_hash]
         if model_name:
             sql += " AND st.model_name = ?"
             params.append(model_name)
@@ -1303,7 +1303,7 @@ class DuckDBDataStore:
                     pass
         return records
 
-    def get_structure_by_id(self, structure_id: int) -> Optional[Dict]:
+    def get_structure_by_id(self, structure_id: int) -> Optional[dict]:
         """Return a structure record by its structure_id (primary key)."""
         df = self.conn.execute(
             "SELECT * FROM structures WHERE structure_id = ?", [structure_id]
@@ -1341,7 +1341,7 @@ class DuckDBDataStore:
         record.pop("values", None)
         return record, emb_array
 
-    def get_pipeline_run(self, run_id: str) -> Optional[Dict]:
+    def get_pipeline_run(self, run_id: str) -> Optional[dict]:
         """Return pipeline run record as a dict, or None if not found."""
         df = self.conn.execute(
             "SELECT * FROM pipeline_runs WHERE run_id = ?", [run_id]
@@ -1350,7 +1350,7 @@ class DuckDBDataStore:
             return None
         return df.iloc[0].to_dict()
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Return row counts for the main tables."""
         return {
             "sequences": self.conn.execute("SELECT COUNT(*) FROM sequences").fetchone()[

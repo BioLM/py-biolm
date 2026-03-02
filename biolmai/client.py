@@ -1,9 +1,10 @@
 """Backward compatibility. Prefer: from biolmai.core.http import ..."""
+
 from biolmai.core.http import (
+    AsyncRateLimiter,
     BioLMApi,
     BioLMApiClient,
     CredentialsProvider,
-    AsyncRateLimiter,
     parse_rate_limit,
 )
 from biolmai.core.utils import batch_iterable, is_list_of_lists

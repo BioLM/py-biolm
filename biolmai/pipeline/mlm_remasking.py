@@ -7,7 +7,7 @@ masked language models like ESM, ESM-1v, ESM-2.
 
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -50,13 +50,13 @@ class RemaskingConfig:
 
     model_name: str = "esm-150m"  # Default to ESM2 150M
     mask_fraction: float = 0.15
-    mask_positions: Union[str, List[int]] = "auto"
+    mask_positions: Union[str, list[int]] = "auto"
     num_iterations: int = 1
     temperature: float = 1.0
     top_k: Optional[int] = None
     top_p: Optional[float] = None
     mask_token: str = "<mask>"
-    conserved_positions: Optional[List[int]] = None
+    conserved_positions: Optional[list[int]] = None
     mask_strategy: str = "random"
     block_size: int = 3
     confidence_threshold: float = 0.8
@@ -91,7 +91,7 @@ class MLMRemasker:
 
     def select_mask_positions(
         self, sequence: str, confidences: Optional[np.ndarray] = None
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Select positions to mask based on strategy.
 
@@ -158,7 +158,7 @@ class MLMRemasker:
         else:
             raise ValueError(f"Unknown mask_strategy: {self.config.mask_strategy}")
 
-    def create_masked_sequence(self, sequence: str, positions: List[int]) -> str:
+    def create_masked_sequence(self, sequence: str, positions: list[int]) -> str:
         """
         Create masked sequence with mask token at specified positions.
 
@@ -178,8 +178,8 @@ class MLMRemasker:
         return "".join(seq_list)
 
     async def predict_masked_positions(
-        self, sequence: str, mask_positions: List[int]
-    ) -> Tuple[str, Dict[int, float]]:
+        self, sequence: str, mask_positions: list[int]
+    ) -> tuple[str, dict[int, float]]:
         """
         Predict amino acids at masked positions.
 
@@ -247,7 +247,7 @@ class MLMRemasker:
 
     async def generate_variant(
         self, parent_sequence: str, iteration: int = 0
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """
         Generate a single variant through remasking (async).
 
@@ -263,7 +263,7 @@ class MLMRemasker:
         all_confidences = {}
 
         # Perform remasking iterations
-        for iter_num in range(self.config.num_iterations):
+        for _iter_num in range(self.config.num_iterations):
             # Select positions to mask
             mask_positions = self.select_mask_positions(current_sequence)
 
@@ -305,7 +305,7 @@ class MLMRemasker:
 
     async def generate_variants(
         self, parent_sequence: str, num_variants: int = 100, deduplicate: bool = True
-    ) -> List[Tuple[str, Dict[str, Any]]]:
+    ) -> list[tuple[str, dict[str, Any]]]:
         """
         Generate multiple variants through remasking (async).
 
@@ -347,7 +347,7 @@ class MLMRemasker:
         num_iterations: int = 10,
         population_size: int = 20,
         keep_top_k: int = 5,
-    ) -> List[Tuple[str, float, Dict[str, Any]]]:
+    ) -> list[tuple[str, float, dict[str, Any]]]:
         """
         Perform iterative refinement using remasking and a fitness function (async).
 
@@ -366,7 +366,7 @@ class MLMRemasker:
         for iteration in range(num_iterations):
             new_variants = []
 
-            for parent_seq, parent_fitness, _ in current_population:
+            for parent_seq, _parent_fitness, _ in current_population:
                 variants = await self.generate_variants(
                     parent_seq,
                     num_variants=population_size // len(current_population),
@@ -389,7 +389,7 @@ class MLMRemasker:
         return current_population
 
 
-def create_remasker_from_dict(config_dict: Dict[str, Any], **kwargs) -> MLMRemasker:
+def create_remasker_from_dict(config_dict: dict[str, Any], **kwargs) -> MLMRemasker:
     """
     Create MLMRemasker from a configuration dictionary.
 

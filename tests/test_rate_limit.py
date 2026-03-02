@@ -1,12 +1,7 @@
-import sys
 import asyncio
 import time
 import unittest
-if sys.version_info < (3, 8):
-    from asynctest import CoroutineMock as AsyncMock
-    from unittest.mock import patch
-else:
-    from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch
 
 from biolmai.core.http import AsyncRateLimiter, BioLMApiClient
 
@@ -56,8 +51,10 @@ class TestAsyncRateLimiter(unittest.IsolatedAsyncioTestCase):
 
     async def test_rate_limiter_invalid_period(self):
         from biolmai.core.http import parse_rate_limit
+
         with self.assertRaises(ValueError):
             parse_rate_limit("5/hour")
+
 
 class TestSemaphoreConcurrency(unittest.IsolatedAsyncioTestCase):
     async def test_semaphore_limits_concurrency(self):
@@ -76,10 +73,11 @@ class TestSemaphoreConcurrency(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*(task() for _ in range(5)))
         self.assertEqual(max_running, 2)
 
+
 class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # Patch HttpClient to avoid real HTTP calls
-        patcher = patch('biolmai.core.http.HttpClient')
+        patcher = patch("biolmai.core.http.HttpClient")
         self.addCleanup(patcher.stop)
         self.mock_http = patcher.start()
         self.mock_http.return_value.post = AsyncMock()
@@ -97,10 +95,14 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
         async def fake_post(endpoint, payload):
             order.append(time.monotonic())
             await asyncio.sleep(0.01)
+
             class FakeResp:
                 status_code = 200
                 headers = {"Content-Type": "application/json"}
-                def json(self): return {"ok": True}
+
+                def json(self):
+                    return {"ok": True}
+
             return FakeResp()
 
         client._http_client.post = fake_post
@@ -126,10 +128,14 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
             max_running = max(max_running, running)
             await asyncio.sleep(0.05)
             running -= 1
+
             class FakeResp:
                 status_code = 200
                 headers = {"Content-Type": "application/json"}
-                def json(self): return {"ok": True}
+
+                def json(self):
+                    return {"ok": True}
+
             return FakeResp()
 
         client._http_client.post = fake_post
@@ -147,15 +153,21 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
 
         async def fake_post(endpoint, payload):
             order.append(time.monotonic())
+
             class FakeResp:
                 status_code = 200
                 headers = {"Content-Type": "application/json"}
-                def json(self): return {"ok": True}
+
+                def json(self):
+                    return {"ok": True}
+
             return FakeResp()
 
         client._http_client.post = fake_post
 
-        await asyncio.gather(client._api_call("endpoint", {}), client._api_call("endpoint", {}))
+        await asyncio.gather(
+            client._api_call("endpoint", {}), client._api_call("endpoint", {})
+        )
         self.assertGreaterEqual(order[1] - order[0], 1.0)
 
     async def test_limit_with_default_semaphore(self):
@@ -172,17 +184,23 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
             max_running = max(max_running, running)
             await asyncio.sleep(0.05)
             running -= 1
+
             class FakeResp:
                 status_code = 200
                 headers = {"Content-Type": "application/json"}
-                def json(self): return {"ok": True}
+
+                def json(self):
+                    return {"ok": True}
+
             return FakeResp()
 
         client._http_client.post = fake_post
 
         # Launch 20 concurrent calls, should be limited to 16 at a time
         await asyncio.gather(*(client._api_call("endpoint", {}) for _ in range(20)))
-        self.assertEqual(max_running, 16, "Default semaphore should limit to 16 concurrent requests")
+        self.assertEqual(
+            max_running, 16, "Default semaphore should limit to 16 concurrent requests"
+        )
 
     async def test_limit_with_neither(self):
         client = BioLMApiClient("model")
@@ -193,16 +211,21 @@ class TestBioLMApiClientLimitLogic(unittest.IsolatedAsyncioTestCase):
 
         async def fake_post(endpoint, payload):
             called.append(1)
+
             class FakeResp:
                 status_code = 200
                 headers = {"Content-Type": "application/json"}
-                def json(self): return {"ok": True}
+
+                def json(self):
+                    return {"ok": True}
+
             return FakeResp()
 
         client._http_client.post = fake_post
 
         await asyncio.gather(*(client._api_call("endpoint", {}) for _ in range(5)))
         self.assertEqual(len(called), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

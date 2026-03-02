@@ -7,7 +7,7 @@ SingleStepPipeline: Simplified single-step prediction pipeline
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -38,10 +38,10 @@ class PredictionStage(Stage):
         model_name: str,
         action: str = "predict",
         prediction_type: Optional[str] = None,
-        params: Optional[Dict] = None,
+        params: Optional[dict] = None,
         batch_size: int = 32,
         max_concurrent: int = 5,
-        item_columns: Optional[Dict[str, str]] = None,
+        item_columns: Optional[dict[str, str]] = None,
         **kwargs,
     ):
         # Extract skip_on_error before passing to parent
@@ -253,7 +253,7 @@ class PredictionStage(Stage):
             if isinstance(v, (int, float)):
                 return float(v)
             if isinstance(v, list) and v:
-                flat: List[float] = []
+                flat: list[float] = []
                 for item in v:
                     if isinstance(item, (int, float)):
                         flat.append(float(item))
@@ -301,7 +301,7 @@ class PredictionStage(Stage):
 
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
-    ) -> Tuple[pd.DataFrame, StageResult]:
+    ) -> tuple[pd.DataFrame, StageResult]:
         """
         Process sequences through prediction model.
 
@@ -327,7 +327,7 @@ class PredictionStage(Stage):
         print(f"  To compute: {len(df_uncached)}")
 
         # Collect extra scalar fields returned alongside the main prediction value
-        extra_fields: Dict[str, Dict[int, Any]] = {}
+        extra_fields: dict[str, dict[int, Any]] = {}
 
         if len(df_uncached) > 0:
             print(f"  Calling {self.model_name}.{self.action}...")
@@ -359,7 +359,7 @@ class PredictionStage(Stage):
                 # Manually chunk by self.batch_size so models with strict per-call
                 # limits (e.g. abodybuilder3: max 1 item) are respected regardless
                 # of what the API client auto-detects from the schema.
-                results: List[Any] = []
+                results: list[Any] = []
                 for i in range(0, len(items), self.batch_size):
                     chunk = items[i : i + self.batch_size]
                     if self.action == "encode":
@@ -398,7 +398,7 @@ class PredictionStage(Stage):
                             or "Residues can only" in err_str
                         ):
                             invalid = sorted(
-                                set(c for c in seq if c not in "ACDEFGHIKLMNPQRSTVWY")
+                                {c for c in seq if c not in "ACDEFGHIKLMNPQRSTVWY"}
                             )
                             print(
                                 f"  WARNING: seq_id {seq_id} '{seq[:20]}...' skipped — "
@@ -549,7 +549,7 @@ class FilterStage(Stage):
 
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
-    ) -> Tuple[pd.DataFrame, StageResult]:
+    ) -> tuple[pd.DataFrame, StageResult]:
         """Apply filter to DataFrame and return the filtered result."""
         start_count = len(df)
 
@@ -634,7 +634,7 @@ class CofoldingPredictionStage(Stage):
         sequence_chain_id: str = "A",
         sequence_entity_type: str = "protein",
         static_entities=None,  # List[FoldingEntity] — typed at call site
-        params: Optional[Dict] = None,
+        params: Optional[dict] = None,
         batch_size: int = 1,
         **kwargs,
     ):
@@ -657,7 +657,7 @@ class CofoldingPredictionStage(Stage):
             }
         ]
         for entity in self.static_entities:
-            mol: Dict[str, Any] = {"id": entity.id, "type": entity.entity_type}
+            mol: dict[str, Any] = {"id": entity.id, "type": entity.entity_type}
             if entity.sequence is not None:
                 mol["sequence"] = entity.sequence
             if entity.smiles is not None:
@@ -669,7 +669,7 @@ class CofoldingPredictionStage(Stage):
 
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
-    ) -> Tuple[pd.DataFrame, StageResult]:
+    ) -> tuple[pd.DataFrame, StageResult]:
         """Run co-folding prediction for each sequence in *df*."""
         start_count = len(df)
         computed = 0
@@ -688,7 +688,7 @@ class CofoldingPredictionStage(Stage):
                     items=items, params=self.params
                 )
 
-                for j, (result, (idx, row)) in enumerate(
+                for _j, (result, (idx, row)) in enumerate(
                     zip(results, batch.iterrows())
                 ):
                     if not isinstance(result, dict):
@@ -764,7 +764,7 @@ class ClusteringStage(Stage):
 
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
-    ) -> Tuple[pd.DataFrame, StageResult]:
+    ) -> tuple[pd.DataFrame, StageResult]:
         """Cluster sequences, add cluster columns, and return the enriched DataFrame."""
         import warnings
 
@@ -823,7 +823,7 @@ class ClusteringStage(Stage):
             embeddings = np.stack(embeddings_list)
 
         # Perform clustering
-        clusterer_kwargs = {k: v for k, v in self.cluster_kwargs.items()}
+        clusterer_kwargs = dict(self.cluster_kwargs.items())
         if self.max_sample is not None:
             clusterer_kwargs["max_sample"] = self.max_sample
         clusterer = SequenceClusterer(
@@ -909,7 +909,7 @@ class DataPipeline(BasePipeline):
 
     def __init__(
         self,
-        sequences: Union[List[str], pd.DataFrame, str, Path] = None,
+        sequences: Union[list[str], pd.DataFrame, str, Path] = None,
         diff_mode: bool = False,
         **kwargs,
     ):
@@ -999,7 +999,7 @@ class DataPipeline(BasePipeline):
 
     def get_merged_results(
         self,
-        prediction_types: Optional[List[str]] = None,
+        prediction_types: Optional[list[str]] = None,
         sequence_filter: Optional[str] = None,
     ) -> pd.DataFrame:
         """
@@ -1036,7 +1036,7 @@ class DataPipeline(BasePipeline):
 
         # Use DuckDB's efficient query engine
         query = """
-            SELECT 
+            SELECT
                 s.sequence_id,
                 s.sequence,
                 s.length
@@ -1114,7 +1114,7 @@ class DataPipeline(BasePipeline):
         df[prediction_type] = df["sequence_id"].map(pred_dict)
 
     def query_results(
-        self, sql_where: str, columns: Optional[List[str]] = None
+        self, sql_where: str, columns: Optional[list[str]] = None
     ) -> pd.DataFrame:
         """
         Query results using SQL WHERE clause (for diff mode with large datasets).
@@ -1168,7 +1168,7 @@ class DataPipeline(BasePipeline):
     # Data exploration helpers
     # ------------------------------------------------------------------
 
-    def explore(self) -> Dict[str, Any]:
+    def explore(self) -> dict[str, Any]:
         """Return summary stats for the pipeline's datastore (all via SQL).
 
         Returns:
@@ -1271,9 +1271,9 @@ class DataPipeline(BasePipeline):
         model_name: str,
         action: str = "predict",
         prediction_type: Optional[str] = None,
-        params: Optional[Dict] = None,
+        params: Optional[dict] = None,
         stage_name: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         **kwargs,
     ):
         """
@@ -1304,9 +1304,9 @@ class DataPipeline(BasePipeline):
 
     def add_predictions(
         self,
-        models: List[Union[str, Dict]],
+        models: list[Union[str, dict]],
         action: str = "predict",
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         **kwargs,
     ):
         """
@@ -1352,7 +1352,7 @@ class DataPipeline(BasePipeline):
         self,
         filter_func: Union[BaseFilter, callable],
         stage_name: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         **kwargs,
     ):
         """
@@ -1382,7 +1382,7 @@ class DataPipeline(BasePipeline):
         similarity_metric: str = "hamming",
         embedding_model: Optional[str] = None,
         stage_name: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         **kwargs,
     ):
         """
@@ -1438,8 +1438,8 @@ class DataPipeline(BasePipeline):
         sequence_chain_id: str = "A",
         sequence_entity_type: str = "protein",
         static_entities=None,  # List[FoldingEntity]
-        depends_on: Optional[List[str]] = None,
-        params: Optional[Dict] = None,
+        depends_on: Optional[list[str]] = None,
+        params: Optional[dict] = None,
         batch_size: int = 1,
     ):
         """
@@ -1524,8 +1524,8 @@ class SingleStepPipeline(DataPipeline):
         self,
         model_name: str,
         action: str = "predict",
-        sequences: Union[List[str], pd.DataFrame, str, Path] = None,
-        params: Optional[Dict] = None,
+        sequences: Union[list[str], pd.DataFrame, str, Path] = None,
+        params: Optional[dict] = None,
         prediction_type: Optional[str] = None,
         **kwargs,
     ):
@@ -1543,8 +1543,8 @@ class SingleStepPipeline(DataPipeline):
 # Convenience aliases
 def Predict(
     model_name: str,
-    sequences: Union[List[str], pd.DataFrame, str, Path],
-    params: Optional[Dict] = None,
+    sequences: Union[list[str], pd.DataFrame, str, Path],
+    params: Optional[dict] = None,
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -1575,7 +1575,7 @@ def Predict(
 
 def Embed(
     model_name: str,
-    sequences: Union[List[str], pd.DataFrame, str, Path],
+    sequences: Union[list[str], pd.DataFrame, str, Path],
     layer: Optional[int] = None,
     **kwargs,
 ) -> pd.DataFrame:

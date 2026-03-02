@@ -1,7 +1,6 @@
 """Tests for Jupyter context detection and automatic nest_asyncio handling."""
 
 import asyncio
-import sys
 import types
 import warnings
 from unittest.mock import MagicMock, patch
@@ -23,14 +22,15 @@ class TestContextDetection:
         """Test that standard scripts are detected correctly."""
         context = _detect_execution_context()
         # In pytest (not Jupyter), should detect as sync_script
-        assert context in ('sync_script', 'unknown')
+        assert context in ("sync_script", "unknown")
 
     def test_detect_async_context(self):
         """Test that async contexts are detected correctly."""
+
         async def test_async():
             context = _detect_execution_context()
             # Should detect as async_context when in async function
-            assert context == 'async_context'
+            assert context == "async_context"
 
         asyncio.run(test_async())
 
@@ -38,34 +38,37 @@ class TestContextDetection:
         """Test Jupyter detection with mocked IPython."""
         # Create a mock IPython instance
         mock_ipython_instance = MagicMock()
-        
+
         # Create a mock module
-        mock_ipython_module = types.ModuleType('IPython')
+        mock_ipython_module = types.ModuleType("IPython")
         mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
-        
+
         # Mock IPython being in sys.modules
-        with patch.dict('sys.modules', {'IPython': mock_ipython_module}):
+        with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
             # Mock asyncio.get_running_loop to return a loop
             mock_loop = MagicMock()
-            with patch('asyncio.get_running_loop', return_value=mock_loop):
+            with patch("asyncio.get_running_loop", return_value=mock_loop):
                 context = _detect_execution_context()
-                assert context == 'jupyter_with_loop'
+                assert context == "jupyter_with_loop"
 
     def test_detect_jupyter_no_loop(self, monkeypatch):
         """Test Jupyter detection when no loop is running."""
         # Create a mock IPython instance
         mock_ipython_instance = MagicMock()
-        
+
         # Create a mock module
-        mock_ipython_module = types.ModuleType('IPython')
+        mock_ipython_module = types.ModuleType("IPython")
         mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
-        
+
         # Mock IPython being in sys.modules
-        with patch.dict('sys.modules', {'IPython': mock_ipython_module}):
+        with patch.dict("sys.modules", {"IPython": mock_ipython_module}):
             # Mock asyncio.get_running_loop to raise RuntimeError (no loop)
-            with patch('asyncio.get_running_loop', side_effect=RuntimeError("no running event loop")):
+            with patch(
+                "asyncio.get_running_loop",
+                side_effect=RuntimeError("no running event loop"),
+            ):
                 context = _detect_execution_context()
-                assert context == 'jupyter_no_loop'
+                assert context == "jupyter_no_loop"
 
 
 class TestNestAsyncioApplication:
@@ -84,38 +87,38 @@ class TestNestAsyncioApplication:
         """Test that calling _ensure_nest_asyncio_for_jupyter multiple times is safe."""
         # Create a mock IPython instance
         mock_ipython_instance = MagicMock()
-        
+
         # Create a mock module
-        mock_ipython_module = types.ModuleType('IPython')
+        mock_ipython_module = types.ModuleType("IPython")
         mock_ipython_module.get_ipython = MagicMock(return_value=mock_ipython_instance)
-        
+
         # Mock nest_asyncio module
-        mock_nest_asyncio = types.ModuleType('nest_asyncio')
+        mock_nest_asyncio = types.ModuleType("nest_asyncio")
         mock_nest_asyncio._applied = False
-        
+
         def mock_apply():
             mock_nest_asyncio._applied = True
-        
+
         mock_nest_asyncio.apply = mock_apply
-        
+
         # Mock Jupyter context and nest_asyncio
-        with patch.dict('sys.modules', {
-            'IPython': mock_ipython_module,
-            'nest_asyncio': mock_nest_asyncio
-        }):
+        with patch.dict(
+            "sys.modules",
+            {"IPython": mock_ipython_module, "nest_asyncio": mock_nest_asyncio},
+        ):
             # Mock asyncio.get_running_loop to return a loop
             mock_loop = MagicMock()
-            with patch('asyncio.get_running_loop', return_value=mock_loop):
+            with patch("asyncio.get_running_loop", return_value=mock_loop):
                 # Reset _applied before testing
                 mock_nest_asyncio._applied = False
-                
+
                 # Call multiple times
                 _ensure_nest_asyncio_for_jupyter()
                 first_call_applied = mock_nest_asyncio._applied
-                
+
                 _ensure_nest_asyncio_for_jupyter()
                 second_call_applied = mock_nest_asyncio._applied
-                
+
                 # Should be idempotent - both calls should result in the same state
                 # (nest_asyncio.apply() is idempotent, so _applied should be True after first call)
                 assert first_call_applied == second_call_applied
@@ -134,7 +137,9 @@ class TestSyncWrappersInContext:
 
     def test_biolm_api_in_script(self):
         """Test that BioLMApi works in script context."""
-        model = BioLMApi("esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
+        model = BioLMApi(
+            "esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False
+        )
         result = model.predict(items=[{"sequence": "MDNELE"}], stop_on_error=False)
         assert isinstance(result, list)
         assert len(result) == 1
@@ -142,8 +147,12 @@ class TestSyncWrappersInContext:
     @pytest.mark.asyncio
     async def test_biolm_api_client_async(self):
         """Test that BioLMApiClient works in async context."""
-        model = BioLMApiClient("esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
-        result = await model.predict(items=[{"sequence": "MDNELE"}], stop_on_error=False)
+        model = BioLMApiClient(
+            "esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False
+        )
+        result = await model.predict(
+            items=[{"sequence": "MDNELE"}], stop_on_error=False
+        )
         assert isinstance(result, list)
         assert len(result) == 1
         await model.shutdown()

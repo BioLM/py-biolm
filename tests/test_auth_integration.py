@@ -11,6 +11,7 @@ separate auth mechanisms. Access/refresh tokens come from username/password or O
 OAuth (browser PKCE flow) cannot be automated in CI since it requires user interaction.
 Real OAuth token testing must be done manually. Unit tests with mocks exist in test_oauth_auth.py.
 """
+
 import json
 import os
 import tempfile
@@ -50,7 +51,11 @@ async def test_api_request_with_access_refresh_tokens():
         os.environ["BIOLM_USER"],
         os.environ["BIOLM_PASSWORD"],
     )
-    if not token_response or "access" not in token_response or "refresh" not in token_response:
+    if (
+        not token_response
+        or "access" not in token_response
+        or "refresh" not in token_response
+    ):
         pytest.skip(
             "Could not obtain access/refresh tokens. Token endpoint may have returned an error."
         )

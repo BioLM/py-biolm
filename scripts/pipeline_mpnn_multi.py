@@ -34,7 +34,6 @@ Outputs (outputs/mpnn_multi/):
 import asyncio
 import os
 from pathlib import Path
-from typing import List
 
 from biolmai.pipeline import (
     DirectGenerationConfig,
@@ -81,7 +80,7 @@ TEMPERATURES = [0.1, 0.3, 0.5]
 # ---------------------------------------------------------------------------
 # Build generation configs (5 models × 3 temperatures = 15 configs)
 # ---------------------------------------------------------------------------
-def build_generation_configs() -> List[DirectGenerationConfig]:
+def build_generation_configs() -> list[DirectGenerationConfig]:
     configs = []
     for model in MPNN_MODELS:
         for temp in TEMPERATURES:
@@ -198,7 +197,7 @@ async def main() -> None:
     # Summary
     # ------------------------------------------------------------------
     print("\n=== Stage Summary ===")
-    for name, result in stage_results.items():
+    for _name, result in stage_results.items():
         print(f"  {result}")
 
     df_final = pipeline.get_final_data()

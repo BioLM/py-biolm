@@ -10,13 +10,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 
-_logger = logging.getLogger(__name__)
-
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,7 +30,7 @@ class StageResult:
     cached_count: int = 0
     computed_count: int = 0
     elapsed_time: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __repr__(self):
         return (
@@ -60,7 +60,7 @@ class Stage(ABC):
         self,
         name: str,
         cache_key: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         model_name: Optional[str] = None,
         max_concurrent: int = 10,
     ):
@@ -74,7 +74,7 @@ class Stage(ABC):
     @abstractmethod
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
-    ) -> Tuple[pd.DataFrame, StageResult]:
+    ) -> tuple[pd.DataFrame, StageResult]:
         """
         Process data through this stage.
 
@@ -142,9 +142,9 @@ class BasePipeline(ABC):
         self.verbose = verbose
 
         # Stage management
-        self.stages: List[Stage] = []
-        self.stage_results: Dict[str, StageResult] = {}
-        self._stage_data: Dict[str, pd.DataFrame] = {}  # Cache for stage outputs
+        self.stages: list[Stage] = []
+        self.stage_results: dict[str, StageResult] = {}
+        self._stage_data: dict[str, pd.DataFrame] = {}  # Cache for stage outputs
 
         # Pipeline state
         self.pipeline_type = self.__class__.__name__
@@ -172,7 +172,7 @@ class BasePipeline(ABC):
         if self.verbose:
             print(f"Added stage: {stage}")
 
-    def _resolve_dependencies(self) -> List[List[Stage]]:
+    def _resolve_dependencies(self) -> list[list[Stage]]:
         """
         Resolve stage dependencies and return execution order.
 
@@ -285,7 +285,7 @@ class BasePipeline(ABC):
 
     async def _execute_stage(
         self, stage: Stage, df_input: pd.DataFrame
-    ) -> Tuple[pd.DataFrame, StageResult]:
+    ) -> tuple[pd.DataFrame, StageResult]:
         """Execute a single stage."""
         start_time = time.time()
 
@@ -346,7 +346,7 @@ class BasePipeline(ABC):
 
     async def run_async(
         self, enable_streaming: bool = False, **kwargs
-    ) -> Dict[str, StageResult]:
+    ) -> dict[str, StageResult]:
         """
         Run the pipeline asynchronously.
 
@@ -446,7 +446,9 @@ class BasePipeline(ABC):
                     # FilterStages in parallel don't silently expand the row set.
                     # Collect per-stage results and compute the common sequence_id set.
                     all_seq_id_sets = []
-                    for stage, (df_out, result) in zip(level_stages, results):
+                    for stage, (df_out, result) in zip(
+                        level_stages, results
+                    ):  # noqa: B007
                         self.stage_results[stage.name] = result
                         self._stage_data[stage.name] = df_out
                         if "sequence_id" in df_out.columns:
@@ -464,7 +466,7 @@ class BasePipeline(ABC):
                         merged_df = results[0][0].copy()
 
                     # Merge new columns from each stage onto the base
-                    for stage, (df_out, result) in zip(level_stages, results):
+                    for _stage, (df_out, _result) in zip(level_stages, results):
                         new_cols = [
                             c for c in df_out.columns if c not in merged_df.columns
                         ]
@@ -504,7 +506,7 @@ class BasePipeline(ABC):
             raise
 
     def _get_next_stage(
-        self, current_stage: Stage, stage_levels: List[List[Stage]], current_level: int
+        self, current_stage: Stage, stage_levels: list[list[Stage]], current_level: int
     ) -> Optional[Stage]:
         """Get the next stage after current_stage, if any."""
         if current_level + 1 >= len(stage_levels):
@@ -616,7 +618,7 @@ class BasePipeline(ABC):
 
         return df_out
 
-    def run(self, enable_streaming: bool = False, **kwargs) -> Dict[str, StageResult]:
+    def run(self, enable_streaming: bool = False, **kwargs) -> dict[str, StageResult]:
         """
         Run the pipeline synchronously.
 
@@ -634,7 +636,7 @@ class BasePipeline(ABC):
         """
         pass
 
-    def _get_config(self) -> Dict:
+    def _get_config(self) -> dict:
         """Get pipeline configuration for serialization."""
         return {
             "pipeline_type": self.pipeline_type,
@@ -676,7 +678,7 @@ class BasePipeline(ABC):
             return pd.DataFrame()
 
         summary_data = []
-        for stage_name, result in self.stage_results.items():
+        for _stage_name, result in self.stage_results.items():
             summary_data.append(
                 {
                     "Stage": result.stage_name,

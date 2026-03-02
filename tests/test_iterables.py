@@ -80,13 +80,15 @@ class TestBiolmIterables:
         assert len(result) == 2
 
     def test_biolm_generator_of_strings_with_type(self):
-        result = biolm(entity="esm2-8m", action="encode", type="sequence", items=_gen_strings(2))
+        result = biolm(
+            entity="esm2-8m", action="encode", type="sequence", items=_gen_strings(2)
+        )
         assert isinstance(result, list)
         assert len(result) == 2
 
     def test_biolm_generator_consumed(self):
         def track_gen():
-            for i in range(2):
+            for _i in range(2):
                 yield {"sequence": "MSILV"}
 
         gen = track_gen()

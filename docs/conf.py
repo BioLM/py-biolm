@@ -16,7 +16,7 @@ import os
 
 # Build option: iframe mode (hides header for embedding)
 # Set via environment variable: IFRAME_MODE=1 make html
-iframe_mode = os.environ.get('IFRAME_MODE', '0') == '1'
+iframe_mode = os.environ.get("IFRAME_MODE", "0") == "1"
 
 # If extensions (or modules to document with autodoc) are in another
 # directory, add these directories to sys.path here. If the directory is
@@ -25,7 +25,8 @@ iframe_mode = os.environ.get('IFRAME_MODE', '0') == '1'
 #
 # Add parent directory to sys.path so Sphinx can import biolmai
 import sys
-sys.path.insert(0, os.path.abspath('..'))
+
+sys.path.insert(0, os.path.abspath(".."))
 
 # -- General configuration ---------------------------------------------
 
@@ -56,7 +57,7 @@ templates_path = ["_templates"]
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:
 #
-source_suffix = ['.rst', '.md']
+source_suffix = [".rst", ".md"]
 
 # The master toctree document.
 master_doc = "index"
@@ -71,7 +72,7 @@ author = "Nikhil Haas"
 # the built documents.
 #
 # The short X.Y version.
-version = '0.3.0'
+version = "0.3.0"
 # The full version, including alpha/beta/rc tags.
 release = version
 
@@ -113,56 +114,45 @@ html_theme_options = {
     "sidebar_hide_name": True,
     "light_logo": None if iframe_mode else "biolm_logo_light.svg",
     "dark_logo": None if iframe_mode else "biolm_logo_dark.svg",
-    
     # Custom CSS variables for branding
     "light_css_variables": {
         # Primary brand colors - replace with your website's brand colors
         "color-brand-primary": "#2563eb",  # Replace with your main brand color
         "color-brand-content": "#2563eb",  # Links and interactive elements
-        
         # Sidebar customization
         "color-sidebar-brand-text": "#1f2937",
         "color-sidebar-background": "#f8fafc",
         "color-sidebar-background-border": "#e2e8f0",
-        
         # Additional brand colors
         "color-admonition-title-background--note": "#dbeafe",
         "color-admonition-title--note": "#1e40af",
-        
         # Header and navigation
         "color-header-background": "#ffffff",
         "color-header-text": "#1f2937",
-        
         # Code blocks (darker text for readability in light theme)
         "color-code-background": "#f1f5f9",
         "color-code-foreground": "#1e293b",
-        
         # Font families to match your website exactly
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
         "font-stack--monospace": '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
     },
-    
     "dark_css_variables": {
         # Dark mode brand colors
         "color-brand-primary": "#60a5fa",  # Lighter version for dark mode
         "color-brand-content": "#60a5fa",
-        
         # Dark sidebar
         "color-sidebar-background": "#1e293b",
         "color-sidebar-background-border": "#334155",
         "color-sidebar-brand-text": "#f1f5f9",
-        
         # Dark mode code blocks (brighter text for readability)
         "color-code-background": "#1e293b",
         "color-code-foreground": "#f1f5f9",
-        
         # Additional dark mode styling
         "color-highlight-on-target": "#374151",
         # Admonitions (note, tip, etc.) - dark background, light title text
         "color-admonition-title-background--note": "#1e3a5f",
         "color-admonition-title--note": "#93c5fd",
         "color-admonition-background": "#1e293b",
-        
         # Font families to match your website exactly (same as light mode)
         "font-stack": '"Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
         "font-stack--monospace": '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
@@ -176,16 +166,18 @@ html_static_path = ["_static"]
 
 # Custom CSS files
 html_css_files = [
-    'custom.css',
+    "custom.css",
 ]
 if iframe_mode:
-    html_css_files.append('iframe-mode.css')
+    html_css_files.append("iframe-mode.css")
 
 # Add Google Fonts (Inter and Roboto Mono to match website)
-html_css_files.extend([
-    'https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap',
-    'https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap',
-])
+html_css_files.extend(
+    [
+        "https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap",
+        "https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap",
+    ]
+)
 
 # Additional branding options
 html_title = "BioLM AI Documentation"
@@ -207,21 +199,23 @@ html_meta = {
 }
 
 # Social media cards / Open Graph
-html_theme_options.update({
-    "announcement": None,  # Add site-wide announcements here if needed
-    "footer_icons": [
-        {
-            "name": "GitHub",
-            "url": "https://github.com/yourusername/yourrepo",  # Update with your GitHub
-            "html": """
+html_theme_options.update(
+    {
+        "announcement": None,  # Add site-wide announcements here if needed
+        "footer_icons": [
+            {
+                "name": "GitHub",
+                "url": "https://github.com/yourusername/yourrepo",  # Update with your GitHub
+                "html": """
                 <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 16 16">
                     <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
                 </svg>
             """,
-            "class": "",
-        },
-    ],
-})
+                "class": "",
+            },
+        ],
+    }
+)
 
 
 # -- Options for HTMLHelp output ---------------------------------------
@@ -278,6 +272,7 @@ texinfo_documents = [
         "Miscellaneous",
     ),
 ]
+
 
 # sphinx-click: render envvar descriptions as normal text instead of block quotes
 def _envvar_description_as_paragraph(app, ctx, lines):

@@ -28,7 +28,7 @@ requirements = [
     "nest_asyncio",
     "rich>=13.0.0",
     "pyyaml>=5.0",
-    "jsonschema<=4.26.0"
+    "jsonschema<=4.26.0",
 ]
 
 test_requirements = [
@@ -57,20 +57,30 @@ setup(
         "console_scripts": [
             "biolmai=biolmai.cli_entry:cli",
         ],
-        'mlflow.request_header_provider': [
-            'unused=biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider',
+        "mlflow.request_header_provider": [
+            "unused=biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider",
         ],
     },
     install_requires=requirements,
     license="Apache Software License 2.0",
     long_description=readme + "\n\n" + history,
     include_package_data=True,
-    keywords=["biolmai", "biolm", "bioai", "bio-ai", "bio-lm", "bio-llm", "bio-language-model", "bio-language-models-api", "python-client"],
+    keywords=[
+        "biolmai",
+        "biolm",
+        "bioai",
+        "bio-ai",
+        "bio-lm",
+        "bio-llm",
+        "bio-language-model",
+        "bio-language-models-api",
+        "python-client",
+    ],
     name="biolmai",
     packages=find_packages(include=["biolmai", "biolmai.*"]),
     test_suite="tests",
     tests_require=test_requirements,
     url="https://github.com/BioLM/py-biolm",
-    version='0.3.0',
+    version="0.3.0",
     zip_safe=False,
 )

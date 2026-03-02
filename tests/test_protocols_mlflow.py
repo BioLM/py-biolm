@@ -1,7 +1,6 @@
 """Tests for protocol MLflow logging functionality."""
+
 import json
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -453,7 +452,7 @@ class TestMLflowIntegration:
         mock_parent_run.info.run_id = "parent123"
         mock_parent_run.__enter__ = MagicMock(return_value=mock_parent_run)
         mock_parent_run.__exit__ = MagicMock(return_value=None)
-        
+
         mock_child_run = MagicMock()
         mock_child_run.info.run_id = "child123"
         mock_child_run.__enter__ = MagicMock(return_value=mock_child_run)
@@ -525,9 +524,7 @@ class TestCLICommand:
         outputs_file = tmp_path / "outputs.yaml"
         import yaml
 
-        outputs_config = [
-            {"log": {"metrics": {"score": "${{ score }}"}}}
-        ]
+        outputs_config = [{"log": {"metrics": {"score": "${{ score }}"}}}]
         with open(outputs_file, "w") as f:
             yaml.dump(outputs_config, f)
 
@@ -581,4 +578,3 @@ class TestCLICommand:
 
         assert result.exit_code != 0
         assert "outputs" in result.output.lower()
-

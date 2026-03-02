@@ -3,13 +3,18 @@ import logging
 
 import aiofiles
 import pytest
+
 from biolmai.core.http import BioLMApi, BioLMApiClient
 
 LOGGER = logging.getLogger(__name__)
 
-@pytest.fixture(scope='function')
+
+@pytest.fixture(scope="function")
 def model():
-    return BioLMApiClient("esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False)
+    return BioLMApiClient(
+        "esmfold", raise_httpx=False, unwrap_single=False, retry_error_batches=False
+    )
+
 
 @pytest.mark.asyncio
 async def test_valid_sequence(model):
@@ -20,22 +25,26 @@ async def test_valid_sequence(model):
     assert isinstance(res, dict)
     assert "mean_plddt" in res
     assert "pdb" in res
-    assert not "status_code" in res
-    assert not "error" in res
+    assert "status_code" not in res
+    assert "error" not in res
+
 
 @pytest.mark.asyncio
 async def test_valid_sequences(model):
-    result = await model.predict(items=[{"sequence": "MDNELE"},
-                                         {"sequence": "MUUUUDANLEPY"}], stop_on_error=False)
+    result = await model.predict(
+        items=[{"sequence": "MDNELE"}, {"sequence": "MUUUUDANLEPY"}],
+        stop_on_error=False,
+    )
     assert isinstance(result, list)
     assert len(result) == 2
     for res in result:
         assert isinstance(res, dict)
         assert "mean_plddt" in res
         assert "pdb" in res
-        assert not "status_code" in res
-        assert not "error" in res
+        assert "status_code" not in res
+        assert "error" not in res
         assert isinstance(result, dict) or isinstance(result, list)
+
 
 @pytest.mark.asyncio
 async def test_invalid_sequence_single(model):
@@ -46,13 +55,16 @@ async def test_invalid_sequence_single(model):
     res = result[0]
     assert "error" in res
     assert "status_code" in res
-    assert "Consecutive occurrences of ':' " in res['error']['items__0__sequence'][0]
+    assert "Consecutive occurrences of ':' " in res["error"]["items__0__sequence"][0]
     assert res["status_code"] in (400, 422)
+
 
 @pytest.mark.asyncio
 async def test_mixed_sequence_batch(model):
-    items = [{"sequence": "MENDELSEMYEFF:FEEFMLYRRTELSYYYUPPPPPU"},
-             {"sequence": "MDNELE"}]
+    items = [
+        {"sequence": "MENDELSEMYEFF:FEEFMLYRRTELSYYYUPPPPPU"},
+        {"sequence": "MDNELE"},
+    ]
     result = await model.predict(items=items, stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 2
@@ -61,10 +73,13 @@ async def test_mixed_sequence_batch(model):
     assert "mean_plddt" in result[1]
     assert "pdb" in result[1]
 
+
 @pytest.mark.asyncio
 async def test_mixed_valid_invalid_sequence_batch_continue_on_error(model):
-    items = [[{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
-             [{"sequence": "MDNELE"}]]
+    items = [
+        [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+        [{"sequence": "MDNELE"}],
+    ]
     result = await model.predict(items=items, stop_on_error=False)
     assert isinstance(result, list)
     assert len(result) == 2
@@ -72,10 +87,13 @@ async def test_mixed_valid_invalid_sequence_batch_continue_on_error(model):
     assert "mean_plddt" in result[1]
     assert "pdb" in result[1]
 
+
 @pytest.mark.asyncio
 async def test_mixed_valid_invalid_sequence_batch_stop_on_error(model):
-    items = [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},
-             {"sequence": "MDNELE"}]
+    items = [
+        {"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"},
+        {"sequence": "MDNELE"},
+    ]
     result = await model.predict(items=items, stop_on_error=True)
     assert isinstance(result, list)
     assert len(result) == 2
@@ -83,15 +101,19 @@ async def test_mixed_valid_invalid_sequence_batch_stop_on_error(model):
     assert "error" in result[0]
     assert "error" in result[1]
 
+
 @pytest.mark.asyncio
 async def test_mixed_valid_invalid_sequence_nonbatch_stop_on_error(model):
-    items = [[{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
-             [{"sequence": "MDNELE"}]]
+    items = [
+        [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
+        [{"sequence": "MDNELE"}],
+    ]
     result = await model.predict(items=items, stop_on_error=True)
     assert isinstance(result, list)
     assert len(result) == 1
     assert len(result) == 1
     assert "error" in result[0]
+
 
 @pytest.mark.asyncio
 async def test_stop_on_error_with_previous_success(model):
@@ -99,7 +121,7 @@ async def test_stop_on_error_with_previous_success(model):
         [{"sequence": "MDNELE"}],
         [{"sequence": "MDNELE"}],
         [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}],
-        [{"sequence": "MDNELE"}]
+        [{"sequence": "MDNELE"}],
     ]
     result = await model.predict(items=items, stop_on_error=True)
     assert isinstance(result, list)
@@ -107,7 +129,8 @@ async def test_stop_on_error_with_previous_success(model):
     assert "pdb" in result[0]
     assert "pdb" in result[1]
     assert "error" in result[2]
-    assert 'items__0__sequence' in result[2].get('error')
+    assert "items__0__sequence" in result[2].get("error")
+
 
 @pytest.mark.asyncio
 async def test_stop_on_error_with_previous_success_reordered(model):
@@ -123,8 +146,9 @@ async def test_stop_on_error_with_previous_success_reordered(model):
     assert "pdb" in result[0]
     assert "pdb" in result[1]
     assert "error" in result[2]
-    assert 'items__1__sequence' in result[2].get('error')
-    assert 'items__1__sequence' in result[3].get('error')
+    assert "items__1__sequence" in result[2].get("error")
+    assert "items__1__sequence" in result[3].get("error")
+
 
 @pytest.mark.asyncio
 async def test_raise_httpx():
@@ -132,6 +156,7 @@ async def test_raise_httpx():
     items = [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}]
     with pytest.raises(Exception):
         await model.predict(items=items)
+
 
 @pytest.mark.asyncio
 async def test_no_double_error_key(model):
@@ -143,10 +168,16 @@ async def test_no_double_error_key(model):
     if isinstance(res["error"], dict):
         assert "error" not in res["error"]
 
+
 @pytest.mark.asyncio
 async def test_single_predict_to_disk(tmp_path, model):
     file_path = tmp_path / "out.jsonl"
-    await model.predict(items=[{"sequence": "MDNELE"}], output='disk', file_path=str(file_path), stop_on_error=False)
+    await model.predict(
+        items=[{"sequence": "MDNELE"}],
+        output="disk",
+        file_path=str(file_path),
+        stop_on_error=False,
+    )
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     assert len(lines) == 1
@@ -154,10 +185,16 @@ async def test_single_predict_to_disk(tmp_path, model):
     assert isinstance(data, dict)
     assert "mean_plddt" in data
 
+
 @pytest.mark.asyncio
 async def test_single_predict_to_disk_with_error(tmp_path, model):
     file_path = tmp_path / "out.jsonl"
-    await model.predict(items=[{"sequence": "MD::NELE"}], output='disk', file_path=str(file_path), stop_on_error=False)
+    await model.predict(
+        items=[{"sequence": "MD::NELE"}],
+        output="disk",
+        file_path=str(file_path),
+        stop_on_error=False,
+    )
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     assert len(lines) == 1
@@ -165,25 +202,35 @@ async def test_single_predict_to_disk_with_error(tmp_path, model):
     assert isinstance(data, dict)
     assert "error" in data
 
+
 @pytest.mark.asyncio
 async def test_batch_predict_to_disk(tmp_path, model):
     items = [{"sequence": "MDNELE"}, {"sequence": "MENDEL"}, {"sequence": "ISOTYPE"}]
     file_path = tmp_path / "batch.jsonl"
-    await model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=False)
+    await model.predict(
+        items=items, output="disk", file_path=str(file_path), stop_on_error=False
+    )
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     LOGGER.warning(lines)
     assert len(lines) == 3
-    for i, line in enumerate(lines):
+    for _i, line in enumerate(lines):
         rec = json.loads(line)
         assert isinstance(rec, dict)
         assert "mean_plddt" in rec
 
+
 @pytest.mark.asyncio
 async def test_batch_predict_to_disk_stop_on_error(tmp_path, model):
-    items = [[{"sequence": "MDNELE"}], [{"sequence": "DN::A"}], [{"sequence": "ISOTYPE"}]]
+    items = [
+        [{"sequence": "MDNELE"}],
+        [{"sequence": "DN::A"}],
+        [{"sequence": "ISOTYPE"}],
+    ]
     file_path = tmp_path / "batch.jsonl"
-    await model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=True)
+    await model.predict(
+        items=items, output="disk", file_path=str(file_path), stop_on_error=True
+    )
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     LOGGER.warning(lines)
@@ -196,11 +243,18 @@ async def test_batch_predict_to_disk_stop_on_error(tmp_path, model):
         else:
             assert "error" in rec
 
+
 @pytest.mark.asyncio
 async def test_batch_predict_to_disk_continue_on_error(tmp_path, model):
-    items = [[{"sequence": "MDNELE"}], [{"sequence": "DN::A"}], [{"sequence": "ISOTYPE"}]]
+    items = [
+        [{"sequence": "MDNELE"}],
+        [{"sequence": "DN::A"}],
+        [{"sequence": "ISOTYPE"}],
+    ]
     file_path = tmp_path / "batch.jsonl"
-    await model.predict(items=items, output='disk', file_path=str(file_path), stop_on_error=False)
+    await model.predict(
+        items=items, output="disk", file_path=str(file_path), stop_on_error=False
+    )
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     LOGGER.warning(lines)
@@ -213,11 +267,16 @@ async def test_batch_predict_to_disk_continue_on_error(tmp_path, model):
         else:
             assert "mean_plddt" in rec
 
+
 @pytest.mark.asyncio
 async def test_invalid_input_items_type(model, monkeypatch):
     # Defensive: monkeypatch the _batch_call_autoschema_or_manual method to return None
-    monkeypatch.setattr(model, "_batch_call_autoschema_or_manual", lambda *a, **kw: None)
-    with pytest.raises(TypeError, match="Parameter 'items' must be of type list, tuple"):
+    monkeypatch.setattr(
+        model, "_batch_call_autoschema_or_manual", lambda *a, **kw: None
+    )
+    with pytest.raises(
+        TypeError, match="Parameter 'items' must be of type list, tuple"
+    ):
         await model.predict(items={"sequence": "MDNELE"})
 
 
@@ -227,26 +286,28 @@ async def test_disk_output_skip_existing_file_async(tmp_path):
     model = BioLMApiClient("esmfold", raise_httpx=False)
     file_path = tmp_path / "existing.jsonl"
     items = [{"sequence": "MDNELE"}]
-    
+
     # First, write some data to the file
     initial_data = {"mean_plddt": 95.5, "pdb": "ATOM 1 N MET", "test": "initial"}
-    async with aiofiles.open(file_path, 'w') as f:
-        await f.write(json.dumps(initial_data) + '\n')
-    
+    async with aiofiles.open(file_path, "w") as f:
+        await f.write(json.dumps(initial_data) + "\n")
+
     # Verify file exists
     assert file_path.exists()
-    
+
     # Call with overwrite=False (default) - should skip API call and return existing data
-    result = await model.predict(items=items, output='disk', file_path=str(file_path), overwrite=False)
-    
+    result = await model.predict(
+        items=items, output="disk", file_path=str(file_path), overwrite=False
+    )
+
     # Should return the existing file contents
     assert isinstance(result, list)
     assert len(result) == 1
     assert result[0]["test"] == "initial"
     assert result[0]["mean_plddt"] == 95.5
-    
+
     # Verify file was not overwritten (still has initial data)
-    async with aiofiles.open(file_path, 'r') as f:
+    async with aiofiles.open(file_path) as f:
         content = await f.read()
     lines = content.splitlines()
     assert len(lines) == 1
@@ -260,28 +321,34 @@ async def test_disk_output_overwrite_existing_file_async(tmp_path):
     model = BioLMApiClient("esmfold", raise_httpx=False)
     file_path = tmp_path / "existing.jsonl"
     items = [{"sequence": "MDNELE"}]
-    
+
     # First, write some initial data to the file
-    initial_data = {"mean_plddt": 0.0, "pdb": "OLD DATA", "test": "should_be_overwritten"}
-    async with aiofiles.open(file_path, 'w') as f:
-        await f.write(json.dumps(initial_data) + '\n')
-    
+    initial_data = {
+        "mean_plddt": 0.0,
+        "pdb": "OLD DATA",
+        "test": "should_be_overwritten",
+    }
+    async with aiofiles.open(file_path, "w") as f:
+        await f.write(json.dumps(initial_data) + "\n")
+
     # Verify file exists and has initial data
     assert file_path.exists()
-    async with aiofiles.open(file_path, 'r') as f:
+    async with aiofiles.open(file_path) as f:
         content = await f.read()
     initial_lines = content.splitlines()
     assert len(initial_lines) == 1
     assert json.loads(initial_lines[0])["test"] == "should_be_overwritten"
-    
+
     # Call with overwrite=True - should make API call and overwrite file
-    result = await model.predict(items=items, output='disk', file_path=str(file_path), overwrite=True)
-    
+    result = await model.predict(
+        items=items, output="disk", file_path=str(file_path), overwrite=True
+    )
+
     # When output='disk' and overwrite=True, result should be None (file is written, nothing returned)
     assert result is None
-    
+
     # Verify file was overwritten with new API response
-    async with aiofiles.open(file_path, 'r') as f:
+    async with aiofiles.open(file_path) as f:
         content = await f.read()
     lines = content.splitlines()
     assert len(lines) == 1
@@ -292,5 +359,3 @@ async def test_disk_output_overwrite_existing_file_async(tmp_path):
     assert "pdb" in file_data
     # Verify it's actually different from initial data
     assert file_data["mean_plddt"] != 0.0 or file_data["pdb"] != "OLD DATA"
-
-
