@@ -1,4 +1,5 @@
 """JSON format input/output utilities."""
+
 import json
 import sys
 from pathlib import Path
@@ -7,29 +8,29 @@ from typing import IO, Any, Dict, List, Union
 
 def load_json(file_path: Union[str, Path, IO]) -> List[Dict[str, Any]]:
     """Load data from a JSON file or JSONL (newline-delimited JSON) file.
-    
+
     Parses a JSON file and returns a list of dictionaries suitable for use
     with BioLM API requests. Supports:
     - Single JSON object: Returns list with one item
     - JSON array: Returns list of items
     - JSONL format (newline-delimited): Returns list of items, one per line
-    
+
     Args:
         file_path: Path to JSON/JSONL file (str, Path), file-like object, or "-" for stdin
-        
+
     Returns:
         List of dictionaries, each containing data suitable for API requests
-        
+
     Raises:
         FileNotFoundError: If file path doesn't exist
         ValueError: If file is empty or malformed
         json.JSONDecodeError: If JSON is invalid
-        
+
     Example:
         >>> items = load_json("data.json")
         >>> items[0]
         {'sequence': 'ACDEFGHIKLMNPQRSTVWY', 'id': 'seq1'}
-        
+
         >>> items = load_json("data.jsonl")  # JSONL format
         >>> len(items)
         3
@@ -43,21 +44,21 @@ def load_json(file_path: Union[str, Path, IO]) -> List[Dict[str, Any]]:
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"JSON file not found: {file_path}")
-        file_obj = open(file_path, "r", encoding="utf-8")
+        file_obj = open(file_path, encoding="utf-8")
         should_close = True
     else:
         file_obj = file_path
         should_close = False
-    
+
     try:
         content = file_obj.read()
-        
+
         if not content.strip():
             raise ValueError("JSON file is empty")
-        
+
         # Try to detect JSONL format (newline-delimited JSON)
         # JSONL has one JSON object per line
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         if len(lines) > 1:
             # Check if each line is a valid JSON object
             try:
@@ -75,10 +76,10 @@ def load_json(file_path: Union[str, Path, IO]) -> List[Dict[str, Any]]:
             except (json.JSONDecodeError, ValueError):
                 # Not JSONL, fall through to regular JSON parsing
                 pass
-        
+
         # Parse as regular JSON
         data = json.loads(content)
-        
+
         # Handle different JSON structures
         if isinstance(data, dict):
             # Single object - wrap in list
@@ -98,7 +99,7 @@ def load_json(file_path: Union[str, Path, IO]) -> List[Dict[str, Any]]:
             raise ValueError(
                 f"JSON root must be an object or array, got {type(data).__name__}"
             )
-        
+
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON: {e}") from e
     finally:
@@ -132,7 +133,7 @@ def to_json(
     """
     if not data:
         raise ValueError("Cannot write empty data to JSON file")
-    
+
     # Handle stdout
     if file_path == "-" or (isinstance(file_path, str) and file_path == "-"):
         file_obj = sys.stdout
@@ -148,7 +149,7 @@ def to_json(
     else:
         file_obj = file_path
         should_close = False
-    
+
     try:
         if jsonl:
             # Write as JSONL (one JSON object per line)
@@ -159,8 +160,7 @@ def to_json(
             # Write as JSON array
             json.dump(data, file_obj, indent=indent, ensure_ascii=False)
             file_obj.write("\n")  # Add trailing newline for consistency
-            
+
     finally:
         if should_close:
             file_obj.close()
-

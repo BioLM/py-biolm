@@ -52,14 +52,20 @@ else:
     BIOLMAI_BASE_API_URL = "https://biolm.ai/api/v3"
 
 # OAuth 2.0 configuration
-BIOLMAI_PUBLIC_CLIENT_ID = os.environ.get("BIOLMAI_OAUTH_CLIENT_ID", "2t_fFfnx9UjgmVp8EGbJRL24UbVynZ5Yo2JOv_R2eQc")
+BIOLMAI_PUBLIC_CLIENT_ID = os.environ.get(
+    "BIOLMAI_OAUTH_CLIENT_ID", "2t_fFfnx9UjgmVp8EGbJRL24UbVynZ5Yo2JOv_R2eQc"
+)
 # Check both CLIENT_SECRET and BIOLMAI_OAUTH_CLIENT_SECRET for compatibility
-BIOLMAI_OAUTH_CLIENT_SECRET = os.environ.get("BIOLMAI_OAUTH_CLIENT_SECRET") or os.environ.get("CLIENT_SECRET", "")
+BIOLMAI_OAUTH_CLIENT_SECRET = os.environ.get(
+    "BIOLMAI_OAUTH_CLIENT_SECRET"
+) or os.environ.get("CLIENT_SECRET", "")
 OAUTH_AUTHORIZE_URL = f"{BIOLMAI_BASE_DOMAIN}/o/authorize/"
 OAUTH_TOKEN_URL = f"{BIOLMAI_BASE_DOMAIN}/o/token/"
 # For introspection, use backend URL (8000) if BIOLMAI_BASE_DOMAIN points to frontend (7777)
 # This is because OAuth endpoints are on the backend, not the frontend proxy
-if BIOLMAI_BASE_DOMAIN == "http://localhost:7777" or BIOLMAI_BASE_DOMAIN.endswith(":7777"):
+if BIOLMAI_BASE_DOMAIN == "http://localhost:7777" or BIOLMAI_BASE_DOMAIN.endswith(
+    ":7777"
+):
     OAUTH_INTROSPECT_URL = "http://localhost:8000/o/introspect/"
 else:
     OAUTH_INTROSPECT_URL = f"{BIOLMAI_BASE_DOMAIN}/o/introspect/"

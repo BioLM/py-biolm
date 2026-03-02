@@ -4,22 +4,7 @@ BioLM Pipeline System
 A comprehensive pipeline framework for biological sequence generation, prediction, and analysis.
 """
 
-from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
-
-# Export DuckDB as DataStore for backward compatibility
-DataStore = DuckDBDataStore
 from biolmai.pipeline.base import BasePipeline, Stage, StageResult
-from biolmai.pipeline.generative import (
-    DirectGenerationConfig,
-    FoldingEntity,
-    GenerationConfig,
-    GenerativePipeline,
-)
-
-try:
-    from biolmai.pipeline.visualization import PipelinePlotter
-except ImportError:
-    PipelinePlotter = None  # type: ignore[assignment,misc]
 from biolmai.pipeline.clustering import (
     ClusteringResult,
     DiversityAnalyzer,
@@ -34,12 +19,19 @@ from biolmai.pipeline.data import (
     Predict,
     SingleStepPipeline,
 )
+from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 from biolmai.pipeline.filters import (
     CustomFilter,
     HammingDistanceFilter,
     RankingFilter,
     SequenceLengthFilter,
     ThresholdFilter,
+)
+from biolmai.pipeline.generative import (
+    DirectGenerationConfig,
+    FoldingEntity,
+    GenerationConfig,
+    GenerativePipeline,
 )
 from biolmai.pipeline.mlm_remasking import (
     AGGRESSIVE_CONFIG,
@@ -49,6 +41,14 @@ from biolmai.pipeline.mlm_remasking import (
     RemaskingConfig,
 )
 from biolmai.pipeline.utils import cif_to_pdb, load_structure_string, pdb_to_cif
+
+try:
+    from biolmai.pipeline.visualization import PipelinePlotter
+except ImportError:
+    PipelinePlotter = None  # type: ignore[assignment,misc]
+
+# Export DuckDB as DataStore for backward compatibility
+DataStore = DuckDBDataStore
 
 __all__ = [
     "DataStore",

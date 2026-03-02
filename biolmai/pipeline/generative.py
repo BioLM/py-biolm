@@ -12,7 +12,7 @@ import asyncio
 import random
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 
@@ -73,7 +73,7 @@ class DirectGenerationConfig:
     structure_column: Optional[str] = None
     sequence: Optional[str] = None
     item_field: str = "pdb"
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
     # Simple fallbacks used only when params is empty
     num_sequences: int = 100
     temperature: float = 1.0
@@ -129,11 +129,11 @@ class GenerationConfig:
 
     model_name: str
     num_sequences: int = 100
-    temperature: Union[float, List[float]] = 1.0
-    sampling_params: Dict[str, Any] = field(default_factory=dict)
+    temperature: Union[float, list[float]] = 1.0
+    sampling_params: dict[str, Any] = field(default_factory=dict)
     generation_method: str = "generate"  # 'generate' or 'remask'
     parent_sequence: Optional[str] = None
-    mask_positions: Union[str, List[int]] = "auto"
+    mask_positions: Union[str, list[int]] = "auto"
     mask_fraction: float = 0.15
     batch_size: int = 32
 
@@ -177,7 +177,7 @@ class GenerationStage(Stage):
         name: str = "generation",
         config: Optional[Union[RemaskingConfig, DirectGenerationConfig]] = None,
         configs: Optional[
-            List[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
+            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
         ] = None,
         deduplicate: bool = True,
         **kwargs,
@@ -196,7 +196,7 @@ class GenerationStage(Stage):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _extract_sequences(raw: Any) -> List[Dict]:
+    def _extract_sequences(raw: Any) -> list[dict]:
         """
         Extract sequence dicts from any BioLM generation response format.
 
@@ -207,7 +207,7 @@ class GenerationStage(Stage):
         """
         if not raw:
             return []
-        sequences: List[Dict] = []
+        sequences: list[dict] = []
         for item in raw:
             if isinstance(item, list):
                 # DSM-style: inner list = num_sequences per input item
@@ -256,10 +256,10 @@ class GenerationStage(Stage):
     @staticmethod
     def _create_masked_sequence(
         sequence: str,
-        mask_positions: Union[str, List[int]],
+        mask_positions: Union[str, list[int]],
         mask_fraction: float = 0.15,
         mask_token: str = "<mask>",
-    ) -> Tuple[str, List[int]]:
+    ) -> tuple[str, list[int]]:
         """
         Create a masked version of a sequence.
 
@@ -300,7 +300,7 @@ class GenerationStage(Stage):
         config: RemaskingConfig,
         parent_sequence: str,
         num_variants: int,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Run MLM remasking generation using RemaskingConfig directly."""
         print(
             f"  {config.model_name} (remasking): generating {num_variants} variants..."
@@ -336,7 +336,7 @@ class GenerationStage(Stage):
         config: DirectGenerationConfig,
         datastore: DataStore,
         df_input: pd.DataFrame,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Run generation using DirectGenerationConfig.
 
         The caller is responsible for setting the correct ``item_field`` and
@@ -371,7 +371,7 @@ class GenerationStage(Stage):
             )
 
         # ---- Params: user dict takes priority; fallback to convenience fields
-        params: Dict[str, Any] = (
+        params: dict[str, Any] = (
             config.params
             if config.params
             else {
@@ -381,7 +381,7 @@ class GenerationStage(Stage):
         )
 
         # ---- Generate ----------------------------------------------------
-        results: List[Dict] = []
+        results: list[dict] = []
         api = None
         try:
             api = BioLMApiClient(config.model_name)
@@ -390,7 +390,9 @@ class GenerationStage(Stage):
                 items = [{config.item_field: input_value}]
                 raw = await api.generate(items=items, params=params)
                 if isinstance(raw, dict) and "error" in raw:
-                    raise ValueError(f"API error from {config.model_name}: {raw.get('error')}")
+                    raise ValueError(
+                        f"API error from {config.model_name}: {raw.get('error')}"
+                    )
                 for seq_data in self._extract_sequences(raw):
                     results.append(
                         {
@@ -412,7 +414,7 @@ class GenerationStage(Stage):
 
     async def _generate_with_config(
         self, config: GenerationConfig, datastore: DataStore
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Generate sequences with a single configuration.
 
@@ -508,7 +510,9 @@ class GenerationStage(Stage):
 
                     # Check for API errors
                     if isinstance(result, dict) and "error" in result:
-                        raise ValueError(f"API error from {config.model_name}: {result.get('error')}")
+                        raise ValueError(
+                            f"API error from {config.model_name}: {result.get('error')}"
+                        )
 
                     # Extract sequences
                     if isinstance(result, list):
@@ -540,7 +544,7 @@ class GenerationStage(Stage):
         cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig],
         datastore: DataStore,
         df_input: pd.DataFrame,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Dispatch a single config to the appropriate generation method."""
         if isinstance(cfg, RemaskingConfig):
             parent = getattr(cfg, "parent_sequence", None)
@@ -559,7 +563,7 @@ class GenerationStage(Stage):
 
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
-    ) -> Tuple[pd.DataFrame, StageResult]:
+    ) -> tuple[pd.DataFrame, StageResult]:
         """Generate sequences using configured models."""
 
         print(f"  Generating with {len(self.configs)} model configuration(s)...")
@@ -605,7 +609,7 @@ class GenerationStage(Stage):
             df_generated["sequence_id"] = seq_ids
 
             # Store generation metadata per sequence
-            for row_idx, (seq_id, row) in enumerate(
+            for _row_idx, (seq_id, row) in enumerate(
                 zip(seq_ids, df_generated.itertuples(index=False))
             ):
                 sampling_params = getattr(row, "sampling_params", None) or {}
@@ -682,7 +686,7 @@ class GenerativePipeline(BasePipeline):
     def __init__(
         self,
         generation_configs: Optional[
-            List[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
+            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
         ] = None,
         deduplicate: bool = True,
         **kwargs,
@@ -745,9 +749,9 @@ class GenerativePipeline(BasePipeline):
         model_name: str,
         action: str = "predict",
         prediction_type: Optional[str] = None,
-        params: Optional[Dict] = None,
+        params: Optional[dict] = None,
         stage_name: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         **kwargs,
     ):
         """Add a prediction stage (same as DataPipeline)."""
@@ -770,9 +774,9 @@ class GenerativePipeline(BasePipeline):
 
     def add_predictions(
         self,
-        models: List[Union[str, Dict]],
+        models: list[Union[str, dict]],
         action: str = "predict",
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         **kwargs,
     ):
         """
@@ -813,7 +817,7 @@ class GenerativePipeline(BasePipeline):
         self,
         filter_func,
         stage_name: Optional[str] = None,
-        depends_on: Optional[List[str]] = None,
+        depends_on: Optional[list[str]] = None,
         **kwargs,
     ):
         """Add a filter stage (same as DataPipeline)."""
@@ -839,9 +843,9 @@ class GenerativePipeline(BasePipeline):
         prediction_type: str = "structure",
         sequence_chain_id: str = "A",
         sequence_entity_type: str = "protein",
-        static_entities: Optional[List["FoldingEntity"]] = None,
-        depends_on: Optional[List[str]] = None,
-        params: Optional[Dict] = None,
+        static_entities: Optional[list["FoldingEntity"]] = None,
+        depends_on: Optional[list[str]] = None,
+        params: Optional[dict] = None,
         batch_size: int = 1,
     ):
         """
@@ -900,7 +904,7 @@ class GenerativePipeline(BasePipeline):
         self.add_stage(stage)
         return self
 
-    async def run_async(self, **kwargs) -> Dict[str, StageResult]:
+    async def run_async(self, **kwargs) -> dict[str, StageResult]:
         """
         Run the generative pipeline.
 
@@ -955,7 +959,7 @@ class GenerativePipeline(BasePipeline):
 def Generate(
     model_name: str,
     num_sequences: int = 100,
-    temperature: Union[float, List[float]] = 1.0,
+    temperature: Union[float, list[float]] = 1.0,
     parent_sequence: Optional[str] = None,
     **kwargs,
 ) -> pd.DataFrame:

@@ -4,7 +4,7 @@ import gzip
 import json
 from asyncio import create_task, gather, run
 from itertools import zip_longest
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import aiohttp.resolver
 from aiohttp import ClientSession
@@ -46,10 +46,10 @@ async def get_one_biolm(
         sock_connect=None,
         # Maximal number of seconds for connecting to a peer for a
         # new connection, not given from a pool. See also connect.
-        sock_read=None
+        sock_read=None,
         # Maximal number of seconds for reading a portion of data from a peer
     )
-    
+
     # Check if we should compress
     request_headers = dict(headers)
     # Add Accept-Encoding: gzip to support compressed responses
@@ -59,7 +59,7 @@ async def get_one_biolm(
     if compress_requests:
         # Serialize JSON to check size
         json_bytes = json.dumps(pload, ensure_ascii=False).encode("utf-8")
-        
+
         if len(json_bytes) > compress_threshold:
             # Compress the payload in a thread pool to avoid blocking the event loop
             # Use compression level 6 (good balance between speed and compression ratio)
@@ -78,17 +78,19 @@ async def get_one_biolm(
     else:
         # Compression disabled, send as JSON
         request_data = pload
-    
+
     # Send request with appropriate data format
     resp_json = None
     status_code = None
     if isinstance(request_data, bytes):
         # Compressed data - send as bytes
-        async with session.post(url, headers=request_headers, data=request_data, timeout=t) as resp:
+        async with session.post(
+            url, headers=request_headers, data=request_data, timeout=t
+        ) as resp:
             status_code = resp.status
             # Check if response is compressed
-            content_encoding = resp.headers.get('Content-Encoding', '').lower()
-            if content_encoding == 'gzip':
+            content_encoding = resp.headers.get("Content-Encoding", "").lower()
+            if content_encoding == "gzip":
                 # Response is compressed - aiohttp should decompress automatically,
                 # but if not, handle it manually
                 try:
@@ -100,8 +102,10 @@ async def get_one_biolm(
                         raw_bytes = await resp.read()
                         # Decompress in thread pool to avoid blocking
                         loop = asyncio.get_event_loop()
-                        decompressed = await loop.run_in_executor(None, gzip.decompress, raw_bytes)
-                        resp_json = json.loads(decompressed.decode('utf-8'))
+                        decompressed = await loop.run_in_executor(
+                            None, gzip.decompress, raw_bytes
+                        )
+                        resp_json = json.loads(decompressed.decode("utf-8"))
                     except Exception:
                         # Fallback: try text
                         resp_text = await resp.text()
@@ -114,11 +118,13 @@ async def get_one_biolm(
                 resp_json = await resp.json()
     else:
         # Uncompressed data - send as JSON
-        async with session.post(url, headers=request_headers, json=request_data, timeout=t) as resp:
+        async with session.post(
+            url, headers=request_headers, json=request_data, timeout=t
+        ) as resp:
             status_code = resp.status
             # Check if response is compressed
-            content_encoding = resp.headers.get('Content-Encoding', '').lower()
-            if content_encoding == 'gzip':
+            content_encoding = resp.headers.get("Content-Encoding", "").lower()
+            if content_encoding == "gzip":
                 # Response is compressed - aiohttp should decompress automatically,
                 # but if not, handle it manually
                 try:
@@ -130,8 +136,10 @@ async def get_one_biolm(
                         raw_bytes = await resp.read()
                         # Decompress in thread pool to avoid blocking
                         loop = asyncio.get_event_loop()
-                        decompressed = await loop.run_in_executor(None, gzip.decompress, raw_bytes)
-                        resp_json = json.loads(decompressed.decode('utf-8'))
+                        decompressed = await loop.run_in_executor(
+                            None, gzip.decompress, raw_bytes
+                        )
+                        resp_json = json.loads(decompressed.decode("utf-8"))
                     except Exception:
                         # Fallback: try text
                         resp_text = await resp.text()
@@ -142,26 +150,32 @@ async def get_one_biolm(
             else:
                 # Not compressed, read normally
                 resp_json = await resp.json()
-    
+
     # Process response (same for both compressed and uncompressed)
     resp_json["batch"] = pload_batch
     expected_root_key = response_key
     to_ret = []
-    
+
     # Determine if this is an error response:
     # - Non-200 status code, OR
     # - Top-level "error" key (v3 can return validation errors with 200 status)
-    is_error = (not status_code or status_code != 200) or (isinstance(resp_json, dict) and "error" in resp_json)
-    
+    is_error = (not status_code or status_code != 200) or (
+        isinstance(resp_json, dict) and "error" in resp_json
+    )
+
     if is_error:
         # Error response - normalize and apply to all items in batch
         error_dict = resp_json.copy()
         # Remove batch info from error dict
         error_dict.pop("batch", None)
         # Ensure we have an error key for consistency
-        if "error" not in error_dict and ("detail" in error_dict or "description" in error_dict):
+        if "error" not in error_dict and (
+            "detail" in error_dict or "description" in error_dict
+        ):
             # Promote detail/description to error key if error key doesn't exist
-            error_dict["error"] = error_dict.get("detail") or error_dict.get("description")
+            error_dict["error"] = error_dict.get("detail") or error_dict.get(
+                "description"
+            )
         list_of_individual_seq_results = [error_dict] * pload_batch_size
     elif status_code and status_code == 200:
         # Success response - extract results
@@ -169,10 +183,12 @@ async def get_one_biolm(
             list_of_individual_seq_results = resp_json[expected_root_key]
         else:
             # Fallback if expected key not found
-            raise ValueError(f"Expected key '{expected_root_key}' not found in response: {resp_json}")
+            raise ValueError(
+                f"Expected key '{expected_root_key}' not found in response: {resp_json}"
+            )
     else:
         raise ValueError("Unexpected response in parser")
-    
+
     for idx, item in enumerate(list_of_individual_seq_results):
         d = {"status_code": status_code, "batch_id": pload_batch, "batch_item": idx}
         if is_error:
@@ -188,10 +204,10 @@ async def get_one_biolm(
         to_ret.append(d)
     return to_ret
 
-        # text = await resp.text()
-        # await sleep(2)  # for demo purposes
-        # text_resp = text.strip().split("\n", 1)[0]
-        # print("Got response from", url, text_resp)
+    # text = await resp.text()
+    # await sleep(2)  # for demo purposes
+    # text_resp = text.strip().split("\n", 1)[0]
+    # print("Got response from", url, text_resp)
 
 
 async def async_range(count):
@@ -242,7 +258,7 @@ async def get_all_biolm(
         sock_connect=None,
         # Maximal number of seconds for connecting to a peer for a
         # new connection, not given from a pool. See also connect.
-        sock_read=None
+        sock_read=None,
         # Maximal number of seconds for reading a portion of data from a peer
     )
     async with ClientSession(connector=connector, timeout=ov_tout) as session:
@@ -255,7 +271,15 @@ async def get_all_biolm(
                     keep_going = False
                     break
                 new_task = create_task(
-                    get_one_biolm(session, url, pload, headers, response_key, compress_requests, compress_threshold)
+                    get_one_biolm(
+                        session,
+                        url,
+                        pload,
+                        headers,
+                        response_key,
+                        compress_requests,
+                        compress_threshold,
+                    )
                 )
                 tasks.append(new_task)
             res = await gather(*tasks)
@@ -267,7 +291,16 @@ async def async_main(urls, concurrency) -> list:
     return await get_all(urls, concurrency)
 
 
-async def async_api_calls(model_name, action, headers, payloads, response_key=None, api_version=3, compress_requests=True, compress_threshold=256):
+async def async_api_calls(
+    model_name,
+    action,
+    headers,
+    payloads,
+    response_key=None,
+    api_version=3,
+    compress_requests=True,
+    compress_threshold=256,
+):
     """Hit an arbitrary BioLM model inference API."""
     # Normally would POST multiple sequences at once for greater efficiency,
     # but for simplicity sake will do one at at time right now
@@ -281,7 +314,15 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
         raise AssertionError(err.format(type(payloads)))
 
     concurrency = int(MULTIPROCESS_THREADS)
-    return await get_all_biolm(url, payloads, headers, concurrency, response_key, compress_requests, compress_threshold)
+    return await get_all_biolm(
+        url,
+        payloads,
+        headers,
+        concurrency,
+        response_key,
+        compress_requests,
+        compress_threshold,
+    )
 
     # payload = json.dumps(payload)
     # session = requests_retry_session()
@@ -304,7 +345,18 @@ async def async_api_calls(model_name, action, headers, payloads, response_key=No
     # return response
 
 
-def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key, api_version=3, key="sequence", params=None, compress_requests=True, compress_threshold=256):
+def async_api_call_wrapper(
+    grouped_df,
+    slug,
+    action,
+    payload_maker,
+    response_key,
+    api_version=3,
+    key="sequence",
+    params=None,
+    compress_requests=True,
+    compress_threshold=256,
+):
     """Wrap API calls to assist with sequence validation as a pre-cursor to
     each API call.
     """
@@ -337,7 +389,18 @@ def async_api_call_wrapper(grouped_df, slug, action, payload_maker, response_key
     #     "https://python.org",
     # ]
     # concurrency = 3
-    api_resp = run(async_api_calls(model_name, action, headers, ploads, response_key, api_version, compress_requests, compress_threshold))
+    api_resp = run(
+        async_api_calls(
+            model_name,
+            action,
+            headers,
+            ploads,
+            response_key,
+            api_version,
+            compress_requests,
+            compress_threshold,
+        )
+    )
     api_resp = [item for sublist in api_resp for item in sublist]
     api_resp = sorted(api_resp, key=lambda x: x["batch_id"])
     # print(api_resp)

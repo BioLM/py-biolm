@@ -1,13 +1,12 @@
 """Tests for OAuth authentication functionality."""
+
 import json
-import os
 import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-import requests
 
 from biolmai.core.auth import (
     _b64url,
@@ -17,7 +16,6 @@ from biolmai.core.auth import (
     parse_credentials_file,
     save_access_refresh_token,
 )
-from biolmai.core.const import ACCESS_TOK_PATH, OAUTH_REDIRECT_URI
 
 
 class TestPKCEHelpers:
@@ -36,17 +34,17 @@ class TestPKCEHelpers:
     def test_gen_pkce_pair(self):
         """Test PKCE pair generation."""
         verifier, challenge = _gen_pkce_pair()
-        
+
         assert isinstance(verifier, str)
         assert isinstance(challenge, str)
         assert len(verifier) > 0
         assert len(challenge) > 0
-        
+
         # Challenge should be SHA256 hash of verifier
         import base64
         import hashlib
-        
-        verifier_bytes = base64.urlsafe_b64decode(verifier + "==")
+
+        base64.urlsafe_b64decode(verifier + "==")
         expected_challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
         assert challenge == expected_challenge
 
@@ -55,7 +53,7 @@ class TestPKCEHelpers:
         pairs = [_gen_pkce_pair() for _ in range(10)]
         verifiers = [p[0] for p in pairs]
         challenges = [p[1] for p in pairs]
-        
+
         # All verifiers should be unique
         assert len(set(verifiers)) == 10
         # All challenges should be unique
@@ -69,7 +67,7 @@ class TestCredentialPersistence:
         """Test saving and parsing OAuth credentials."""
         with tempfile.TemporaryDirectory() as tmpdir:
             cred_path = Path(tmpdir) / "credentials"
-            
+
             creds = {
                 "access": "test_access_token",
                 "refresh": "test_refresh_token",
@@ -78,16 +76,16 @@ class TestCredentialPersistence:
                 "token_url": "https://biolm.ai/o/token/",
                 "client_id": "test_client_id",
             }
-            
+
             # Save credentials
             with patch("biolmai.core.auth.ACCESS_TOK_PATH", str(cred_path)):
                 with patch("biolmai.core.auth.USER_BIOLM_DIR", tmpdir):
                     with patch("biolmai.core.auth.validate_user_auth"):
                         save_access_refresh_token(creds)
-            
+
             # Verify file exists
             assert cred_path.exists()
-            
+
             # Parse credentials
             parsed = parse_credentials_file(str(cred_path))
             assert parsed is not None
@@ -98,7 +96,7 @@ class TestCredentialPersistence:
         """Test parsing credentials with OAuth-specific fields."""
         with tempfile.TemporaryDirectory() as tmpdir:
             cred_path = Path(tmpdir) / "credentials"
-            
+
             creds = {
                 "access": "access_token",
                 "refresh": "refresh_token",
@@ -106,10 +104,10 @@ class TestCredentialPersistence:
                 "token_url": "https://example.com/token",
                 "client_id": "client123",
             }
-            
+
             with open(cred_path, "w") as f:
                 json.dump(creds, f)
-            
+
             # Parse should work
             parsed = parse_credentials_file(str(cred_path))
             assert parsed is not None
@@ -130,9 +128,12 @@ class TestOAuthLogin:
         """Test successful browser/PKCE login flow."""
         # Mock callback server
         mock_queue = MagicMock()
-        mock_queue.get.side_effect = ["auth_code_123", None]  # First call returns code, second is sentinel
+        mock_queue.get.side_effect = [
+            "auth_code_123",
+            None,
+        ]  # First call returns code, second is sentinel
         mock_server.return_value = mock_queue
-        
+
         # Mock token exchange response
         mock_token_resp = Mock()
         mock_token_resp.status_code = 200  # Set status_code to avoid error message
@@ -143,22 +144,24 @@ class TestOAuthLogin:
         }
         mock_token_resp.raise_for_status = Mock()
         mock_post.return_value = mock_token_resp
-        
+
         # Mock save function
         mock_save.return_value = None
-        
-        with patch("biolmai.core.auth.OAUTH_REDIRECT_URI", "http://127.0.0.1:8765/callback"):
-            result = oauth_login(
+
+        with patch(
+            "biolmai.core.auth.OAUTH_REDIRECT_URI", "http://127.0.0.1:8765/callback"
+        ):
+            oauth_login(
                 client_id="test_client",
                 auth_url="https://example.com/authorize",
                 token_url="https://example.com/token",
             )
-        
+
         # Verify token exchange was called
         assert mock_post.called
         call_args = mock_post.call_args
         assert call_args[0][0] == "https://example.com/token"
-        
+
         # Verify credentials were saved
         assert mock_save.called
         saved_creds = mock_save.call_args[0][0]
@@ -166,7 +169,6 @@ class TestOAuthLogin:
         assert saved_creds["refresh"] == "new_refresh_token"
         assert "expires_at" in saved_creds
         assert saved_creds["client_id"] == "test_client"
-
 
     def test_oauth_login_missing_client_id(self):
         """Test that oauth_login raises error when client_id is missing."""
@@ -181,7 +183,9 @@ class TestCredentialValidation:
     def test_are_credentials_valid_no_file(self):
         """Test that are_credentials_valid returns False when file doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("biolmai.core.auth.ACCESS_TOK_PATH", str(Path(tmpdir) / "nonexistent")):
+            with patch(
+                "biolmai.core.auth.ACCESS_TOK_PATH", str(Path(tmpdir) / "nonexistent")
+            ):
                 assert are_credentials_valid() is False
 
     def test_are_credentials_valid_invalid_file(self):
@@ -191,7 +195,7 @@ class TestCredentialValidation:
             # Write invalid JSON
             with open(cred_path, "w") as f:
                 f.write("invalid json")
-            
+
             with patch("biolmai.core.auth.ACCESS_TOK_PATH", str(cred_path)):
                 assert are_credentials_valid() is False
 
@@ -200,10 +204,10 @@ class TestCredentialValidation:
         with tempfile.TemporaryDirectory() as tmpdir:
             cred_path = Path(tmpdir) / "credentials"
             creds = {"access": "token", "refresh": None}  # Missing refresh
-            
+
             with open(cred_path, "w") as f:
                 json.dump(creds, f)
-            
+
             with patch("biolmai.core.auth.ACCESS_TOK_PATH", str(cred_path)):
                 assert are_credentials_valid() is False
 
@@ -216,21 +220,20 @@ class TestCredentialValidation:
                 "access": "valid_access_token",
                 "refresh": "valid_refresh_token",
             }
-            
+
             with open(cred_path, "w") as f:
                 json.dump(creds, f)
-            
+
             # Mock successful validation
             mock_resp = Mock()
             mock_resp.status_code = 200
             mock_resp.json.return_value = {"user": "test"}  # No "code" key
             mock_validate.return_value = mock_resp
-            
+
             with patch("biolmai.core.auth.ACCESS_TOK_PATH", str(cred_path)):
                 assert are_credentials_valid() is True
                 mock_validate.assert_called_once_with(
-                    access="valid_access_token",
-                    refresh="valid_refresh_token"
+                    access="valid_access_token", refresh="valid_refresh_token"
                 )
 
     @patch("biolmai.core.auth.validate_user_auth")
@@ -242,15 +245,15 @@ class TestCredentialValidation:
                 "access": "invalid_token",
                 "refresh": "invalid_refresh",
             }
-            
+
             with open(cred_path, "w") as f:
                 json.dump(creds, f)
-            
+
             # Mock failed validation
             mock_resp = Mock()
             mock_resp.status_code = 401
             mock_validate.return_value = mock_resp
-            
+
             with patch("biolmai.core.auth.ACCESS_TOK_PATH", str(cred_path)):
                 assert are_credentials_valid() is False
 
@@ -261,9 +264,9 @@ class TestTokenRefresh:
     def test_refresh_without_secret(self):
         """Test that refresh works without client_secret (public client)."""
         from biolmai.core.seqflow_auth import BiolmaiRequestHeaderProvider
-        
+
         provider = BiolmaiRequestHeaderProvider()
-        
+
         creds = {
             "access": "old_token",
             "refresh": "refresh_token_123",
@@ -272,15 +275,14 @@ class TestTokenRefresh:
             "client_id": "public_client",
             # No client_secret
         }
-        
+
         mock_response = Mock()
         mock_response.json.return_value = {"access_token": "new_token"}
         mock_response.raise_for_status = Mock()
-        
+
         with patch("httpx.post", return_value=mock_response):
             with patch.object(provider, "_load_credentials", return_value=creds):
                 with patch("builtins.open", create=True):
                     new_token = provider._refresh_token("refresh_token_123", creds)
-        
-        assert new_token == "new_token"
 
+        assert new_token == "new_token"

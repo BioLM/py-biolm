@@ -1,16 +1,12 @@
 """Tests for concurrent batch processing in BioLMApiClient."""
+
 import asyncio
-import sys
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 
 from biolmai.core.http import BioLMApiClient
-
-if sys.version_info < (3, 8):
-    from asynctest import CoroutineMock as AsyncMock
-else:
-    from unittest.mock import AsyncMock
 
 
 @pytest.fixture
@@ -40,7 +36,9 @@ async def test_concurrent_execution_and_result_order(monkeypatch, client):
         start_idx = items.index(batch[0])
         return {"results": [{"embeddings": [start_idx + j]} for j in range(len(batch))]}
 
-    monkeypatch.setattr(client, "_get_max_batch_size", AsyncMock(return_value=batch_size))
+    monkeypatch.setattr(
+        client, "_get_max_batch_size", AsyncMock(return_value=batch_size)
+    )
     monkeypatch.setattr(client, "_api_call", fake_api_call)
 
     results = await client.encode(items=items, stop_on_error=False)
@@ -72,7 +70,15 @@ async def test_semaphore_limits_concurrent_batches(monkeypatch, client):
             running -= 1
         batch = payload.get("items", payload.get("query", []))
         n = len(batch)
-        return type("Resp", (), {"status_code": 200, "headers": {"Content-Type": "application/json"}, "json": lambda: {"results": [{"x": i} for i in range(n)]}})()
+        return type(
+            "Resp",
+            (),
+            {
+                "status_code": 200,
+                "headers": {"Content-Type": "application/json"},
+                "json": lambda: {"results": [{"x": i} for i in range(n)]},
+            },
+        )()
 
     monkeypatch.setattr(client._http_client, "post", fake_post)
     monkeypatch.setattr(client, "_get_max_batch_size", AsyncMock(return_value=2))
@@ -199,7 +205,9 @@ async def test_list_of_lists_concurrent_and_order(monkeypatch, client):
         [{"sequence": "B"}],
         [{"sequence": "C"}],
     ]
-    results = await client._batch_call_autoschema_or_manual("encode", items, stop_on_error=False)
+    results = await client._batch_call_autoschema_or_manual(
+        "encode", items, stop_on_error=False
+    )
     assert len(results) == 3
     assert results[0]["ok"] == 0
     assert results[1]["ok"] == 0

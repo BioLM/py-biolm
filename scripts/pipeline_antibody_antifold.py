@@ -181,7 +181,7 @@ async def main() -> None:
     # Summary
     # ------------------------------------------------------------------
     print("\n=== Stage Summary ===")
-    for name, result in stage_results.items():
+    for _name, result in stage_results.items():
         print(f"  {result}")
 
     df_final = pipeline.get_final_data()
