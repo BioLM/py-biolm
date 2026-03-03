@@ -312,6 +312,28 @@ config = DirectGenerationConfig(
 )
 ```
 
+### MLM Remasking (ESM2)
+
+Iterative masked-LM refinement — mask positions, fill with ESM2, repeat:
+
+```python
+from biolmai.pipeline.mlm_remasking import RemaskingConfig
+
+config = RemaskingConfig(
+    model_name="esm2-650m",
+    mask_fraction=0.15,          # Mask 15% per round
+    num_iterations=3,            # 3 rounds of mask-predict-replace
+    temperature=1.0,
+)
+config.parent_sequence = "SNPYARGPNPTAASLEASAG..."
+config.num_variants = 10
+
+pipeline = GenerativePipeline(generation_configs=[config])
+pipeline.run()
+```
+
+The SDK builds masked sequences locally (inserting `<mask>` tokens), sends them to the ESM2 predict API, and decodes the returned logits with temperature/top-k/top-p sampling.
+
 ---
 
 ## Filters

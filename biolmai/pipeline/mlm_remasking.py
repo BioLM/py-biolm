@@ -203,47 +203,108 @@ class MLMRemasker:
             return "".join(seq_list), confidences
 
         else:
-            # Real API: send the original sequence + mask_positions as params.
-            # The API internally masks and infills; it rejects sequences that
-            # contain non-amino-acid characters such as '<mask>'.
+            # Build masked sequence client-side, send to API, decode logits.
+            masked_seq = self.create_masked_sequence(sequence, mask_positions)
+
             result = await self.api_client.predict(
-                items=[{"sequence": sequence}],
-                params={
-                    "mask_positions": mask_positions,
-                    "temperature": self.config.temperature,
-                    "top_k": self.config.top_k,
-                    "top_p": self.config.top_p,
-                },
+                items=[{"sequence": masked_seq}],
             )
 
-            # Extract predicted sequence and confidences
-            if isinstance(result, list) and len(result) > 0:
-                pred_result = result[0]
-
-                if isinstance(pred_result, dict):
-                    predicted_seq = pred_result.get("sequence")
-                    confidences = pred_result.get("confidences", {})
-
-                    if predicted_seq is None:
-                        raise ValueError(
-                            f"API result missing 'sequence' field. Got: {pred_result}"
-                        )
-
-                    return predicted_seq, confidences
-                else:
-                    # Result is not a dict, try to use it as a sequence
-                    predicted_seq = str(pred_result)
-                    if self.config.mask_token in predicted_seq:
-                        raise ValueError(
-                            f"API returned sequence still contains mask token: {predicted_seq}"
-                        )
-                    return predicted_seq, {}
-
-            else:
+            if not isinstance(result, list) or len(result) == 0:
                 raise ValueError(
-                    f"API returned empty or invalid result: {result}. "
-                    f"Expected list with at least one element."
+                    f"API returned empty or invalid result: {result}"
                 )
+
+            pred_result = result[0]
+            if not isinstance(pred_result, dict):
+                raise ValueError(
+                    f"API returned unexpected type: {type(pred_result)}"
+                )
+
+            # ESM2 returns {logits, sequence_tokens, vocab_tokens}
+            logits = pred_result.get("logits")
+            seq_tokens = pred_result.get("sequence_tokens")
+            vocab_tokens = pred_result.get("vocab_tokens")
+
+            if logits is not None and seq_tokens is not None and vocab_tokens is not None:
+                # Decode: fill mask positions from logits
+                return self._decode_logits(
+                    sequence, mask_positions, logits, seq_tokens, vocab_tokens
+                )
+
+            # Fallback: some models return a filled sequence directly
+            predicted_seq = pred_result.get("sequence")
+            if predicted_seq is not None:
+                confidences = pred_result.get("confidences", {})
+                return predicted_seq, confidences
+
+            raise ValueError(
+                f"API result missing both 'logits' and 'sequence'. "
+                f"Got keys: {list(pred_result.keys())}"
+            )
+
+    def _decode_logits(
+        self,
+        original_sequence: str,
+        mask_positions: list[int],
+        logits: list,
+        seq_tokens: list[str],
+        vocab_tokens: list[str],
+    ) -> tuple[str, dict[int, float]]:
+        """Decode logits at mask positions into amino acids.
+
+        Applies temperature scaling and optional top-k/top-p sampling.
+        """
+        logits_arr = np.array(logits, dtype=np.float64)
+        seq_list = list(original_sequence)
+        confidences: dict[int, float] = {}
+
+        # Map mask_positions (0-indexed in sequence) to token indices
+        # seq_tokens mirrors the sequence: ['M', 'K', '<mask>', ...]
+        for seq_pos in mask_positions:
+            if seq_pos >= len(seq_tokens):
+                continue
+
+            pos_logits = logits_arr[seq_pos]
+
+            # Temperature scaling
+            temp = self.config.temperature or 1.0
+            if temp != 1.0 and temp > 0:
+                pos_logits = pos_logits / temp
+
+            # Softmax
+            pos_logits = pos_logits - np.max(pos_logits)
+            probs = np.exp(pos_logits) / np.sum(np.exp(pos_logits))
+
+            # Top-k filtering
+            if self.config.top_k is not None and self.config.top_k > 0:
+                top_k_idx = np.argsort(probs)[::-1][: self.config.top_k]
+                mask = np.zeros_like(probs)
+                mask[top_k_idx] = 1.0
+                probs = probs * mask
+                probs = probs / (probs.sum() or 1.0)
+
+            # Top-p (nucleus) filtering
+            if self.config.top_p is not None and 0 < self.config.top_p < 1.0:
+                sorted_idx = np.argsort(probs)[::-1]
+                cumsum = np.cumsum(probs[sorted_idx])
+                cutoff = np.searchsorted(cumsum, self.config.top_p) + 1
+                keep = sorted_idx[:cutoff]
+                mask = np.zeros_like(probs)
+                mask[keep] = 1.0
+                probs = probs * mask
+                probs = probs / (probs.sum() or 1.0)
+
+            # Sample
+            chosen_idx = self.random.choices(range(len(vocab_tokens)), weights=probs, k=1)[0]
+            chosen_aa = vocab_tokens[chosen_idx]
+            confidence = float(probs[chosen_idx])
+
+            if seq_pos < len(seq_list):
+                seq_list[seq_pos] = chosen_aa
+                confidences[seq_pos] = confidence
+
+        return "".join(seq_list), confidences
 
     async def generate_variant(
         self, parent_sequence: str, iteration: int = 0
