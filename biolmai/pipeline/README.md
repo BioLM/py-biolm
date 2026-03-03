@@ -1,541 +1,198 @@
 # BioLM Pipeline System
 
-A comprehensive pipeline framework for biological sequence generation, prediction, and analysis.
+Multi-stage orchestration framework for protein sequence generation, prediction, and analysis.
 
 ## Features
 
-- **Three Pipeline Types**:
-  - `GenerativePipeline`: Generate sequences using language models
-  - `DataPipeline`: Process existing sequences with predictions
-  - `SingleStepPipeline`: Quick single-step predictions
-
-- **Advanced Capabilities**:
-  - Automatic caching and deduplication
-  - Async execution with rate limiting
-  - Temperature and parameter scanning
-  - Multi-model generation in parallel
-  - Stage dependencies and filtering
-  - Resumable pipelines
-  - Comprehensive visualizations
-
-- **Storage**:
-  - SQLite-based datastore
-  - Efficient caching of sequences, predictions, structures, and embeddings
-  - Lazy loading for large objects
+- **Multi-column input**: Antibody H+L chains, multi-chain proteins — `sequence` column not required
+- **Explicit extraction**: `ExtractionSpec` for predictions, `EmbeddingSpec` for embeddings — no heuristic guessing
+- **DuckDB-native**: WorkingSet transport, SQL filters with zero materialization, columnar storage
+- **Multi-model generation**: MPNN, ZymCTRL, DSM, ProGen2-OAS — all in one pipeline
+- **Caching + resume**: DuckDB prediction cache, stage completion tracking, trickle new sequences
+- **Pipeline context**: Inter-stage shared state backed by DuckDB
 
 ## Quick Start
 
-### Installation
-
-```bash
-pip install biolmai
-```
-
-### Single-Step Prediction
-
-```python
-from biolmai.pipeline import Predict
-
-# Quick prediction
-df = Predict('esmfold', sequences=['MKTAYIAKQRQ', 'MKLAVID'])
-print(df)
-```
-
-### Data Pipeline
-
 ```python
 from biolmai.pipeline import DataPipeline
-from biolmai.pipeline.filters import ThresholdFilter
+from biolmai.pipeline.filters import ThresholdFilter, RankingFilter
 
-# Load sequences and run predictions
-pipeline = DataPipeline(sequences='sequences.csv')
+pipeline = DataPipeline(sequences=["MKLLIV...", "ACDEFG..."])
 
-# Add prediction stages
-pipeline.add_prediction('esmfold', prediction_type='structure')
-pipeline.add_filter(ThresholdFilter('plddt', min_value=70))
-pipeline.add_prediction('temberture-regression', prediction_type='tm')
+pipeline.add_prediction(
+    "temberture-regression",
+    prediction_type="tm",
+    extractions="prediction",         # Required: which response key to read
+)
+pipeline.add_prediction(
+    "soluprot",
+    prediction_type="solubility",
+    extractions="soluble",
+)
+pipeline.add_filter(RankingFilter("tm", n=10, ascending=False),
+                    depends_on=["predict_tm", "predict_solubility"])
 
-# Run pipeline
-results = pipeline.run()
-
-# Get results
+pipeline.run()
 df = pipeline.get_final_data()
-pipeline.export_to_csv('results.csv')
-
-# Visualize
-from biolmai.pipeline.visualization import PipelinePlotter
-plotter = PipelinePlotter(pipeline)
-plotter.plot_funnel()
-plotter.plot_distribution('tm')
 ```
 
-### Generative Pipeline
+## Extraction
+
+Every prediction stage requires `extractions=` (predict/score) or `embedding_extractor=` (encode).
+
+### Predictions
 
 ```python
-from biolmai.pipeline import GenerativePipeline, GenerationConfig
+# String shorthand — response key = column name
+extractions="prediction"
 
-# Configure generation
-config1 = GenerationConfig(
-    model_name='proteinmpnn',
-    num_sequences=1000,
-    temperature=[0.5, 1.0, 1.5],  # Temperature scanning
-    parent_sequence='MKTAYIAKQRQ'
-)
+# Dict — response key → column name mapping
+extractions={"mean_plddt": "plddt", "ptm": "ptm"}
 
-config2 = GenerationConfig(
-    model_name='esm2',
-    num_sequences=500,
-    generation_method='remask',  # Masked language model
-    parent_sequence='MKTAYIAKQRQ',
-    mask_fraction=0.15
-)
-
-# Create pipeline
-pipeline = GenerativePipeline(
-    generation_configs=[config1, config2],
-    deduplicate=True
-)
-
-# Add downstream predictions
-pipeline.add_prediction('esmfold', prediction_type='structure')
-pipeline.add_filter(ThresholdFilter('plddt', min_value=70))
-pipeline.add_prediction('temberture-regression', prediction_type='tm')
-
-# Run
-results = pipeline.run()
-df = pipeline.get_final_data()
+# ExtractionSpec — with array reduction
+from biolmai.pipeline.data import ExtractionSpec
+extractions=[ExtractionSpec("plddt", "plddt", reduction="mean")]
 ```
+
+### Embeddings
+
+```python
+from biolmai.pipeline.data import EmbeddingSpec
+
+# Key lookup
+embedding_extractor=EmbeddingSpec(key="seqcoding")
+
+# Layer selection
+embedding_extractor=EmbeddingSpec(key="embeddings", layer=33)
+
+# Mean-pool per-token to single vector
+embedding_extractor=EmbeddingSpec(key="embeddings", layer=33, reduction="mean")
+
+# Custom callable: (dict) -> list[(np.ndarray, Optional[int])]
+embedding_extractor=lambda r: [(np.array(r["my_key"]), None)]
+```
+
+## Multi-Column Input
+
+```python
+import pandas as pd
+
+df = pd.DataFrame({
+    "heavy_chain": ["EVQLVES...", "QVQLQES..."],
+    "light_chain": ["DIQMTQS...", "SYELTQP..."],
+})
+
+pipeline = DataPipeline(
+    sequences=df,
+    input_columns=["heavy_chain", "light_chain"],
+)
+
+# Map columns to API fields
+pipeline.add_prediction("temberture-regression",
+    prediction_type="tm_heavy",
+    extractions="prediction",
+    item_columns={"sequence": "heavy_chain"},
+)
+```
+
+- Columns stored directly on DuckDB `sequences` table
+- Hash dedup across all input columns
+- `get_final_data()` and `export_to_dataframe()` include all columns
+
+## Generation Models
+
+```python
+from biolmai.pipeline import GenerativePipeline, DirectGenerationConfig
+
+configs = [
+    # Structure-conditioned (MPNN family)
+    DirectGenerationConfig(model_name="protein-mpnn", item_field="pdb",
+        structure_path="protein.pdb", params={"batch_size": 50, "temperature": 0.3}),
+
+    # Sequence-conditioned (DSM)
+    DirectGenerationConfig(model_name="dsm-650m-base", item_field="sequence",
+        sequence="MKTAYIAK...", params={"num_sequences": 20, "temperature": 1.0}),
+
+    # Enzyme (ZymCTRL) — conditioned on EC number
+    DirectGenerationConfig(model_name="zymctrl", item_field="ec_number",
+        sequence="3.1.1.101", params={"temperature": 1.0, "max_length": 300}),
+
+    # Antibody (ProGen2-OAS) — seeded from VH
+    DirectGenerationConfig(model_name="progen2-oas", item_field="context",
+        sequence="EVQLVES", params={"temperature": 1.0, "max_length": 120}),
+]
+
+pipeline = GenerativePipeline(generation_configs=configs, deduplicate=True)
+pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction")
+pipeline.run()
+```
+
+## Pipeline Context
+
+```python
+pipeline.context.set("experiment", "thermo_screen")
+pipeline.context.get("experiment")          # → "thermo_screen"
+pipeline.context.get_structure(seq_id)      # → structure from DuckDB
+```
+
+Backed by DuckDB, scoped per `run_id`, passed to stages via `kwargs["context"]`.
+
+## Filters
+
+| Filter | SQL-native | Description |
+|---|---|---|
+| `ThresholdFilter` | Yes | Min/max on prediction column |
+| `RankingFilter` | Yes | Top-N / bottom-N by column |
+| `SequenceLengthFilter` | Yes | Min/max sequence length |
+| `ValidAminoAcidFilter` | Yes | Remove non-standard residues (any column) |
+| `HammingDistanceFilter` | No | Distance to reference sequence |
+| `ConservedResidueFilter` | No | Required residues at positions |
+| `DiversitySamplingFilter` | No | Subsample for diversity |
+| `CustomFilter` | No | Any callable `(df) -> df` |
+
+SQL-native filters execute in DuckDB with zero DataFrame materialization.
 
 ## Architecture
 
-### Pipeline Flow
-
 ```
-[Initial Data] → [Stage 1] → [Stage 2] → ... → [Stage N] → [Final Results]
-     ↓              ↓            ↓                   ↓
-[DataStore: SQLite + Binary Files]
-```
-
-### Stage Types
-
-1. **Generation Stages**: Generate sequences using language models
-2. **Prediction Stages**: Run predictions (structure, stability, etc.)
-3. **Filter Stages**: Filter sequences by criteria
-4. **Custom Stages**: User-defined processing
-
-### DataStore Schema
-
-```
-sequences          → Deduplicated sequences with IDs
-predictions        → Prediction results (keyed by sequence_id)
-structures         → Structure files (PDB/CIF)
-embeddings         → Embedding arrays
-generation_metadata → Source model and params for generated sequences
-pipeline_runs      → Pipeline execution records
-stage_completions  → Completion markers for resumability
+sequences (list / CSV / FASTA / DataFrame)
+       |
+  DataPipeline._get_initial_data()
+       | (adds sequence_ids, stores in DuckDB)
+  BasePipeline.run_async()
+       |-- _resolve_dependencies() -> topological sort
+       |-- for each level:
+             |-- _execute_stage_ws(stage, WorkingSet)
+             |     stage.process_ws(ws, datastore, context=...)
+             |     -> (WorkingSet, StageResult)
+             |-- or asyncio.gather() for parallel stages
+       |
+  get_final_data() -> materialize_working_set() -> DataFrame
 ```
 
-## Advanced Features
+### DuckDB Schema
 
-### Temperature Scanning
-
-```python
-config = GenerationConfig(
-    model_name='proteinmpnn',
-    temperature=[0.1, 0.5, 1.0, 1.5, 2.0],  # Multiple temperatures
-    num_sequences=200  # Per temperature
-)
+```
+sequences           — sequence_id, sequence, length, hash, [input_columns...]
+predictions         — prediction_id, sequence_id, model_name, prediction_type, value
+embeddings          — embedding_id, sequence_id, model_name, layer, values (FLOAT[])
+structures          — structure_id, sequence_id, model_name, format, structure_data (BLOB)
+pipeline_runs       — run_id, pipeline_type, config, status
+stage_completions   — stage_id, run_id, stage_name, status, input/output counts
+pipeline_context    — run_id, key, value
+generation_metadata — metadata_id, sequence_id, model_name, temperature, ...
+filter_results      — filter_id, run_id, stage_name, sequence_id, passed
 ```
 
-### Stage Dependencies
-
-```python
-# Structure prediction must complete before downstream analysis
-pipeline.add_prediction('esmfold', stage_name='structure')
-pipeline.add_prediction('pro4s', stage_name='solubility', depends_on=['structure'])
-```
-
-### Filtering
-
-```python
-from biolmai.pipeline.filters import (
-    ThresholdFilter,
-    SequenceLengthFilter,
-    HammingDistanceFilter,
-    ConservedResidueFilter,
-    DiversitySamplingFilter
-)
-
-# Threshold filtering
-pipeline.add_filter(ThresholdFilter('tm', min_value=60))
-
-# Length filtering
-pipeline.add_filter(SequenceLengthFilter(min_length=50, max_length=500))
-
-# Sequence similarity
-pipeline.add_filter(HammingDistanceFilter('MKTAYIAKQRQ', max_distance=50))
-
-# Conserved residues (e.g., active site)
-pipeline.add_filter(ConservedResidueFilter({
-    107: ['H'],  # Position 107 must be H
-    109: ['H'],
-    126: ['H']
-}))
-
-# Diversity sampling
-pipeline.add_filter(DiversitySamplingFilter(
-    n_samples=1000,
-    method='top',
-    score_column='tm'
-))
-```
-
-### Masked Language Model Remasking
-
-```python
-config = GenerationConfig(
-    model_name='esm2',
-    num_sequences=1000,
-    generation_method='remask',
-    parent_sequence='MKTAYIAKQRQGHQAMAEIKQ',
-    mask_positions='auto',  # Auto-select positions
-    mask_fraction=0.15  # Mask 15% of residues
-)
-```
-
-### Resumability
-
-```python
-# Start pipeline
-pipeline = DataPipeline(sequences='sequences.csv', run_id='my_run')
-pipeline.add_prediction('esmfold')
-results = pipeline.run()
-
-# Later, resume from same run_id
-pipeline2 = DataPipeline(sequences='sequences.csv', run_id='my_run', resume=True)
-# Cached stages will be skipped
-```
-
-### Visualization
-
-```python
-from biolmai.pipeline.visualization import (
-    plot_pipeline_funnel,
-    plot_distribution,
-    plot_scatter,
-    plot_correlation_matrix,
-    plot_temperature_scan,
-    plot_embedding_pca,
-    plot_embedding_umap,
-    plot_sequence_diversity
-)
-
-# Pipeline funnel
-plot_pipeline_funnel(pipeline.stage_results)
-
-# Distribution plots
-plot_distribution(df, 'tm', title='Melting Temperature Distribution')
-plot_scatter(df, 'tm', 'plddt', color_col='temperature')
-
-# Temperature scanning
-plot_temperature_scan(df, 'tm', temperature_col='temperature')
-
-# Embeddings
-embeddings = ...  # Load from datastore
-plot_embedding_pca(embeddings, labels=df['temperature'])
-plot_embedding_umap(embeddings, labels=df['temperature'])
-
-# Sequence diversity
-plot_sequence_diversity(df, reference_sequence='MKTAYIAKQRQ')
-```
-
-## API Reference
-
-### DataStore
-
-```python
-from biolmai.pipeline import DataStore
-
-store = DataStore('pipeline.db', 'pipeline_data')
-
-# Sequences
-seq_id = store.add_sequence('MKTAYIAKQRQ')
-seq = store.get_sequence(seq_id)
-
-# Predictions
-store.add_prediction(seq_id, 'stability', 'ddg_predictor', 2.5)
-preds = store.get_predictions_by_sequence('MKTAYIAKQRQ')
-
-# Structures
-store.add_structure(seq_id, 'esmfold', pdb_string, plddt=85.2)
-struct = store.get_structure(structure_id)
-
-# Embeddings
-store.add_embedding(seq_id, 'esm2', embedding_array)
-embs = store.get_embeddings_by_sequence('MKTAYIAKQRQ')
-
-# Export
-df = store.export_to_dataframe()
-store.export_to_csv('results.csv')
-```
-
-### Pipeline Classes
-
-```python
-# Data Pipeline
-pipeline = DataPipeline(sequences=['MKTAYIAKQRQ'])
-pipeline.add_prediction('esmfold')
-pipeline.add_filter(filter_func)
-results = pipeline.run()
-
-# Generative Pipeline
-pipeline = GenerativePipeline(generation_configs=[config])
-pipeline.add_prediction('esmfold')
-results = pipeline.run()
-
-# Single-Step Pipeline
-pipeline = SingleStepPipeline('esmfold', sequences=['MKTAYIAKQRQ'])
-results = pipeline.run()
-
-# Convenience functions
-df = Predict('esmfold', sequences=['MKTAYIAKQRQ'])
-df = Embed('esm2', sequences=['MKTAYIAKQRQ'])
-df = Generate('proteinmpnn', num_sequences=100)
-```
-
-### Filters
-
-```python
-from biolmai.pipeline.filters import *
-
-# Threshold
-filter = ThresholdFilter('tm', min_value=60, max_value=100)
-
-# Length
-filter = SequenceLengthFilter(min_length=50, max_length=500)
-
-# Hamming distance
-filter = HammingDistanceFilter('MKTAYIAKQRQ', max_distance=50)
-
-# Conserved residues
-filter = ConservedResidueFilter({107: ['H'], 109: ['H']})
-
-# Diversity sampling
-filter = DiversitySamplingFilter(n_samples=1000, method='random')
-
-# Custom filter
-filter = CustomFilter(lambda df: df[df['tm'] > 60])
-
-# Combine filters
-filter = combine_filters(
-    ThresholdFilter('tm', min_value=60),
-    SequenceLengthFilter(min_length=100)
-)
-```
-
-## Examples
-
-See the `examples/` directory for complete examples:
-
-- `examples/simple_prediction.py`: Basic prediction pipeline
-- `examples/generative_pipeline.py`: Multi-model generation with temperature scanning
-- `examples/variant_selection.py`: Reproduce the carbonic anhydrase pipeline
-- `examples/embeddings_analysis.py`: Embedding generation and visualization
-
-## Performance Tips
-
-1. **Batch Size**: Adjust `batch_size` for API calls based on sequence length and model
-2. **Concurrency**: Set `max_concurrent` based on API rate limits
-3. **Caching**: Use persistent datastore for resumability
-4. **Filtering**: Apply filters early to reduce downstream computations
-5. **Deduplication**: Enable `deduplicate=True` for generative pipelines
-
-## Migration from pipeline_ex
-
-Old pattern (pipeline_ex):
-```python
-from pipeline_cache import StageCache
-
-stage = StageCache('output.csv', cache_name='stage', cache_columns=['result'])
-df_todo, df_cache = stage.get_todo(df_input)
-# ... compute results ...
-stage.update_cache(df_new, df_cache)
-stage.save(df_merged)
-```
-
-New pattern (pipeline):
-```python
-from biolmai.pipeline import DataPipeline
-
-pipeline = DataPipeline(sequences=df_input)
-pipeline.add_prediction('model_name', prediction_type='result')
-results = pipeline.run()
-df = pipeline.get_final_data()
-```
-
-## 🔮 Future Features (Planned)
-
-The following features are planned for future releases. Contributions welcome!
-
-### Hyperparameter Sweep & Grid Search
-
-Automatically sweep generation parameters to find optimal configurations:
-
-```python
-pipeline.add_grid_search(
-    model='esm2-650m',
-    params={
-        'temperature': [0.5, 1.0, 1.5],
-        'top_p': [0.9, 0.95],
-        'num_iterations': [5, 10]
-    },
-    objective='maximize',
-    metric_column='melting_temperature'
-)
-```
-
-**Status**: Planned for v0.3.0  
-**Use Case**: Optimize generation parameters for specific protein design tasks  
-**Benefit**: Reduce trial-and-error in finding best model settings
-
----
-
-### Active Learning Loop
-
-Iterative improvement using top-performing sequences as seeds for next round:
-
-```python
-pipeline.add_active_learning_stage(
-    cycles=5,
-    select_top_n=10,
-    model='protgpt2',
-    objective_filter=ThresholdFilter('stability', min_value=0.8)
-)
-```
-
-**Status**: Planned for v0.3.0  
-**Use Case**: Directed evolution with continuous refinement  
-**Benefit**: Converge faster on optimal sequences by learning from each iteration
-
-**Algorithm**:
-1. Generate initial sequences
-2. Evaluate with predictors
-3. Select top N performers
-4. Use as seeds for next generation
-5. Repeat for specified cycles
-
----
-
-### Ensemble Predictions
-
-Combine predictions from multiple models for improved reliability:
-
-```python
-pipeline.add_ensemble_prediction(
-    models=['esm2stabp', 'prostt5', 'thermonet'],
-    aggregation='weighted',
-    weights=[0.5, 0.3, 0.2],
-    stage_name='tm_consensus'
-)
-```
-
-**Status**: Under consideration  
-**Use Case**: Reduce prediction variance, improve accuracy  
-**Benefit**: More robust predictions by leveraging model diversity
-
-**Aggregation Methods**:
-- `vote`: Majority voting (classification)
-- `mean`: Average predictions
-- `weighted`: Weighted average
-- `max`/`min`: Conservative estimates
-
----
-
-### Structure Analysis Suite
-
-Comprehensive structure comparison and quality metrics:
-
-```python
-pipeline.add_structure_analysis(
-    reference_pdb='wildtype.pdb',
-    metrics=['rmsd', 'tm_score', 'secondary_structure', 'contact_density']
-)
-```
-
-**Status**: Under consideration  
-**Use Case**: Post-processing ESMFold/Boltz predictions  
-**Benefit**: Understand structural differences and quality
-
-**Metrics**:
-- RMSD to reference structure
-- TM-score for fold similarity
-- Secondary structure composition
-- Contact map comparison
-- Buried surface area
-- Binding site analysis
-
----
-
-### Gradient-Based Sequence Optimization
-
-Use model gradients to optimize sequences (for differentiable models):
-
-```python
-pipeline.add_gradient_optimization(
-    model='esm2-650m',
-    objective='maximize_binding_affinity',
-    steps=100,
-    learning_rate=0.01
-)
-```
-
-**Status**: Research phase  
-**Use Case**: Local optimization in sequence space  
-**Benefit**: More efficient than random search for fine-tuning
-
----
-
-### Database Integration
-
-Pull sequences from biological databases:
-
-```python
-pipeline.add_database_lookup(
-    database='uniprot',
-    query='organism:human AND reviewed:true',
-    fields=['sequence', 'function', 'go_terms'],
-    limit=1000
-)
-```
-
-**Status**: Under consideration  
-**Databases**: UniProt, PDB, Pfam, InterPro  
-**Benefit**: Leverage existing biological knowledge
-
----
-
-### Distributed Execution
-
-Scale to compute clusters:
-
-```python
-pipeline.run(
-    backend='ray',  # or 'dask', 'kubernetes'
-    num_workers=10,
-    resources_per_worker={'cpu': 4, 'gpu': 1}
-)
-```
-
-**Status**: Under consideration  
-**Use Case**: Process millions of sequences  
-**Benefit**: Horizontal scaling for large experiments
-
----
-
-## Contributing
-
-See CONTRIBUTING.md for development guidelines.
-
-## License
-
-MIT License - see LICENSE file for details.
+## Module Reference
+
+| File | Purpose |
+|---|---|
+| `base.py` | `BasePipeline`, `Stage`, `StageResult`, `WorkingSet`, `InputSchema`, `PipelineContext` |
+| `data.py` | `DataPipeline`, `PredictionStage`, `FilterStage`, `ClusteringStage`, `ExtractionSpec`, `EmbeddingSpec` |
+| `generative.py` | `GenerativePipeline`, `GenerationStage`, `DirectGenerationConfig`, `FoldingEntity` |
+| `datastore_duckdb.py` | `DuckDBDataStore` — all DuckDB operations |
+| `filters.py` | All filter classes + `combine_filters()` |
+| `mlm_remasking.py` | `MLMRemasker`, `RemaskingConfig` |
+| `clustering.py` | `SequenceClusterer`, `DiversityAnalyzer` |
+| `visualization.py` | `PipelinePlotter` |
