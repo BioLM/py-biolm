@@ -49,6 +49,7 @@ class RemaskingConfig:
     """
 
     model_name: str = "esm-150m"  # Default to ESM2 150M
+    action: str = "predict"  # API action: 'predict' for ESM2 (logits), 'generate' for DSM (filled seq)
     mask_fraction: float = 0.15
     mask_positions: Union[str, list[int]] = "auto"
     num_iterations: int = 1
@@ -183,9 +184,15 @@ class MLMRemasker:
         """
         Predict amino acids at masked positions.
 
+        Builds the masked sequence client-side (inserting ``config.mask_token``
+        at each position), sends it to the model's predict endpoint, and
+        decodes the returned logits with temperature/top-k/top-p sampling.
+
+        Falls back to reading a ``"sequence"`` key from the response if the
+        model returns a filled sequence directly instead of logits.
+
         Args:
-            sequence: Original (unmasked) sequence — the API receives the clean
-                sequence and mask_positions as a parameter; it never sees mask tokens.
+            sequence: Original (unmasked) sequence.
             mask_positions: 0-indexed positions to replace.
 
         Returns:
@@ -203,40 +210,60 @@ class MLMRemasker:
             return "".join(seq_list), confidences
 
         else:
-            # Build masked sequence client-side, send to API, decode logits.
+            # Build masked sequence client-side, send to API.
             masked_seq = self.create_masked_sequence(sequence, mask_positions)
 
-            result = await self.api_client.predict(
-                items=[{"sequence": masked_seq}],
-            )
+            # Call the configured action (predict for ESM2, generate for DSM)
+            action_fn = getattr(self.api_client, self.config.action)
+            if self.config.action == "generate":
+                result = await action_fn(
+                    items=[{"sequence": masked_seq}],
+                    params={"num_sequences": 1, "temperature": self.config.temperature},
+                )
+            else:
+                result = await action_fn(
+                    items=[{"sequence": masked_seq}],
+                )
 
             if not isinstance(result, list) or len(result) == 0:
                 raise ValueError(
                     f"API returned empty or invalid result: {result}"
                 )
 
+            # Unwrap: generate returns [[{...}]], predict returns [{...}]
             pred_result = result[0]
+            if isinstance(pred_result, list):
+                if not pred_result:
+                    raise ValueError("API returned empty nested list")
+                pred_result = pred_result[0]
+
             if not isinstance(pred_result, dict):
                 raise ValueError(
                     f"API returned unexpected type: {type(pred_result)}"
                 )
 
-            # ESM2 returns {logits, sequence_tokens, vocab_tokens}
+            # Path 1: Model returns filled sequence directly (DSM generate)
+            predicted_seq = pred_result.get("sequence")
+            if predicted_seq is not None and self.config.mask_token not in predicted_seq:
+                # Build confidences from log_prob if available
+                confidences: dict[int, float] = {}
+                log_prob = pred_result.get("log_prob")
+                if log_prob is not None:
+                    # Distribute log_prob evenly across mask positions as a proxy
+                    per_pos = abs(float(log_prob)) / max(len(mask_positions), 1)
+                    for pos in mask_positions:
+                        confidences[pos] = per_pos
+                return predicted_seq, confidences
+
+            # Path 2: Model returns logits (ESM2 predict)
             logits = pred_result.get("logits")
             seq_tokens = pred_result.get("sequence_tokens")
             vocab_tokens = pred_result.get("vocab_tokens")
 
             if logits is not None and seq_tokens is not None and vocab_tokens is not None:
-                # Decode: fill mask positions from logits
                 return self._decode_logits(
                     sequence, mask_positions, logits, seq_tokens, vocab_tokens
                 )
-
-            # Fallback: some models return a filled sequence directly
-            predicted_seq = pred_result.get("sequence")
-            if predicted_seq is not None:
-                confidences = pred_result.get("confidences", {})
-                return predicted_seq, confidences
 
             raise ValueError(
                 f"API result missing both 'logits' and 'sequence'. "
