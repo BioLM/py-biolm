@@ -105,6 +105,7 @@ def build_pipeline_batch2(db_path: Path, data_dir: Path, run_id: str):
     pipeline.add_prediction(
         "temberture-regression",
         prediction_type="tm",
+        extractions="melting_temperature",
         stage_name="predict_tm",
         depends_on=["prefilter_length"],
     )
@@ -147,6 +148,7 @@ def build_pipeline(db_path: Path, data_dir: Path, run_id: str, resume: bool = Fa
     pipeline.add_prediction(
         "temberture-regression",
         prediction_type="tm",
+        extractions="melting_temperature",
         stage_name="predict_tm",
         depends_on=["prefilter_length"],
     )

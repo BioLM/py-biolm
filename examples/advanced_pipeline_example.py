@@ -39,7 +39,7 @@ def example_1_parallel_predictions():
     # Add multiple predictions at once - they run in parallel!
     pipeline.add_predictions(
         [
-            "temberture",  # Tm prediction
+            "temberture-regression",  # Tm prediction
             "proteinmpnn",  # MPNN prediction
             "esm2",  # ESM2 prediction
         ]
@@ -279,7 +279,7 @@ def example_6_full_pipeline_with_new_features():
 
     # Stage 1: Multiple predictions in parallel
     print("\n1. Adding parallel predictions...")
-    pipeline.add_predictions(["temberture", "proteinmpnn", "esm2"])
+    pipeline.add_predictions(["temberture-regression", "proteinmpnn", "esm2"])
 
     # Stage 2: Rank and select top 10 by Tm (depends on predictions)
     print("2. Adding ranking filter...")
@@ -288,7 +288,7 @@ def example_6_full_pipeline_with_new_features():
     pipeline.add_filter(
         RankingFilter("tm", n=10, ascending=False),
         stage_name="rank_by_tm",
-        depends_on=["temberture_predict"],  # Wait for Tm prediction
+        depends_on=["predict_tm"],  # Wait for Tm prediction
     )
 
     # Stage 3: Sample 5 for further analysis (depends on ranking)

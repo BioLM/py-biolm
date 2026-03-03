@@ -19,6 +19,123 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 _logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class InputSchema:
+    """Describes the input columns for a pipeline.
+
+    When set, these columns are the primary data — ``sequence`` is not required.
+    Columns are stored directly on the ``sequences`` table via
+    ``ALTER TABLE ADD COLUMN`` so that ``materialize_working_set()``, SQL
+    filters, and ``item_columns`` all work via direct JOINs.
+
+    Hashing uses all columns (sorted alphabetically) joined with ``\\x00``
+    separators so that identical rows produce the same hash regardless of
+    column order.
+
+    Args:
+        columns: List of column names that comprise the primary input.
+    """
+
+    columns: list[str]
+
+    def hash_row(self, row: dict[str, str]) -> str:
+        """SHA-256 hash of the row values across all input columns (sorted)."""
+        import hashlib
+
+        parts = [str(row.get(c, "")) for c in sorted(self.columns)]
+        payload = "\x00".join(parts)
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+class PipelineContext:
+    """Shared key-value store backed by DuckDB for inter-stage communication.
+
+    Stages can read/write arbitrary data through the context. Common use
+    case: stage 1 predicts structures (stored in the ``structures`` table),
+    stage 2 reads them for structure-conditioned generation.
+
+    Args:
+        datastore: The pipeline's DuckDB datastore.
+        run_id: Current pipeline run ID.
+    """
+
+    def __init__(self, datastore: DataStore, run_id: str):
+        self._datastore = datastore
+        self._run_id = run_id
+
+    def set(self, key: str, value: Any):
+        """Store a value in the pipeline context table."""
+        self._datastore.set_context(self._run_id, key, value)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Retrieve a value from the pipeline context table."""
+        val = self._datastore.get_context(self._run_id, key)
+        return val if val is not None else default
+
+    def get_structure(self, sequence_id: int, model_name: Optional[str] = None) -> Optional[dict]:
+        """Convenience: fetch a structure from the datastore's structures table."""
+        return self._datastore.get_structure(sequence_id, model_name)
+
+    def get_structures_for_ws(
+        self, ws: "WorkingSet", model_name: Optional[str] = None
+    ) -> pd.DataFrame:
+        """Fetch structures for all sequences in a WorkingSet."""
+        ids = list(ws.sequence_ids)
+        df = self._datastore.get_structures_bulk(ids)
+        if model_name and not df.empty:
+            df = df[df["model_name"] == model_name]
+        return df
+
+
+@dataclass(frozen=True)
+class WorkingSet:
+    """Lightweight set of sequence IDs — replaces DataFrame as inter-stage transport.
+
+    Stages operate on DuckDB directly and pass only the set of surviving
+    sequence IDs to the next stage.  Materialization to DataFrame happens
+    once at ``get_final_data()`` time.
+
+    Memory: 1M IDs ≈ 28 MB (frozenset[int]) vs 500 MB+ DataFrame.
+    """
+
+    sequence_ids: frozenset[int]
+
+    # --- convenience helpers ---------------------------------------------------
+
+    def intersect(self, other: "WorkingSet") -> "WorkingSet":
+        """Return a new WorkingSet containing only IDs present in both sets."""
+        return WorkingSet(self.sequence_ids & other.sequence_ids)
+
+    def union(self, other: "WorkingSet") -> "WorkingSet":
+        """Return a new WorkingSet containing IDs from either set."""
+        return WorkingSet(self.sequence_ids | other.sequence_ids)
+
+    def difference(self, other: "WorkingSet") -> "WorkingSet":
+        """Return IDs in *self* but not in *other*."""
+        return WorkingSet(self.sequence_ids - other.sequence_ids)
+
+    def __len__(self) -> int:
+        return len(self.sequence_ids)
+
+    def __bool__(self) -> bool:
+        return bool(self.sequence_ids)
+
+    def __iter__(self):
+        return iter(self.sequence_ids)
+
+    def __contains__(self, item: int) -> bool:
+        return item in self.sequence_ids
+
+    @classmethod
+    def from_ids(cls, ids) -> "WorkingSet":
+        """Create from any iterable of ints."""
+        return cls(frozenset(int(i) for i in ids))
+
+    def to_list(self) -> list[int]:
+        """Return sorted list (useful for DuckDB queries)."""
+        return sorted(self.sequence_ids)
+
+
 @dataclass
 class StageResult:
     """Result from a pipeline stage."""
@@ -72,28 +189,78 @@ class Stage(ABC):
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     @abstractmethod
+    async def process_ws(
+        self, ws: "WorkingSet", datastore: DataStore, **kwargs
+    ) -> tuple["WorkingSet", StageResult]:
+        """Process data using WorkingSet (DuckDB-native).
+
+        All stages must implement this method.  Stages that need actual
+        sequence data (e.g. ClusteringStage) should call
+        ``datastore.materialize_working_set(ws)`` internally — that is
+        *the stage's* responsibility, not the pipeline's.
+
+        Args:
+            ws: Input WorkingSet (set of sequence IDs).
+            datastore: DataStore for reading/writing data.
+            **kwargs: Additional arguments (e.g. ``run_id``).
+
+        Returns:
+            Tuple of (output WorkingSet, StageResult).
+        """
+        pass
+
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
     ) -> tuple[pd.DataFrame, StageResult]:
-        """
-        Process data through this stage.
+        """Legacy DataFrame interface — used by streaming mode and GenerationStage.
 
-        Args:
-            df: Input DataFrame (must have 'sequence' and 'sequence_id' columns)
-            datastore: DataStore for caching
-            **kwargs: Additional arguments
-
-        Returns:
-            Tuple of (output_df, StageResult).  output_df is the DataFrame after
-            this stage has applied its transformation (predictions added, rows
-            filtered, cluster columns added, etc.).  Stages must NOT rely on
-            in-place mutation of the input df — return a new or filtered copy.
+        Subclasses may override this for backward compatibility or for cases
+        where a DataFrame is the natural input (e.g. generation with an empty df).
         """
-        pass
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement process()"
+        )
 
     def __repr__(self):
         deps = f", depends_on={self.depends_on}" if self.depends_on else ""
         return f"{self.__class__.__name__}('{self.name}'{deps})"
+
+
+@dataclass
+class PipelineMetadata:
+    """Metadata for a pipeline run — lets users retrieve and reuse cached results.
+
+    Attributes:
+        pipeline_id: Unique identifier for the pipeline's cache directory.
+        cache_dir: Path to the ``.biolm/pipelines/<id>`` cache directory.
+        db_path: Path to the DuckDB database file inside the cache directory.
+        run_id: The run ID for this execution (there can be multiple runs
+            sharing the same cache).
+
+    Example::
+
+        pipeline = DataPipeline(sequences=[...])
+        pipeline.run()
+        meta = pipeline.metadata
+        print(meta.pipeline_id)   # "20260302_143022_a1b2c3d4"
+        print(meta.cache_dir)     # ".biolm/pipelines/20260302_143022_a1b2c3d4"
+
+        # Later — reuse the same cache:
+        pipeline2 = DataPipeline(
+            sequences=new_seqs,
+            datastore=meta.db_path,   # or str(meta.cache_dir)
+            resume=True,
+        )
+    """
+
+    pipeline_id: str
+    cache_dir: Path
+    db_path: Path
+    run_id: str
+
+
+# Default cache root — lives alongside other dotfiles in the working directory
+_BIOLM_CACHE_ROOT = Path(".biolm") / "pipelines"
 
 
 class BasePipeline(ABC):
@@ -106,12 +273,18 @@ class BasePipeline(ABC):
     - Caching and resumability
     - Export and visualization
 
+    When no ``datastore`` is provided, the pipeline automatically creates a
+    DuckDB cache under ``.biolm/pipelines/<pipeline_id>/``.  The
+    ``pipeline_id`` (and full cache path) is exposed via :attr:`metadata` so
+    users can reconnect to the same cache in later sessions.
+
     Args:
-        datastore: DataStore instance for caching
-        run_id: Unique run identifier (auto-generated if not provided)
-        output_dir: Directory for outputs
-        resume: Whether to resume from previous run
-        verbose: Enable verbose output
+        datastore: DataStore instance, path to a DuckDB file, or ``None``
+            (auto-creates under ``.biolm/pipelines/``).
+        run_id: Unique run identifier (auto-generated if not provided).
+        output_dir: Directory for CSV/Parquet exports (default ``pipeline_outputs``).
+        resume: Whether to resume from a previous run.
+        verbose: Enable verbose output.
     """
 
     def __init__(
@@ -121,36 +294,61 @@ class BasePipeline(ABC):
         output_dir: Union[str, Path] = "pipeline_outputs",
         resume: bool = False,
         verbose: bool = True,
+        input_schema: Optional[InputSchema] = None,
     ):
+        self.run_id = run_id or self._generate_run_id()
+
         # Setup datastore
         if isinstance(datastore, DataStore):
             self.datastore = datastore
+            self._pipeline_id = self.run_id
+            self._cache_dir = Path(datastore.db_path).parent
         elif isinstance(datastore, (str, Path)):
             self.datastore = DataStore(datastore)
+            self._pipeline_id = self.run_id
+            self._cache_dir = Path(datastore).parent
         else:
-            # Auto-create datastore in output_dir
-            output_path = Path(output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
-            db_path = output_path / "pipeline.db"
-            data_dir = output_path / "pipeline_data"
+            # Auto-create under .biolm/pipelines/<pipeline_id>/
+            self._pipeline_id = self.run_id
+            cache_dir = _BIOLM_CACHE_ROOT / self._pipeline_id
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            self._cache_dir = cache_dir
+            db_path = cache_dir / "pipeline.duckdb"
+            data_dir = cache_dir / "data"
             self.datastore = DataStore(db_path, data_dir)
 
-        self.run_id = run_id or self._generate_run_id()
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.resume = resume
         self.verbose = verbose
+        self.input_schema = input_schema
+
+        # Pipeline context for inter-stage communication
+        self.context = PipelineContext(self.datastore, self.run_id)
 
         # Stage management
         self.stages: list[Stage] = []
         self.stage_results: dict[str, StageResult] = {}
-        self._stage_data: dict[str, pd.DataFrame] = {}  # Cache for stage outputs
+        # WorkingSet is now primary inter-stage transport
+        self._working_sets: dict[str, WorkingSet] = {}
+        # Legacy: kept for backward compat (populated lazily by get_final_data)
+        self._stage_data: dict[str, pd.DataFrame] = {}
 
         # Pipeline state
         self.pipeline_type = self.__class__.__name__
         self.status = "initialized"
         self.start_time = None
         self.end_time = None
+
+    @property
+    def metadata(self) -> PipelineMetadata:
+        """Return metadata for reconnecting to this pipeline's cache later."""
+        return PipelineMetadata(
+            pipeline_id=self._pipeline_id,
+            cache_dir=self._cache_dir,
+            db_path=Path(self.datastore.db_path),
+            run_id=self.run_id,
+        )
 
     @staticmethod
     def _generate_run_id() -> str:
@@ -215,17 +413,17 @@ class BasePipeline(ABC):
 
         return levels
 
-    def _reload_stage_output(
+    def _reload_stage_working_set(
         self,
         stage: Stage,
-        df_input: pd.DataFrame,
-    ) -> Optional[pd.DataFrame]:
-        """Reconstruct a stage's output DataFrame from the datastore (for resume).
+        ws_input: WorkingSet,
+    ) -> Optional[WorkingSet]:
+        """Reconstruct a stage's WorkingSet from the datastore (for resume).
 
-        Returns the reloaded DataFrame, or None if it cannot be reconstructed
+        Returns the reloaded WorkingSet, or None if it cannot be reconstructed
         (caller should then re-run the stage normally).
         """
-        if self.datastore is None or "sequence_id" not in df_input.columns:
+        if self.datastore is None:
             return None
         try:
             from biolmai.pipeline.data import (
@@ -236,45 +434,41 @@ class BasePipeline(ABC):
             from biolmai.pipeline.generative import GenerationStage
 
             if isinstance(stage, PredictionStage):
-                pred_df = self.datastore.get_predictions_bulk(
-                    df_input["sequence_id"].tolist(),
+                # IDs that have predictions = those that survived this stage
+                ids_with_pred = self.datastore.get_sequence_ids_with_prediction(
+                    list(ws_input.sequence_ids),
                     stage.prediction_type,
                     stage.model_name,
                 )
-                if pred_df.empty:
+                if not ids_with_pred:
                     return None
-                df = df_input.merge(
-                    pred_df[["sequence_id", "value"]].rename(
-                        columns={"value": stage.prediction_type}
-                    ),
-                    on="sequence_id",
-                    how="left",
-                )
-                return df[df[stage.prediction_type].notna()].copy()
+                return WorkingSet.from_ids(ids_with_pred)
 
             elif isinstance(stage, FilterStage):
                 passed_ids = self.datastore.get_filter_results(self.run_id, stage.name)
                 if not passed_ids:
                     return None
-                return df_input[df_input["sequence_id"].isin(set(passed_ids))].copy()
+                return WorkingSet.from_ids(passed_ids)
 
             elif isinstance(stage, ClusteringStage):
+                # Clustering doesn't filter — return same set
                 assignments = self.datastore.get_pipeline_metadata(
                     f"clustering_{stage.name}_assignments"
                 )
                 if assignments is None:
                     return None
-                df = df_input.copy()
-                df["cluster_id"] = df["sequence"].map(assignments)
-                df["is_centroid"] = False
-                return df
+                return ws_input  # same IDs, clustering adds columns at materialize time
 
             elif isinstance(stage, GenerationStage):
-                return self.datastore.export_to_dataframe(
+                # Generation creates new sequences — get all from datastore
+                df = self.datastore.export_to_dataframe(
                     include_sequences=True,
                     include_predictions=False,
                     include_generation_metadata=True,
                 )
+                if df.empty or "sequence_id" not in df.columns:
+                    return None
+                return WorkingSet.from_ids(df["sequence_id"].tolist())
 
         except Exception as exc:
             _logger.warning(
@@ -283,10 +477,25 @@ class BasePipeline(ABC):
 
         return None
 
-    async def _execute_stage(
-        self, stage: Stage, df_input: pd.DataFrame
-    ) -> tuple[pd.DataFrame, StageResult]:
-        """Execute a single stage."""
+    # Legacy compat: kept for tests that reference _reload_stage_output
+    def _reload_stage_output(
+        self,
+        stage: Stage,
+        df_input: pd.DataFrame,
+    ) -> Optional[pd.DataFrame]:
+        """Reconstruct a stage's output DataFrame from the datastore (for resume)."""
+        if self.datastore is None or "sequence_id" not in df_input.columns:
+            return None
+        ws_input = WorkingSet.from_ids(df_input["sequence_id"].tolist())
+        ws_out = self._reload_stage_working_set(stage, ws_input)
+        if ws_out is None:
+            return None
+        return self.datastore.materialize_working_set(ws_out)
+
+    async def _execute_stage_ws(
+        self, stage: Stage, ws_input: WorkingSet
+    ) -> tuple[WorkingSet, StageResult]:
+        """Execute a single stage using WorkingSet transport."""
         start_time = time.time()
 
         # Check if stage is already complete (resumability)
@@ -299,14 +508,14 @@ class BasePipeline(ABC):
             if self.verbose:
                 print(f"\n✓ Stage '{stage.name}' already complete — reloading from DB")
 
-            df_resumed = self._reload_stage_output(stage, df_input)
-            if df_resumed is not None:
+            ws_resumed = self._reload_stage_working_set(stage, ws_input)
+            if ws_resumed is not None:
                 if self.verbose:
-                    print(f"  Reloaded {len(df_resumed):,} rows")
-                return df_resumed, StageResult(
+                    print(f"  Reloaded {len(ws_resumed):,} sequences")
+                return ws_resumed, StageResult(
                     stage_name=stage.name,
-                    input_count=len(df_input),
-                    output_count=len(df_resumed),
+                    input_count=len(ws_input),
+                    output_count=len(ws_resumed),
                     elapsed_time=0.0,
                     metadata={"resumed": True},
                 )
@@ -317,14 +526,15 @@ class BasePipeline(ABC):
         if self.verbose:
             print(f"\n{'='*60}")
             print(f"Stage: {stage.name}")
-            print(f"Input: {len(df_input):,} sequences")
+            print(f"Input: {len(ws_input):,} sequences")
             if stage.depends_on:
                 print(f"Depends on: {', '.join(stage.depends_on)}")
 
-        # Execute stage — pass run_id for filter result persistence
-        df_out, result = await stage.process(
-            df_input, self.datastore, run_id=self.run_id
+        # Execute stage — all stages implement process_ws()
+        ws_out, result = await stage.process_ws(
+            ws_input, self.datastore, run_id=self.run_id, context=self.context
         )
+
         result.elapsed_time = time.time() - start_time
 
         # Mark stage complete
@@ -342,17 +552,17 @@ class BasePipeline(ABC):
             print(f"\n{result}")
             print(f"{'='*60}")
 
-        return df_out, result
+        return ws_out, result
 
     async def run_async(
-        self, enable_streaming: bool = False, **kwargs
+        self, enable_streaming: bool = True, **kwargs
     ) -> dict[str, StageResult]:
         """
         Run the pipeline asynchronously.
 
         Args:
-            enable_streaming: If True, stream results through per-sequence filters
-                            for better parallelism and lower latency.
+            enable_streaming: Stream prediction results through per-sequence
+                filters for better parallelism and lower latency (default True).
 
         Returns:
             Dict mapping stage names to StageResults
@@ -370,14 +580,14 @@ class BasePipeline(ABC):
         )
 
         try:
-            # Get initial data
-            df_current = await self._get_initial_data(**kwargs)
+            # Get initial data — returns WorkingSet
+            ws_current = await self._get_initial_data_ws(**kwargs)
 
             if self.verbose:
                 print(f"\n{'#'*60}")
                 print(f"# Pipeline: {self.pipeline_type}")
                 print(f"# Run ID: {self.run_id}")
-                print(f"# Initial sequences: {len(df_current):,}")
+                print(f"# Initial sequences: {len(ws_current):,}")
                 if enable_streaming:
                     print("# Streaming: ENABLED")
                 print(f"{'#'*60}")
@@ -415,22 +625,29 @@ class BasePipeline(ABC):
                     )
 
                     if can_stream:
-                        # STREAMING: Process and pass results incrementally
+                        # STREAMING: uses legacy DataFrame path
+                        df_current = self.datastore.materialize_working_set(ws_current)
                         df_out = await self._execute_stage_streaming(
                             stage, next_stage, df_current
                         )
                         self._stage_data[stage.name] = df_out
                         self._stage_data[next_stage.name] = df_out
-                        df_current = df_out
-                        # Mark both stages as processed
+                        if "sequence_id" in df_out.columns:
+                            ws_current = WorkingSet.from_ids(
+                                df_out["sequence_id"].tolist()
+                            )
+                        self._working_sets[stage.name] = ws_current
+                        self._working_sets[next_stage.name] = ws_current
                         processed_stages.add(stage.name)
                         processed_stages.add(next_stage.name)
                     else:
-                        # BATCHING: Wait for complete results
-                        df_out, result = await self._execute_stage(stage, df_current)
+                        # BATCHING: WorkingSet path
+                        ws_out, result = await self._execute_stage_ws(
+                            stage, ws_current
+                        )
                         self.stage_results[stage.name] = result
-                        self._stage_data[stage.name] = df_out
-                        df_current = df_out
+                        self._working_sets[stage.name] = ws_out
+                        ws_current = ws_out
                         processed_stages.add(stage.name)
                 else:
                     # Multiple stages in level - execute in parallel
@@ -438,53 +655,30 @@ class BasePipeline(ABC):
                         print(f"\nExecuting {len(level_stages)} stages in parallel...")
 
                     tasks = [
-                        self._execute_stage(stage, df_current) for stage in level_stages
+                        self._execute_stage_ws(stage, ws_current)
+                        for stage in level_stages
                     ]
                     results = await asyncio.gather(*tasks)
 
-                    # Bug #4 fix: use intersection of all parallel stage outputs so that
-                    # FilterStages in parallel don't silently expand the row set.
-                    # Collect per-stage results and compute the common sequence_id set.
-                    all_seq_id_sets = []
-                    for stage, (df_out, result) in zip(
-                        level_stages, results
-                    ):  # noqa: B007
+                    # Parallel merge = set intersection (was: DataFrame merge)
+                    all_working_sets = []
+                    for stage, (ws_out, result) in zip(level_stages, results):
                         self.stage_results[stage.name] = result
-                        self._stage_data[stage.name] = df_out
-                        if "sequence_id" in df_out.columns:
-                            all_seq_id_sets.append(set(df_out["sequence_id"].tolist()))
+                        self._working_sets[stage.name] = ws_out
+                        all_working_sets.append(ws_out)
 
-                    # Base: df_current rows whose sequence_id passed ALL parallel stages
-                    if all_seq_id_sets and "sequence_id" in df_current.columns:
-                        common_ids = all_seq_id_sets[0]
-                        for s in all_seq_id_sets[1:]:
-                            common_ids &= s
-                        merged_df = df_current[
-                            df_current["sequence_id"].isin(common_ids)
-                        ].copy()
+                    # Intersection of all parallel stage outputs
+                    if all_working_sets:
+                        ws_merged = all_working_sets[0]
+                        for ws in all_working_sets[1:]:
+                            ws_merged = ws_merged.intersect(ws)
+                        ws_current = ws_merged
                     else:
-                        merged_df = results[0][0].copy()
+                        ws_current = WorkingSet(frozenset())
 
-                    # Merge new columns from each stage onto the base
-                    for _stage, (df_out, _result) in zip(level_stages, results):
-                        new_cols = [
-                            c for c in df_out.columns if c not in merged_df.columns
-                        ]
-                        if (
-                            new_cols
-                            and "sequence_id" in merged_df.columns
-                            and "sequence_id" in df_out.columns
-                        ):
-                            merged_df = merged_df.merge(
-                                df_out[["sequence_id"] + new_cols],
-                                on="sequence_id",
-                                how="left",
-                            )
-                    df_current = merged_df
-                    # Update the last stage's _stage_data to the full merged result so that
-                    # get_final_data() returns all parallel-stage columns, not just one stage's.
+                    # Update the last stage's working set to the merged result
                     if level_stages:
-                        self._stage_data[level_stages[-1].name] = merged_df
+                        self._working_sets[level_stages[-1].name] = ws_current
 
             self.status = "completed"
             self.end_time = time.time()
@@ -494,7 +688,7 @@ class BasePipeline(ABC):
                 total_time = self.end_time - self.start_time
                 print(f"\n{'#'*60}")
                 print(f"# Pipeline completed in {total_time:.1f}s")
-                print(f"# Final sequences: {len(df_current):,}")
+                print(f"# Final sequences: {len(ws_current):,}")
                 print(f"{'#'*60}\n")
 
             return self.stage_results
@@ -504,6 +698,17 @@ class BasePipeline(ABC):
             self.end_time = time.time()
             self.datastore.update_pipeline_run_status(self.run_id, "failed")
             raise
+
+    async def _get_initial_data_ws(self, **kwargs) -> WorkingSet:
+        """Get initial WorkingSet for the pipeline.
+
+        Default implementation calls the legacy _get_initial_data() and converts.
+        Subclasses can override for a more efficient direct path.
+        """
+        df = await self._get_initial_data(**kwargs)
+        if "sequence_id" in df.columns:
+            return WorkingSet.from_ids(df["sequence_id"].tolist())
+        return WorkingSet(frozenset())
 
     def _get_next_stage(
         self, current_stage: Stage, stage_levels: list[list[Stage]], current_level: int
@@ -589,6 +794,16 @@ class BasePipeline(ABC):
             filtered_count=filtered_count,
         )
 
+        # Persist filter results so resume can reload the filter stage output
+        if (
+            self.datastore
+            and isinstance(next_stage, FilterStage)
+            and "sequence_id" in df_out.columns
+        ):
+            self.datastore.save_filter_results(
+                self.run_id, next_stage.name, df_out["sequence_id"].tolist()
+            )
+
         # Bug #1 fix: mark both stages complete so resume logic works correctly
         if self.datastore:
             stage_id = f"{self.run_id}_{stage.name}"
@@ -618,7 +833,7 @@ class BasePipeline(ABC):
 
         return df_out
 
-    def run(self, enable_streaming: bool = False, **kwargs) -> dict[str, StageResult]:
+    def run(self, enable_streaming: bool = True, **kwargs) -> dict[str, StageResult]:
         """
         Run the pipeline synchronously.
 
@@ -652,12 +867,25 @@ class BasePipeline(ABC):
         }
 
     def get_final_data(self) -> pd.DataFrame:
-        """Get the final output DataFrame."""
-        if not self._stage_data:
+        """Get the final output DataFrame.
+
+        Materializes from the last stage's WorkingSet via DuckDB.
+        Falls back to legacy _stage_data if WorkingSet is not available.
+        """
+        if not self._working_sets and not self._stage_data:
             raise RuntimeError("Pipeline has not been run yet")
 
-        # Return data from the last stage
         last_stage_name = self.stages[-1].name
+
+        # Primary path: materialize from WorkingSet
+        if last_stage_name in self._working_sets:
+            ws = self._working_sets[last_stage_name]
+            # Check if we already have a cached df (from legacy stage)
+            if last_stage_name in self._stage_data:
+                return self._stage_data[last_stage_name]
+            return self.datastore.materialize_working_set(ws)
+
+        # Legacy fallback
         return self._stage_data.get(last_stage_name, pd.DataFrame())
 
     def export_to_csv(self, output_path: Optional[Union[str, Path]] = None):

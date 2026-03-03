@@ -54,6 +54,7 @@ from biolmai.pipeline import (
     DuckDBDataStore,
     GenerativePipeline,
     ThresholdFilter,
+    ValidAminoAcidFilter,
 )
 from biolmai.pipeline.data import DataPipeline, PredictionStage
 
@@ -103,18 +104,7 @@ LP_LOOSE = -190.0  # run 3: relax to log_prob ≥ -190                  (~top 45
 # ---------------------------------------------------------------------------
 # Shared helper: attach LP + ESMFold stages to any GenerativePipeline
 # ---------------------------------------------------------------------------
-_STANDARD_AA = set("ACDEFGHIKLMNPQRSTVWY")
-
-
-def _valid_aa_filter(df):
-    """Keep only sequences composed entirely of standard amino acids."""
-    mask = df["sequence"].apply(lambda s: all(c in _STANDARD_AA for c in str(s)))
-    n_removed = (~mask).sum()
-    if n_removed:
-        print(
-            f"  [seq_validation] Removed {n_removed} sequences with non-standard residues"
-        )
-    return df[mask].copy()
+_VALID_AA_FILTER = ValidAminoAcidFilter()
 
 
 def _add_downstream_stages(
@@ -127,7 +117,7 @@ def _add_downstream_stages(
     # Some DSM models (e.g. dsm-650m-base) can output mask tokens or rare
     # residues that esmc-300m's score endpoint rejects.
     pipeline.add_filter(
-        filter_func=_valid_aa_filter,
+        filter_func=_VALID_AA_FILTER,
         stage_name="seq_validation",
         depends_on=["generation"],
     )
@@ -136,6 +126,7 @@ def _add_downstream_stages(
         model_name=LP_MODEL,
         action="score",
         prediction_type=LP_PRED_TYPE,
+        extractions="log_prob",
         stage_name="lp_scoring",
         depends_on=["seq_validation"],
         batch_size=64,
@@ -154,7 +145,7 @@ def _add_downstream_stages(
     pipeline.add_prediction(
         model_name="esmfold",
         action="predict",
-        prediction_type="plddt",
+        extractions={"mean_plddt": "plddt"},
         stage_name="esmfold",
         depends_on=["lp_filter"],
         batch_size=4,

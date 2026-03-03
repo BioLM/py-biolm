@@ -36,7 +36,7 @@ pip install pandas numpy tqdm matplotlib seaborn scikit-learn umap-learn
 from biolmai.pipeline import Predict
 
 # Quick prediction - one line!
-df = Predict('temberture', sequences=[
+df = Predict('temberture-regression', sequences=[
     'MKTAYIAKQRQGHQAMAEIKQ',
     'MKLAVIDSAQRQGHQAMAEIKQ'
 ])
@@ -62,7 +62,7 @@ pipeline = DataPipeline(sequences=sequences)
 
 # Add stages
 pipeline.add_filter(SequenceLengthFilter(min_length=20))
-pipeline.add_prediction('temberture', prediction_type='tm')
+pipeline.add_prediction('temberture-regression', prediction_type='tm')
 pipeline.add_filter(ThresholdFilter('tm', min_value=50))
 
 # Run
@@ -94,7 +94,7 @@ config = GenerationConfig(
 pipeline = GenerativePipeline(generation_configs=[config])
 
 # Add downstream predictions and filters
-pipeline.add_prediction('temberture', prediction_type='tm')
+pipeline.add_prediction('temberture-regression', prediction_type='tm')
 pipeline.add_filter(ThresholdFilter('tm', min_value=60))
 
 # Run
@@ -119,7 +119,7 @@ Three types:
 ### 2. Stages
 
 Stages are processing steps:
-- **Prediction stages**: Run models (esmfold, temberture, etc.)
+- **Prediction stages**: Run models (esmfold, temberture-regression, etc.)
 - **Filter stages**: Filter sequences by criteria
 - **Custom stages**: Your own processing
 
@@ -221,7 +221,7 @@ config1 = GenerationConfig(model_name='proteinmpnn', num_sequences=500)
 config2 = GenerationConfig(model_name='ligandmpnn', num_sequences=500)
 
 pipeline = GenerativePipeline(generation_configs=[config1, config2])
-pipeline.add_prediction('temberture', prediction_type='tm')
+pipeline.add_prediction('temberture-regression', prediction_type='tm')
 
 results = pipeline.run()
 ```
@@ -273,7 +273,7 @@ results = pipeline.run()
 from biolmai.pipeline.filters import DiversitySamplingFilter
 
 pipeline = GenerativePipeline(generation_configs=[config])
-pipeline.add_prediction('temberture', prediction_type='tm')
+pipeline.add_prediction('temberture-regression', prediction_type='tm')
 
 # Sample top 100 by Tm
 pipeline.add_filter(
@@ -363,7 +363,7 @@ seq_id = store.add_sequence('MKTAYIAKQRQ')
 
 # Add predictions
 store.add_prediction(seq_id, 'stability', 'ddg_predictor', 2.5)
-store.add_prediction(seq_id, 'tm', 'temberture', 65.3)
+store.add_prediction(seq_id, 'tm', 'temberture-regression', 65.3)
 
 # Query predictions
 preds = store.get_predictions_by_sequence('MKTAYIAKQRQ')
@@ -389,7 +389,7 @@ pipeline = DataPipeline(
     output_dir='my_output'
 )
 pipeline.add_prediction('esmfold')
-pipeline.add_prediction('temberture')
+pipeline.add_prediction('temberture-regression')
 
 # Run (might take a while)
 results = pipeline.run()
@@ -403,7 +403,7 @@ pipeline2 = DataPipeline(
     resume=True  # Enable resuming
 )
 pipeline2.add_prediction('esmfold')  # Will be skipped (already complete)
-pipeline2.add_prediction('temberture')  # Will be skipped (already complete)
+pipeline2.add_prediction('temberture-regression')  # Will be skipped (already complete)
 pipeline2.add_prediction('pro4s')  # Will run (new stage)
 
 results = pipeline2.run()
@@ -476,7 +476,7 @@ pipeline.add_prediction(
 )
 
 pipeline.add_prediction(
-    'temberture',
+    'temberture-regression',
     batch_size=128,  # Larger for fast predictions
     max_concurrent=10
 )

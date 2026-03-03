@@ -4,7 +4,15 @@ BioLM Pipeline System
 A comprehensive pipeline framework for biological sequence generation, prediction, and analysis.
 """
 
-from biolmai.pipeline.base import BasePipeline, Stage, StageResult
+from biolmai.pipeline.base import (
+    BasePipeline,
+    InputSchema,
+    PipelineContext,
+    PipelineMetadata,
+    Stage,
+    StageResult,
+    WorkingSet,
+)
 from biolmai.pipeline.clustering import (
     ClusteringResult,
     DiversityAnalyzer,
@@ -16,6 +24,7 @@ from biolmai.pipeline.data import (
     CofoldingPredictionStage,
     DataPipeline,
     Embed,
+    ExtractionSpec,
     Predict,
     SingleStepPipeline,
 )
@@ -26,6 +35,7 @@ from biolmai.pipeline.filters import (
     RankingFilter,
     SequenceLengthFilter,
     ThresholdFilter,
+    ValidAminoAcidFilter,
 )
 from biolmai.pipeline.generative import (
     DirectGenerationConfig,
@@ -56,6 +66,10 @@ __all__ = [
     "BasePipeline",
     "Stage",
     "StageResult",
+    "WorkingSet",
+    "InputSchema",
+    "PipelineContext",
+    "PipelineMetadata",
     "GenerativePipeline",
     "GenerationConfig",
     "DirectGenerationConfig",
@@ -74,6 +88,8 @@ __all__ = [
     "SequenceLengthFilter",
     "RankingFilter",
     "CustomFilter",
+    "ValidAminoAcidFilter",
+    "ExtractionSpec",
     "MLMRemasker",
     "RemaskingConfig",
     "CONSERVATIVE_CONFIG",

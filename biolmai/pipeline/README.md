@@ -53,7 +53,7 @@ pipeline = DataPipeline(sequences='sequences.csv')
 # Add prediction stages
 pipeline.add_prediction('esmfold', prediction_type='structure')
 pipeline.add_filter(ThresholdFilter('plddt', min_value=70))
-pipeline.add_prediction('temberture', prediction_type='tm')
+pipeline.add_prediction('temberture-regression', prediction_type='tm')
 
 # Run pipeline
 results = pipeline.run()
@@ -99,7 +99,7 @@ pipeline = GenerativePipeline(
 # Add downstream predictions
 pipeline.add_prediction('esmfold', prediction_type='structure')
 pipeline.add_filter(ThresholdFilter('plddt', min_value=70))
-pipeline.add_prediction('temberture', prediction_type='tm')
+pipeline.add_prediction('temberture-regression', prediction_type='tm')
 
 # Run
 results = pipeline.run()

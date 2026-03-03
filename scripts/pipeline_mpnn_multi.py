@@ -132,6 +132,7 @@ async def main() -> None:
         model_name="temberture-regression",
         action="predict",
         prediction_type="tm",
+        extractions="melting_temperature",
         stage_name="temberture",
         depends_on=["generation"],
         batch_size=32,

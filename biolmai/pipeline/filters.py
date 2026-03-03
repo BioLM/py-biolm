@@ -6,6 +6,7 @@ Filters can be:
 - Aggregate: Require all data before filtering (must batch)
 """
 
+import re
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
@@ -36,6 +37,27 @@ class BaseFilter(ABC):
             Filtered DataFrame
         """
         pass
+
+    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+        """Return a complete SQL SELECT that yields surviving ``sequence_id`` values.
+
+        The query **must** be scoped to the working set by JOINing with
+        *ws_table* (a registered DuckDB table with a single ``sequence_id``
+        column).  This ensures ranking/limit operations apply only to the
+        current pipeline rows, not the entire datastore.
+
+        Example return value::
+
+            SELECT w.sequence_id
+            FROM _filter_ws w
+            INNER JOIN predictions p ON w.sequence_id = p.sequence_id
+            WHERE p.prediction_type = 'tm' AND p.value >= 60.0
+
+        Returns ``None`` (default) when the filter cannot be expressed as SQL.
+        Filters that return ``None`` will be executed via DataFrame
+        materialization.
+        """
+        return None
 
     @abstractmethod
     def __repr__(self) -> str:
@@ -95,6 +117,24 @@ class ThresholdFilter(BaseFilter):
 
         return df[mask].copy()
 
+    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+        conditions = []
+        if self.min_value is not None:
+            conditions.append(f"p.value >= {self.min_value}")
+        if self.max_value is not None:
+            conditions.append(f"p.value <= {self.max_value}")
+        if not self.keep_na:
+            conditions.append("p.value IS NOT NULL")
+        if not conditions:
+            return None
+        where = " AND ".join(conditions)
+        col = self.column.replace("'", "''")
+        return (
+            f"SELECT w.sequence_id FROM {ws_table} w "
+            f"INNER JOIN predictions p ON w.sequence_id = p.sequence_id "
+            f"WHERE p.prediction_type = '{col}' AND {where}"
+        )
+
     def __repr__(self):
         parts = [f"column='{self.column}'"]
         if self.min_value is not None:
@@ -137,6 +177,21 @@ class SequenceLengthFilter(BaseFilter):
             mask &= lengths <= self.max_length
 
         return df[mask].copy()
+
+    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+        conditions = []
+        if self.min_length is not None:
+            conditions.append(f"s.length >= {self.min_length}")
+        if self.max_length is not None:
+            conditions.append(f"s.length <= {self.max_length}")
+        if not conditions:
+            return None
+        where = " AND ".join(conditions)
+        return (
+            f"SELECT w.sequence_id FROM {ws_table} w "
+            f"INNER JOIN sequences s ON w.sequence_id = s.sequence_id "
+            f"WHERE {where}"
+        )
 
     def __repr__(self):
         parts = []
@@ -317,6 +372,19 @@ class RankingFilter(BaseFilter):
             else:
                 return df_clean.nlargest(min(self.n, len(df_clean)), self.column).copy()
 
+    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+        if self.method == "percentile":
+            return None  # percentile requires computing quantile — not trivially SQL
+        col = self.column.replace("'", "''")
+        order = "ASC" if (self.method == "bottom" or self.ascending) else "DESC"
+        return (
+            f"SELECT p.sequence_id "
+            f"FROM {ws_table} w "
+            f"INNER JOIN predictions p ON w.sequence_id = p.sequence_id "
+            f"WHERE p.prediction_type = '{col}' AND p.value IS NOT NULL "
+            f"ORDER BY p.value {order} LIMIT {self.n}"
+        )
+
     def __repr__(self):
         if self.method == "percentile":
             return f"RankingFilter(column='{self.column}', percentile={self.percentile}, ascending={self.ascending})"
@@ -452,7 +520,7 @@ class DiversitySamplingFilter(BaseFilter):
                 return df_already_sampled.head(self.n_samples)
             else:
                 # Need to add more from unsampled
-                df_unsampled = df[not df[self._sampled_marker_col]].copy()
+                df_unsampled = df[~df[self._sampled_marker_col]].copy()
                 n_needed = self.n_samples - n_already
 
                 if len(df_unsampled) > 0:
@@ -527,6 +595,60 @@ class DiversitySamplingFilter(BaseFilter):
 
     def __repr__(self):
         return f"DiversitySamplingFilter(n={self.n_samples}, method='{self.method}')"
+
+
+class ValidAminoAcidFilter(BaseFilter):
+    """
+    Filter sequences to only those composed of valid amino acid characters.
+
+    Uses vectorized regex matching via ``str.match()`` (C-level regex engine),
+    which is ~100x faster than ``.apply(lambda)`` at million-sequence scale.
+
+    Args:
+        alphabet: String of allowed characters (default: 20 standard amino acids)
+        verbose: If True, print count of removed sequences
+
+    Example:
+        >>> filter = ValidAminoAcidFilter()
+        >>> df_filtered = filter(df)
+    """
+
+    def __init__(
+        self,
+        alphabet: str = "ACDEFGHIKLMNPQRSTVWY",
+        verbose: bool = True,
+        column: str = "sequence",
+    ):
+        self.alphabet = alphabet
+        self.verbose = verbose
+        self.column = column
+        self.pattern = re.compile(f"^[{re.escape(alphabet)}]+$")
+
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        if self.column not in df.columns:
+            raise ValueError(f"DataFrame must have '{self.column}' column")
+
+        mask = df[self.column].str.match(self.pattern)
+        n_removed = (~mask).sum()
+        if n_removed and self.verbose:
+            print(
+                f"  [ValidAminoAcidFilter] Removed {n_removed} sequences "
+                f"with characters outside '{self.alphabet}' (column='{self.column}')"
+            )
+        return df[mask].copy()
+
+    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+        escaped = re.escape(self.alphabet)
+        col = self.column.replace('"', '""')
+        return (
+            f"SELECT w.sequence_id FROM {ws_table} w "
+            f"INNER JOIN sequences s ON w.sequence_id = s.sequence_id "
+            f'WHERE regexp_matches(s."{col}", \'^[{escaped}]+$\')'
+        )
+
+    def __repr__(self):
+        col_str = f", column='{self.column}'" if self.column != "sequence" else ""
+        return f"ValidAminoAcidFilter(alphabet='{self.alphabet}'{col_str})"
 
 
 # Utility function to combine filters

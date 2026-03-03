@@ -9,16 +9,21 @@ Key features:
 - Diff-mode friendly batch inserts
 """
 
+from __future__ import annotations
+
 import gzip
 import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import duckdb
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from biolmai.pipeline.base import WorkingSet
 
 
 class DuckDBDataStore:
@@ -38,7 +43,7 @@ class DuckDBDataStore:
     Example:
         >>> ds = DuckDBDataStore("pipeline.db", "data/")
         >>> seq_id = ds.add_sequence("MKLLIV")
-        >>> ds.add_prediction(seq_id, "tm", "temberture", 65.5)
+        >>> ds.add_prediction(seq_id, "tm", "temberture-regression", 65.5)
         >>>
         >>> # Efficient query - no memory explosion
         >>> high_tm = ds.query("SELECT * FROM predictions WHERE value > 60")
@@ -286,26 +291,200 @@ class DuckDBDataStore:
         ).fetchone()
         self._filter_id_counter = (result[0] or 0) + 1
 
+        # Sequence attributes table — stores extra per-sequence columns from
+        # the input DataFrame (e.g. heavy_chain, light_chain for antibody models).
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sequence_attributes (
+                sequence_id  INTEGER NOT NULL,
+                attr_name    TEXT NOT NULL,
+                attr_value   TEXT,
+                PRIMARY KEY (sequence_id, attr_name)
+            )
+        """
+        )
+
+        # Pipeline context table — inter-stage shared key-value store
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_context (
+                run_id  TEXT NOT NULL,
+                key     TEXT NOT NULL,
+                value   TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (run_id, key)
+            )
+        """
+        )
+
+        # Track which extra columns have been added to the sequences table
+        self._extra_columns: set[str] = set()
+        # Discover columns already present (for resume / re-open)
+        cols_info = self.conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'sequences'"
+        ).fetchall()
+        base_cols = {"sequence_id", "sequence", "length", "hash", "created_at"}
+        for (col_name,) in cols_info:
+            if col_name not in base_cols:
+                self._extra_columns.add(col_name)
+
     @staticmethod
     def _hash_sequence(sequence: str) -> str:
         """Create hash of sequence for deduplication."""
         return hashlib.sha256(sequence.encode()).hexdigest()[:16]
 
+    @staticmethod
+    def _hash_row(values: dict[str, str]) -> str:
+        """Hash multiple column values for multi-column deduplication.
+
+        Columns are sorted alphabetically; values joined with ``\\x00``.
+        """
+        parts = [str(values.get(c, "")) for c in sorted(values.keys())]
+        payload = "\x00".join(parts)
+        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    def ensure_input_columns(self, columns: list[str]):
+        """Ensure the ``sequences`` table has all the given columns.
+
+        Uses ``ALTER TABLE ADD COLUMN`` for any that don't already exist.
+        This is idempotent — safe to call on every pipeline run.
+        """
+        for col in columns:
+            if col in self._extra_columns:
+                continue
+            # Don't add columns that are part of the base schema
+            if col in ("sequence_id", "sequence", "length", "hash", "created_at"):
+                continue
+            try:
+                self.conn.execute(
+                    f'ALTER TABLE sequences ADD COLUMN "{col}" TEXT'
+                )
+            except Exception:
+                pass  # Column already exists
+            self._extra_columns.add(col)
+
     def add_sequences_batch(
-        self, sequences: list[str], deduplicate: bool = True
+        self,
+        sequences: Optional[list[str]] = None,
+        deduplicate: bool = True,
+        input_df: Optional[pd.DataFrame] = None,
+        input_columns: Optional[list[str]] = None,
     ) -> list[int]:
         """
         Add multiple sequences efficiently using anti-join deduplication.
 
         This is the RECOMMENDED way to add sequences - vectorized and fast!
 
+        Two calling conventions:
+
+        1. **Legacy** (sequence-only):
+           ``add_sequences_batch(["MKLLIV", ...])``
+
+        2. **Multi-column** (arbitrary input columns):
+           ``add_sequences_batch(input_df=df, input_columns=["heavy_chain", "light_chain"])``
+           In this mode, the hash is computed across all input columns, and
+           the column values are stored directly on the ``sequences`` table.
+           A ``sequence`` column is still written (concatenation of all
+           input columns joined with ``:``) so downstream code has a fallback.
+
         Args:
-            sequences: List of sequence strings
-            deduplicate: Use anti-join to skip existing sequences
+            sequences: List of sequence strings (legacy path).
+            deduplicate: Use anti-join to skip existing sequences.
+            input_df: DataFrame with input columns (multi-column path).
+            input_columns: Column names in *input_df* to use as primary data.
 
         Returns:
-            List of sequence_ids (new and existing)
+            List of sequence_ids (new and existing), preserving input order.
         """
+        # ----- Multi-column path ------------------------------------------------
+        if input_df is not None and input_columns is not None:
+            if input_df.empty:
+                return []
+
+            # Validate input columns exist in DataFrame
+            missing = [c for c in input_columns if c not in input_df.columns]
+            if missing:
+                raise ValueError(
+                    f"input_df missing columns: {missing}. "
+                    f"Available: {list(input_df.columns)}"
+                )
+
+            # Ensure sequences table has the needed columns
+            self.ensure_input_columns(input_columns)
+
+            # Build df_new with hash across all input columns
+            df_new = input_df[input_columns].copy()
+            df_new["hash"] = df_new.apply(
+                lambda row: self._hash_row(
+                    {c: row[c] for c in input_columns}
+                ),
+                axis=1,
+            )
+            # Synthesize a 'sequence' column for compatibility
+            if "sequence" in input_columns:
+                df_new["sequence"] = input_df["sequence"]
+            else:
+                df_new["sequence"] = df_new[input_columns].astype(str).agg(
+                    ":".join, axis=1
+                )
+            df_new["length"] = df_new["sequence"].str.len()
+
+            # Dedup within batch
+            original_hashes = df_new["hash"].tolist()
+            df_new = df_new.drop_duplicates(subset=["hash"], keep="first")
+
+            self.conn.register("_seq_batch", df_new)
+            try:
+                if deduplicate:
+                    df_to_insert = self.conn.execute(
+                        """
+                        SELECT s.*
+                        FROM _seq_batch s
+                        LEFT JOIN sequences t ON s.hash = t.hash
+                        WHERE t.hash IS NULL
+                    """
+                    ).df()
+                else:
+                    df_to_insert = df_new.copy()
+
+                if len(df_to_insert) > 0:
+                    start_id = self._sequence_counter
+                    df_to_insert["sequence_id"] = range(
+                        start_id, start_id + len(df_to_insert)
+                    )
+                    df_to_insert["created_at"] = datetime.now()
+
+                    # Build column list for INSERT
+                    base_cols = ["sequence_id", "sequence", "length", "hash", "created_at"]
+                    extra = [c for c in input_columns if c not in base_cols and c != "sequence"]
+                    all_cols = base_cols + extra
+                    col_list = ", ".join(f'"{c}"' for c in all_cols)
+                    sel_list = ", ".join(f'"{c}"' for c in all_cols)
+
+                    self.conn.register("_seq_insert", df_to_insert)
+                    try:
+                        self.conn.execute(
+                            f"INSERT INTO sequences ({col_list}) SELECT {sel_list} FROM _seq_insert"
+                        )
+                    finally:
+                        self.conn.unregister("_seq_insert")
+
+                    self._sequence_counter += len(df_to_insert)
+
+                df_result = self.conn.execute(
+                    """
+                    SELECT hash, sequence_id
+                    FROM sequences
+                    WHERE hash IN (SELECT hash FROM _seq_batch)
+                """
+                ).df()
+            finally:
+                self.conn.unregister("_seq_batch")
+
+            hash_to_id = dict(zip(df_result["hash"], df_result["sequence_id"]))
+            return [hash_to_id[h] for h in original_hashes]
+
+        # ----- Legacy single-column path ----------------------------------------
         if not sequences:
             return []
 
@@ -325,7 +504,7 @@ class DuckDBDataStore:
         self.conn.register("_seq_batch", df_new)
         try:
             if deduplicate:
-                # 🔥 Anti-join: find sequences NOT already in database
+                # Anti-join: find sequences NOT already in database
                 df_to_insert = self.conn.execute(
                     """
                     SELECT s.*
@@ -389,9 +568,9 @@ class DuckDBDataStore:
         Example:
             >>> ds.add_predictions_batch([
             ...     {'sequence_id': 1, 'prediction_type': 'tm',
-            ...      'model_name': 'temberture', 'value': 65.5},
+            ...      'model_name': 'temberture-regression', 'value': 65.5},
             ...     {'sequence_id': 2, 'prediction_type': 'tm',
-            ...      'model_name': 'temberture', 'value': 70.2},
+            ...      'model_name': 'temberture-regression', 'value': 70.2},
             ... ])
         """
         if not data:
@@ -805,15 +984,22 @@ class DuckDBDataStore:
             else ""
         )
 
+        # Discover all columns on sequences table for SELECT
+        seq_cols = self.conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'sequences' ORDER BY ordinal_position"
+        ).fetchall()
+        seq_col_names = [r[0] for r in seq_cols if r[0] != "created_at"]
+        seq_select = ", ".join(f's."{c}"' for c in seq_col_names)
+        seq_group = ", ".join(f's."{c}"' for c in seq_col_names)
+
         query = f"""
             SELECT
-                s.sequence_id,
-                s.sequence,
-                s.length{pred_cols_sql}{gen_cols_sql}
+                {seq_select}{pred_cols_sql}{gen_cols_sql}
             FROM sequences s
             {pred_join_sql}
             {gen_join_sql}
-            GROUP BY s.sequence_id, s.sequence, s.length{group_extra}
+            GROUP BY {seq_group}{group_extra}
         """
         return self.conn.execute(query).df()
 
@@ -1381,6 +1567,321 @@ class DuckDBDataStore:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
+
+    # ------------------------------------------------------------------
+    # WorkingSet support methods
+    # ------------------------------------------------------------------
+
+    def materialize_working_set(
+        self,
+        ws: WorkingSet,
+        include_predictions: bool = True,
+        prediction_types: Optional[list[str]] = None,
+    ) -> pd.DataFrame:
+        """Materialize a WorkingSet into a DataFrame via a single DuckDB pivot query.
+
+        Args:
+            ws: WorkingSet containing the sequence IDs to materialize.
+            include_predictions: If True, pivot prediction values into columns.
+            prediction_types: Limit to specific types (None = all available).
+
+        Returns:
+            Wide-format DataFrame: one row per sequence, one column per prediction type.
+        """
+        if not ws:
+            return pd.DataFrame(columns=["sequence_id", "sequence", "length"])
+
+        ids_df = pd.DataFrame({"sequence_id": list(ws.sequence_ids)})
+        self.conn.register("_ws_ids", ids_df)
+        try:
+            # Determine prediction types to pivot
+            if include_predictions:
+                if prediction_types is None:
+                    rows = self.conn.execute(
+                        """
+                        SELECT DISTINCT p.prediction_type
+                        FROM predictions p
+                        INNER JOIN _ws_ids w ON p.sequence_id = w.sequence_id
+                        WHERE p.prediction_type IS NOT NULL
+                    """
+                    ).fetchall()
+                    prediction_types = [r[0] for r in rows]
+
+            # Build CASE WHEN pivot
+            pred_cols_sql = ""
+            pred_join_sql = ""
+            if include_predictions and prediction_types:
+                cases = [
+                    "MAX(CASE WHEN p.prediction_type = '{}' THEN p.value END) AS \"{}\"".format(
+                        pt.replace("'", "''"), pt.replace('"', '""')
+                    )
+                    for pt in prediction_types
+                ]
+                pred_cols_sql = ",\n                " + ",\n                ".join(cases)
+                pred_join_sql = (
+                    "LEFT JOIN predictions p ON s.sequence_id = p.sequence_id"
+                )
+
+            # Discover all columns on sequences table for SELECT
+            seq_cols = self.conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'sequences' ORDER BY ordinal_position"
+            ).fetchall()
+            seq_col_names = [r[0] for r in seq_cols if r[0] != "created_at"]
+            seq_select = ", ".join(f's."{c}"' for c in seq_col_names)
+            seq_group = ", ".join(f's."{c}"' for c in seq_col_names)
+
+            query = f"""
+                SELECT
+                    {seq_select}{pred_cols_sql}
+                FROM sequences s
+                INNER JOIN _ws_ids w ON s.sequence_id = w.sequence_id
+                {pred_join_sql}
+                GROUP BY {seq_group}
+            """
+            return self.conn.execute(query).df()
+        finally:
+            self.conn.unregister("_ws_ids")
+
+    def get_sequence_ids_with_prediction(
+        self,
+        sequence_ids: list[int],
+        prediction_type: str,
+        model_name: str,
+    ) -> list[int]:
+        """Return sequence_ids that DO have a given prediction (inverse of uncached check).
+
+        Args:
+            sequence_ids: Candidate sequence IDs.
+            prediction_type: Prediction type key.
+            model_name: Model name.
+
+        Returns:
+            List of sequence_ids that have a cached prediction.
+        """
+        if not sequence_ids:
+            return []
+        ids_df = pd.DataFrame({"sequence_id": sequence_ids})
+        self.conn.register("_has_pred_ids", ids_df)
+        try:
+            result = self.conn.execute(
+                """
+                SELECT DISTINCT c.sequence_id
+                FROM _has_pred_ids c
+                INNER JOIN predictions p
+                    ON c.sequence_id = p.sequence_id
+                    AND p.prediction_type = ?
+                    AND p.model_name = ?
+            """,
+                [prediction_type, model_name],
+            ).fetchall()
+        finally:
+            self.conn.unregister("_has_pred_ids")
+        return [r[0] for r in result]
+
+    def get_sequences_for_ids(
+        self,
+        sequence_ids: list[int],
+    ) -> list[tuple[int, str]]:
+        """Fetch (sequence_id, sequence) pairs for the given IDs.
+
+        Lightweight fetch for building API request items without materializing
+        a full DataFrame.
+
+        Args:
+            sequence_ids: List of sequence IDs to look up.
+
+        Returns:
+            List of (sequence_id, sequence_string) tuples.
+        """
+        if not sequence_ids:
+            return []
+        ids_df = pd.DataFrame({"sequence_id": sequence_ids})
+        self.conn.register("_seq_for_ids", ids_df)
+        try:
+            rows = self.conn.execute(
+                """
+                SELECT s.sequence_id, s.sequence
+                FROM sequences s
+                INNER JOIN _seq_for_ids w ON s.sequence_id = w.sequence_id
+            """
+            ).fetchall()
+        finally:
+            self.conn.unregister("_seq_for_ids")
+        return [(r[0], r[1]) for r in rows]
+
+    def execute_filter_sql(
+        self,
+        sequence_ids: list[int],
+        sql_query: str,
+    ) -> list[int]:
+        """Execute a filter SQL query and return surviving sequence IDs.
+
+        The *sql_query* must be a complete ``SELECT`` statement that returns
+        ``sequence_id`` values.  It may reference the registered table
+        ``_filter_ws`` (which contains the input *sequence_ids*) to scope
+        results to the current working set.
+
+        Args:
+            sequence_ids: Input sequence IDs (registered as ``_filter_ws``).
+            sql_query: Complete SQL SELECT returning ``sequence_id`` values,
+                JOINed with ``_filter_ws`` to scope to the working set.
+
+        Returns:
+            List of sequence_ids that survive the filter.
+        """
+        if not sequence_ids:
+            return []
+        ids_df = pd.DataFrame({"sequence_id": sequence_ids})
+        self.conn.register("_filter_ws", ids_df)
+        try:
+            result = self.conn.execute(sql_query).fetchall()
+        finally:
+            self.conn.unregister("_filter_ws")
+        return [r[0] for r in result]
+
+    def store_sequence_attributes(
+        self,
+        seq_ids: list[int],
+        attr_name: str,
+        attr_values: list[str],
+    ):
+        """Persist a per-sequence attribute column (e.g. heavy_chain, light_chain).
+
+        Args:
+            seq_ids: Sequence IDs.
+            attr_name: Attribute name (column name from the input DataFrame).
+            attr_values: Corresponding values (one per sequence_id).
+        """
+        if not seq_ids:
+            return
+        df = pd.DataFrame(
+            {
+                "sequence_id": seq_ids,
+                "attr_name": attr_name,
+                "attr_value": [str(v) if v is not None else None for v in attr_values],
+            }
+        )
+        self.conn.register("_attr_batch", df)
+        try:
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO sequence_attributes (sequence_id, attr_name, attr_value)
+                SELECT sequence_id, attr_name, attr_value FROM _attr_batch
+            """
+            )
+        finally:
+            self.conn.unregister("_attr_batch")
+
+    def get_sequence_attributes_for_ids(
+        self,
+        sequence_ids: list[int],
+        attr_names: list[str],
+    ) -> dict[int, dict[str, str]]:
+        """Retrieve per-sequence attributes, returning {seq_id: {attr: value}}.
+
+        Args:
+            sequence_ids: Sequence IDs to look up.
+            attr_names: Attribute names to retrieve.
+
+        Returns:
+            Nested dict: ``{sequence_id: {attr_name: attr_value}}``.
+        """
+        if not sequence_ids or not attr_names:
+            return {}
+        ids_df = pd.DataFrame({"sequence_id": sequence_ids})
+        self.conn.register("_attr_ids", ids_df)
+        try:
+            placeholders = ", ".join(["?"] * len(attr_names))
+            rows = self.conn.execute(
+                f"""
+                SELECT a.sequence_id, a.attr_name, a.attr_value
+                FROM sequence_attributes a
+                INNER JOIN _attr_ids w ON a.sequence_id = w.sequence_id
+                WHERE a.attr_name IN ({placeholders})
+            """,
+                attr_names,
+            ).fetchall()
+        finally:
+            self.conn.unregister("_attr_ids")
+
+        result: dict[int, dict[str, str]] = {}
+        for sid, name, val in rows:
+            result.setdefault(int(sid), {})[name] = val
+        return result
+
+    # ------------------------------------------------------------------
+    # Pipeline context methods (inter-stage key-value store)
+    # ------------------------------------------------------------------
+
+    def set_context(self, run_id: str, key: str, value: Any):
+        """Store a key-value pair in the pipeline context table."""
+        self.conn.execute(
+            """
+            INSERT INTO pipeline_context (run_id, key, value, created_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (run_id, key) DO UPDATE SET
+                value = excluded.value, created_at = excluded.created_at
+        """,
+            [
+                run_id,
+                key,
+                json.dumps(value) if not isinstance(value, str) else value,
+                datetime.now(),
+            ],
+        )
+
+    def get_context(self, run_id: str, key: str) -> Optional[Any]:
+        """Retrieve a value from the pipeline context table."""
+        result = self.conn.execute(
+            "SELECT value FROM pipeline_context WHERE run_id = ? AND key = ?",
+            [run_id, key],
+        ).fetchone()
+        if result is None:
+            return None
+        try:
+            return json.loads(result[0])
+        except (json.JSONDecodeError, TypeError):
+            return result[0]
+
+    def get_sequences_for_ids_with_columns(
+        self,
+        sequence_ids: list[int],
+        columns: list[str],
+    ) -> dict[int, dict[str, str]]:
+        """Fetch column values from the sequences table for given IDs.
+
+        This reads columns stored directly on the ``sequences`` table
+        (via ``ensure_input_columns``), NOT from ``sequence_attributes``.
+
+        Args:
+            sequence_ids: Sequence IDs to look up.
+            columns: Column names to fetch (must exist on the sequences table).
+
+        Returns:
+            ``{sequence_id: {col: value, ...}}``
+        """
+        if not sequence_ids or not columns:
+            return {}
+        ids_df = pd.DataFrame({"sequence_id": sequence_ids})
+        self.conn.register("_col_ids", ids_df)
+        try:
+            col_list = ", ".join(f's."{c}"' for c in columns)
+            rows = self.conn.execute(
+                f"""
+                SELECT s.sequence_id, {col_list}
+                FROM sequences s
+                INNER JOIN _col_ids w ON s.sequence_id = w.sequence_id
+            """
+            ).fetchall()
+        finally:
+            self.conn.unregister("_col_ids")
+
+        result: dict[int, dict[str, str]] = {}
+        for row in rows:
+            sid = int(row[0])
+            result[sid] = {col: row[i + 1] for i, col in enumerate(columns)}
+        return result
 
     def close(self):
         """Close database connection."""

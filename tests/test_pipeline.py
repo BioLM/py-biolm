@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from biolmai.pipeline import DataPipeline, SingleStepPipeline
-from biolmai.pipeline.base import Stage, StageResult
+from biolmai.pipeline.base import Stage, StageResult, WorkingSet
 from biolmai.pipeline.filters import SequenceLengthFilter
 
 
@@ -34,6 +34,29 @@ class MockPredictionStage(Stage):
             input_count=len(df),
             output_count=len(df),
             computed_count=len(df),
+        )
+
+    async def process_ws(self, ws, datastore, **kwargs):
+        """Mock WS processing — write random predictions to DuckDB."""
+        import numpy as np
+
+        seq_ids = list(ws.sequence_ids)
+        values = np.random.uniform(50, 90, len(seq_ids))
+        batch = [
+            {
+                "sequence_id": sid,
+                "prediction_type": self.prediction_type,
+                "model_name": "mock",
+                "value": float(v),
+            }
+            for sid, v in zip(seq_ids, values)
+        ]
+        datastore.add_predictions_batch(batch)
+        return ws, StageResult(
+            stage_name=self.name,
+            input_count=len(ws),
+            output_count=len(ws),
+            computed_count=len(ws),
         )
 
 

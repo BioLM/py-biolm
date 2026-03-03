@@ -71,9 +71,10 @@ async def test_complete_pipeline():
 
         # ADD DOWNSTREAM PREDICTIONS - they automatically flow!
         pipeline.add_prediction(
-            model_name="temberture",
+            model_name="temberture-regression",
             action="predict",
             prediction_type="tm",
+            extractions="melting_temperature",
             stage_name="stability",
         )
 
@@ -94,7 +95,7 @@ async def test_complete_pipeline():
         print(f"      - Mask fraction: {remask_config.mask_fraction}")
         print(f"      - Iterations: {remask_config.num_iterations}")
         print(f"      - Temperature: {remask_config.temperature}")
-        print("   Predictions: temberture, solubility")
+        print("   Predictions: temberture-regression, solubility")
         print("   Filters: Tm > 40°C")
 
         print("\n▶️  Running complete pipeline...\n")
@@ -168,7 +169,7 @@ async def test_complete_pipeline():
         )
 
         # Add same predictions
-        pipeline_2.add_prediction("temberture", prediction_type="tm")
+        pipeline_2.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
         pipeline_2.add_prediction("solubility", prediction_type="solubility")
 
         print("\n🔧 Diff Mode Configuration:")

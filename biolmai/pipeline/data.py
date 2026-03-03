@@ -6,6 +6,7 @@ SingleStepPipeline: Simplified single-step prediction pipeline
 """
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -13,9 +14,24 @@ import numpy as np
 import pandas as pd
 
 from biolmai.client import BioLMApiClient  # Use async client directly
-from biolmai.pipeline.base import BasePipeline, Stage, StageResult
+from biolmai.pipeline.base import BasePipeline, InputSchema, Stage, StageResult, WorkingSet
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 from biolmai.pipeline.filters import BaseFilter
+
+
+@dataclass
+class ExtractionSpec:
+    """Specification for extracting a value from an API response.
+
+    Args:
+        response_key: Key in API response dict, e.g. "mean_plddt"
+        prediction_type: Column name / DuckDB prediction_type, e.g. "plddt"
+        reduction: Optional reduction for array values: "mean", "max", "min", "sum"
+    """
+
+    response_key: str
+    prediction_type: str
+    reduction: Optional[str] = None
 
 
 class PredictionStage(Stage):
@@ -24,7 +40,7 @@ class PredictionStage(Stage):
 
     Args:
         name: Stage name
-        model_name: BioLM model name (e.g., 'esmfold', 'esm2', 'temberture')
+        model_name: BioLM model name (e.g., 'esmfold', 'esm2', 'temberture-regression')
         action: API action ('predict', 'encode', 'score')
         prediction_type: Type of prediction for caching (e.g., 'structure', 'stability', 'embedding')
         params: Optional parameters for the API call
@@ -42,6 +58,7 @@ class PredictionStage(Stage):
         batch_size: int = 32,
         max_concurrent: int = 5,
         item_columns: Optional[dict[str, str]] = None,
+        extractions: Optional[Union[str, dict[str, str], list[ExtractionSpec]]] = None,
         **kwargs,
     ):
         # Extract skip_on_error before passing to parent
@@ -55,7 +72,6 @@ class PredictionStage(Stage):
             **kwargs,
         )
         self.action = action
-        self.prediction_type = prediction_type or f"{model_name}_{action}"
         self.params = params or {}
         self.batch_size = batch_size
         self.skip_on_error = skip_on_error
@@ -65,6 +81,28 @@ class PredictionStage(Stage):
         self.item_columns = item_columns
         # Reuse API client across calls for connection pooling
         self._api_client = None
+
+        # Normalize extractions into list[ExtractionSpec] or None (legacy mode)
+        self._extractions: Optional[list[ExtractionSpec]] = None
+        if extractions is not None:
+            if isinstance(extractions, str):
+                # "mean_plddt" → ExtractionSpec("mean_plddt", "mean_plddt")
+                pt = prediction_type or extractions
+                self._extractions = [ExtractionSpec(extractions, pt)]
+            elif isinstance(extractions, dict):
+                # {"mean_plddt": "plddt", "ptm": "ptm"}
+                self._extractions = [
+                    ExtractionSpec(resp_key, pred_type)
+                    for resp_key, pred_type in extractions.items()
+                ]
+            elif isinstance(extractions, list):
+                self._extractions = list(extractions)
+
+        # Set prediction_type: first spec's type when extractions set, else legacy
+        if self._extractions:
+            self.prediction_type = self._extractions[0].prediction_type
+        else:
+            self.prediction_type = prediction_type or f"{model_name}_{action}"
 
     async def process_streaming(self, df: pd.DataFrame, datastore: DataStore, **kwargs):
         """
@@ -95,19 +133,19 @@ class PredictionStage(Stage):
         # Yield cached results first using bulk fetch (single JOIN, not N queries)
         if cached_count > 0:
             df_cached = df[~uncached_mask].copy()
-            pred_df = datastore.get_predictions_bulk(
-                df_cached["sequence_id"].tolist(), self.prediction_type, self.model_name
+            merge_specs = (
+                self._extractions
+                if self._extractions
+                else [ExtractionSpec(self.prediction_type, self.prediction_type)]
             )
-            if not pred_df.empty:
-                if self.prediction_type in df_cached.columns:
-                    df_cached = df_cached.drop(columns=[self.prediction_type])
-                df_cached = df_cached.merge(
-                    pred_df[["sequence_id", "value"]].rename(
-                        columns={"value": self.prediction_type}
-                    ),
-                    on="sequence_id",
-                    how="left",
+            cached_seq_ids = df_cached["sequence_id"].tolist()
+            for spec in merge_specs:
+                pred_df = datastore.get_predictions_bulk(
+                    cached_seq_ids, spec.prediction_type, self.model_name
                 )
+                if not pred_df.empty:
+                    val_map = dict(zip(pred_df["sequence_id"], pred_df["value"]))
+                    df_cached[spec.prediction_type] = df_cached["sequence_id"].map(val_map)
             yield df_cached
 
         if len(df_uncached) == 0:
@@ -166,28 +204,45 @@ class PredictionStage(Stage):
                     pending_batch_df, batch_indices = pending_tasks[completed_task]
                     out_df = pending_batch_df.copy()
 
-                    # Store results and add to DataFrame
-                    # Bug #7 fix: use sequence_id already present in batch_df (set by add_sequences_batch
-                    # at the top of process_streaming); avoid redundant add_sequence() calls.
+                    # Store results and add to DataFrame.
+                    # Collect into batch_data and flush once (not per-row add_prediction).
+                    batch_data = []
                     for (_, row), result in zip(pending_batch_df.iterrows(), results):
                         seq_id = int(row["sequence_id"])
                         idx = row.name
 
                         if self.action in ("predict", "score"):
-                            value = (
-                                self._extract_prediction_value(result)
-                                if isinstance(result, dict)
-                                else (float(result) if result is not None else None)
-                            )
-                            if value is not None:
-                                datastore.add_prediction(
-                                    seq_id,
-                                    self.prediction_type,
-                                    self.model_name,
-                                    value,
-                                    metadata={"params": self.params, "result": result},
+                            if self._extractions and isinstance(result, dict):
+                                for spec in self._extractions:
+                                    val = self._extract_with_spec(result, spec)
+                                    if val is not None:
+                                        batch_data.append(
+                                            {
+                                                "sequence_id": seq_id,
+                                                "prediction_type": spec.prediction_type,
+                                                "model_name": self.model_name,
+                                                "value": val,
+                                                "metadata": {"params": self.params},
+                                            }
+                                        )
+                                        out_df.at[idx, spec.prediction_type] = val
+                            else:
+                                value = (
+                                    self._extract_prediction_value(result)
+                                    if isinstance(result, dict)
+                                    else (float(result) if result is not None else None)
                                 )
-                                out_df.at[idx, self.prediction_type] = value
+                                if value is not None:
+                                    batch_data.append(
+                                        {
+                                            "sequence_id": seq_id,
+                                            "prediction_type": self.prediction_type,
+                                            "model_name": self.model_name,
+                                            "value": value,
+                                            "metadata": {"params": self.params},
+                                        }
+                                    )
+                                    out_df.at[idx, self.prediction_type] = value
 
                         elif self.action == "encode":
                             if isinstance(result, dict) and "embedding" in result:
@@ -196,6 +251,10 @@ class PredictionStage(Stage):
                                     seq_id, self.model_name, embedding
                                 )
 
+                    # Single batch insert per completed async task
+                    if batch_data:
+                        datastore.add_predictions_batch(batch_data)
+
                     # Yield batch immediately!
                     yield out_df
 
@@ -203,19 +262,21 @@ class PredictionStage(Stage):
                     if self.skip_on_error:
                         pending_batch_df, _ = pending_tasks[completed_task]
                         print(f"  Error processing batch (skipped): {e}")
-                        for seq_id in pending_batch_df["sequence_id"].tolist():
-                            seq_id = int(seq_id)
-                            datastore.add_prediction(
-                                seq_id,
-                                self.prediction_type,
-                                self.model_name,
-                                value=None,
-                                metadata={
+                        failed_batch = [
+                            {
+                                "sequence_id": int(sid),
+                                "prediction_type": self.prediction_type,
+                                "model_name": self.model_name,
+                                "value": None,
+                                "metadata": {
                                     "status": "failed",
                                     "error": str(e),
                                     "params": self.params,
                                 },
-                            )
+                            }
+                            for sid in pending_batch_df["sequence_id"].tolist()
+                        ]
+                        datastore.add_predictions_batch(failed_batch)
                         # Don't yield failed batch - sequences are filtered out
                     else:
                         print(f"  Error processing batch: {e}")
@@ -263,6 +324,38 @@ class PredictionStage(Stage):
                         )
                 if flat:
                     return float(np.mean(flat))
+        return None
+
+    @staticmethod
+    def _extract_with_spec(result: dict, spec: ExtractionSpec) -> Optional[float]:
+        """Extract a value from an API result using an ExtractionSpec.
+
+        Looks up spec.response_key in the result dict. If the value is a list/array
+        and spec.reduction is set, applies the reduction (mean/max/min/sum).
+        """
+        val = result.get(spec.response_key)
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, list) and val:
+            # Array value — apply reduction
+            try:
+                arr = [float(x) for x in val if isinstance(x, (int, float))]
+            except (TypeError, ValueError):
+                return None
+            if not arr:
+                return None
+            reduction = spec.reduction or "mean"
+            if reduction == "mean":
+                return float(np.mean(arr))
+            elif reduction == "max":
+                return float(np.max(arr))
+            elif reduction == "min":
+                return float(np.min(arr))
+            elif reduction == "sum":
+                return float(np.sum(arr))
+            return float(np.mean(arr))
         return None
 
     def _store_embeddings(self, datastore: DataStore, seq_id: int, result: Any):
@@ -342,6 +435,11 @@ class PredictionStage(Stage):
             try:
                 seq_ids = df_uncached["sequence_id"].tolist()
 
+                # O(1) lookup for error messages instead of O(n) scan per error
+                seq_id_to_seq = dict(
+                    zip(df_uncached["sequence_id"], df_uncached["sequence"])
+                )
+
                 # Build items: use item_columns mapping if provided, else default
                 if self.item_columns:
                     items = [
@@ -359,9 +457,11 @@ class PredictionStage(Stage):
                 # Manually chunk by self.batch_size so models with strict per-call
                 # limits (e.g. abodybuilder3: max 1 item) are respected regardless
                 # of what the API client auto-detects from the schema.
-                results: list[Any] = []
+                # Flush batch_data per chunk to cap memory at batch_size * k entries.
                 for i in range(0, len(items), self.batch_size):
                     chunk = items[i : i + self.batch_size]
+                    chunk_seq_ids = seq_ids[i : i + self.batch_size]
+
                     if self.action == "encode":
                         chunk_results = await api.encode(
                             items=chunk, params=self.params
@@ -372,80 +472,87 @@ class PredictionStage(Stage):
                         chunk_results = await api.predict(
                             items=chunk, params=self.params
                         )
-                    if isinstance(chunk_results, list):
-                        results.extend(chunk_results)
-                    else:
-                        results.append(chunk_results)
+                    if not isinstance(chunk_results, list):
+                        chunk_results = [chunk_results]
 
-                # Build batch insert list + collect extra fields in one pass
-                batch_data = []
-                for seq_id, result in zip(seq_ids, results):
-                    # Surface per-item API validation errors clearly
-                    if (
-                        isinstance(result, dict)
-                        and "error" in result
-                        and "status_code" in result
-                    ):
-                        err = result["error"]
-                        err_str = str(err)
-                        # Find the sequence for this seq_id so we can show it
-                        seq_rows = df_uncached[df_uncached["sequence_id"] == seq_id]
-                        seq = (
-                            seq_rows["sequence"].iloc[0] if not seq_rows.empty else "?"
-                        )
+                    # Build batch insert list + collect extra fields for this chunk
+                    batch_data = []
+                    for seq_id, result in zip(chunk_seq_ids, chunk_results):
+                        # Surface per-item API validation errors clearly
                         if (
-                            "ACDEFGHIKLMNPQRSTVWY" in err_str
-                            or "Residues can only" in err_str
+                            isinstance(result, dict)
+                            and "error" in result
+                            and "status_code" in result
                         ):
-                            invalid = sorted(
-                                {c for c in seq if c not in "ACDEFGHIKLMNPQRSTVWY"}
-                            )
-                            print(
-                                f"  WARNING: seq_id {seq_id} '{seq[:20]}...' skipped — "
-                                f"non-standard residue(s) {invalid} not accepted by {self.model_name}"
-                            )
-                        else:
-                            msg = (
-                                "; ".join(
-                                    f"{k}: {v[0] if isinstance(v, list) else v}"
-                                    for k, v in err.items()
+                            err = result["error"]
+                            err_str = str(err)
+                            seq = seq_id_to_seq.get(seq_id, "?")
+                            if (
+                                "ACDEFGHIKLMNPQRSTVWY" in err_str
+                                or "Residues can only" in err_str
+                            ):
+                                invalid = sorted(
+                                    {c for c in str(seq) if c not in "ACDEFGHIKLMNPQRSTVWY"}
                                 )
-                                if isinstance(err, dict)
-                                else str(err)[:120]
-                            )
-                            print(f"  WARNING: seq_id {seq_id} skipped — {msg}")
-                        continue  # don't store a prediction for this item
+                                print(
+                                    f"  WARNING: seq_id {seq_id} '{str(seq)[:20]}...' skipped — "
+                                    f"non-standard residue(s) {invalid} not accepted by {self.model_name}"
+                                )
+                            else:
+                                msg = (
+                                    "; ".join(
+                                        f"{k}: {v[0] if isinstance(v, list) else v}"
+                                        for k, v in err.items()
+                                    )
+                                    if isinstance(err, dict)
+                                    else str(err)[:120]
+                                )
+                                print(f"  WARNING: seq_id {seq_id} skipped — {msg}")
+                            continue  # don't store a prediction for this item
 
-                    if self.action in ("predict", "score"):
-                        value = (
-                            self._extract_prediction_value(result)
-                            if isinstance(result, dict)
-                            else (float(result) if result is not None else None)
-                        )
-                        batch_data.append(
-                            {
-                                "sequence_id": seq_id,
-                                "prediction_type": self.prediction_type,
-                                "model_name": self.model_name,
-                                "value": value,
-                                "metadata": (
-                                    {"params": self.params, "result": result}
+                        if self.action in ("predict", "score"):
+                            if self._extractions and isinstance(result, dict):
+                                # Explicit extraction: one batch_data entry per spec
+                                for spec in self._extractions:
+                                    value = self._extract_with_spec(result, spec)
+                                    batch_data.append(
+                                        {
+                                            "sequence_id": seq_id,
+                                            "prediction_type": spec.prediction_type,
+                                            "model_name": self.model_name,
+                                            "value": value,
+                                            "metadata": {"params": self.params},
+                                        }
+                                    )
+                            else:
+                                # Legacy heuristic extraction
+                                value = (
+                                    self._extract_prediction_value(result)
                                     if isinstance(result, dict)
-                                    else None
-                                ),
-                            }
-                        )
-                        # Collect additional scalar fields from the result dict
-                        if isinstance(result, dict):
-                            for key, val in result.items():
-                                if isinstance(val, (int, float)) and key != "value":
-                                    extra_fields.setdefault(key, {})[seq_id] = val
-                    elif self.action == "encode":
-                        self._store_embeddings(datastore, seq_id, result)
+                                    else (float(result) if result is not None else None)
+                                )
+                                batch_data.append(
+                                    {
+                                        "sequence_id": seq_id,
+                                        "prediction_type": self.prediction_type,
+                                        "model_name": self.model_name,
+                                        "value": value,
+                                        "metadata": {"params": self.params},
+                                    }
+                                )
+                            # Collect additional scalar fields from the result dict
+                            # (only in legacy mode — when extractions are set, the user
+                            # explicitly chose what to extract)
+                            if not self._extractions and isinstance(result, dict):
+                                for key, val in result.items():
+                                    if isinstance(val, (int, float)) and key != "value":
+                                        extra_fields.setdefault(key, {})[seq_id] = val
+                        elif self.action == "encode":
+                            self._store_embeddings(datastore, seq_id, result)
 
-                # Single batch insert — one SQL call for all predictions
-                if batch_data:
-                    datastore.add_predictions_batch(batch_data)
+                    # Flush predictions for this chunk — caps memory at batch_size * k
+                    if batch_data:
+                        datastore.add_predictions_batch(batch_data)
 
             except Exception as e:
                 if self.skip_on_error:
@@ -472,33 +579,35 @@ class PredictionStage(Stage):
 
         # --- Vectorized result merge: single JOIN query, not N individual queries ---
         if self.action in ("predict", "score"):
-            pred_df = datastore.get_predictions_bulk(
-                df["sequence_id"].tolist(), self.prediction_type, self.model_name
+            # Determine which prediction_types to merge
+            merge_specs = (
+                self._extractions
+                if self._extractions
+                else [ExtractionSpec(self.prediction_type, self.prediction_type)]
             )
-            if not pred_df.empty:
-                # Drop pre-existing column to avoid pandas rename to _x/_y on merge.
-                # Can happen when df comes from export_to_dataframe() which pivots all
-                # prediction types as columns (e.g. run3 feeds df with a 'plddt' column
-                # for the already-cached sequences).
-                if self.prediction_type in df.columns:
-                    df = df.drop(columns=[self.prediction_type])
-                df = df.merge(
-                    pred_df[["sequence_id", "value"]].rename(
-                        columns={"value": self.prediction_type}
-                    ),
-                    on="sequence_id",
-                    how="left",
+
+            # Materialize once — reused across all specs
+            all_seq_ids = df["sequence_id"].tolist()
+
+            for spec in merge_specs:
+                pred_df = datastore.get_predictions_bulk(
+                    all_seq_ids, spec.prediction_type, self.model_name
                 )
-            else:
-                df = df.copy()
-                df[self.prediction_type] = None
+                if not pred_df.empty:
+                    # Map sequence_id → value for O(n) assignment instead of merge
+                    val_map = dict(zip(pred_df["sequence_id"], pred_df["value"]))
+                    df[spec.prediction_type] = df["sequence_id"].map(val_map)
+                else:
+                    df[spec.prediction_type] = None
 
             # Add any extra scalar fields collected during this run
             for field, id_to_val in extra_fields.items():
                 if field not in df.columns:
                     df[field] = df["sequence_id"].map(id_to_val)
 
-            df_out = df[df[self.prediction_type].notna()].copy()
+            # Use first spec's prediction_type for the .notna() output filter
+            primary_type = merge_specs[0].prediction_type
+            df_out = df[df[primary_type].notna()].copy()
             filtered_count = len(df) - len(df_out)
 
         elif self.action == "encode":
@@ -525,6 +634,219 @@ class PredictionStage(Stage):
             cached_count=cached_count,
             computed_count=len(df_uncached),
             filtered_count=filtered_count,
+        )
+
+    async def process_ws(
+        self, ws: WorkingSet, datastore: DataStore, **kwargs
+    ) -> tuple[WorkingSet, StageResult]:
+        """Process sequences using WorkingSet — no DataFrame read-back or merge.
+
+        1. Cache check via anti-join (already DuckDB)
+        2. Fetch only uncached (sequence_id, sequence) pairs for API calls
+        3. Write results to DuckDB
+        4. Return WorkingSet of IDs that have predictions
+        """
+        input_count = len(ws)
+        input_ids = list(ws.sequence_ids)
+
+        # Vectorized cache check
+        uncached_ids = datastore.get_uncached_sequence_ids(
+            input_ids, self.prediction_type, self.model_name
+        )
+        cached_count = input_count - len(uncached_ids)
+
+        print(f"  Cached: {cached_count}/{input_count}")
+        print(f"  To compute: {len(uncached_ids)}")
+
+        if uncached_ids:
+            print(f"  Calling {self.model_name}.{self.action}...")
+
+            # Reuse client
+            if self._api_client is None:
+                self._api_client = BioLMApiClient(
+                    self.model_name, semaphore=self._semaphore, retry_error_batches=True
+                )
+            api = self._api_client
+
+            # Fetch (id, sequence) pairs — lightweight, no full DataFrame
+            id_seq_pairs = datastore.get_sequences_for_ids(uncached_ids)
+            seq_id_to_seq = dict(id_seq_pairs)
+
+            try:
+                for i in range(0, len(id_seq_pairs), self.batch_size):
+                    chunk_pairs = id_seq_pairs[i : i + self.batch_size]
+                    chunk_seq_ids = [p[0] for p in chunk_pairs]
+
+                    if self.item_columns:
+                        # item_columns maps API field → column name.
+                        # Try sequences table columns first (input_columns),
+                        # fall back to sequence_attributes table.
+                        col_names = list(self.item_columns.values())
+                        col_map = datastore.get_sequences_for_ids_with_columns(
+                            chunk_seq_ids, col_names
+                        )
+                        # If sequences table didn't have the columns, try attributes
+                        if not col_map:
+                            attr_map = datastore.get_sequence_attributes_for_ids(
+                                chunk_seq_ids, col_names
+                            )
+                            col_map = attr_map
+                        items = []
+                        for sid in chunk_seq_ids:
+                            vals = col_map.get(sid, {})
+                            item = {}
+                            for api_field, col in self.item_columns.items():
+                                v = vals.get(col)
+                                if v is None or v == "":
+                                    print(
+                                        f"  WARNING: seq_id {sid} has "
+                                        f"NULL/empty value for column "
+                                        f"'{col}' (API field '{api_field}')"
+                                    )
+                                item[api_field] = v or ""
+                            items.append(item)
+                    else:
+                        items = [{"sequence": p[1]} for p in chunk_pairs]
+
+                    if self.action == "encode":
+                        chunk_results = await api.encode(
+                            items=items, params=self.params
+                        )
+                    elif self.action == "score":
+                        chunk_results = await api.score(
+                            items=items, params=self.params
+                        )
+                    else:
+                        chunk_results = await api.predict(
+                            items=items, params=self.params
+                        )
+                    if not isinstance(chunk_results, list):
+                        chunk_results = [chunk_results]
+
+                    batch_data = []
+                    for seq_id, result in zip(chunk_seq_ids, chunk_results):
+                        # Handle per-item API errors
+                        if (
+                            isinstance(result, dict)
+                            and "error" in result
+                            and "status_code" in result
+                        ):
+                            err = result["error"]
+                            err_str = str(err)
+                            seq = seq_id_to_seq.get(seq_id, "?")
+                            if (
+                                "ACDEFGHIKLMNPQRSTVWY" in err_str
+                                or "Residues can only" in err_str
+                            ):
+                                invalid = sorted(
+                                    {
+                                        c
+                                        for c in str(seq)
+                                        if c not in "ACDEFGHIKLMNPQRSTVWY"
+                                    }
+                                )
+                                print(
+                                    f"  WARNING: seq_id {seq_id} '{str(seq)[:20]}...' "
+                                    f"skipped — non-standard residue(s) {invalid}"
+                                )
+                            else:
+                                msg = (
+                                    "; ".join(
+                                        f"{k}: {v[0] if isinstance(v, list) else v}"
+                                        for k, v in err.items()
+                                    )
+                                    if isinstance(err, dict)
+                                    else str(err)[:120]
+                                )
+                                print(f"  WARNING: seq_id {seq_id} skipped — {msg}")
+                            continue
+
+                        if self.action in ("predict", "score"):
+                            if self._extractions and isinstance(result, dict):
+                                for spec in self._extractions:
+                                    value = self._extract_with_spec(result, spec)
+                                    batch_data.append(
+                                        {
+                                            "sequence_id": seq_id,
+                                            "prediction_type": spec.prediction_type,
+                                            "model_name": self.model_name,
+                                            "value": value,
+                                            "metadata": {"params": self.params},
+                                        }
+                                    )
+                            else:
+                                value = (
+                                    self._extract_prediction_value(result)
+                                    if isinstance(result, dict)
+                                    else (
+                                        float(result) if result is not None else None
+                                    )
+                                )
+                                batch_data.append(
+                                    {
+                                        "sequence_id": seq_id,
+                                        "prediction_type": self.prediction_type,
+                                        "model_name": self.model_name,
+                                        "value": value,
+                                        "metadata": {"params": self.params},
+                                    }
+                                )
+                        elif self.action == "encode":
+                            self._store_embeddings(datastore, seq_id, result)
+
+                    if batch_data:
+                        datastore.add_predictions_batch(batch_data)
+
+            except Exception as e:
+                if self.skip_on_error:
+                    print(f"  Error during prediction (skipped): {e}")
+                    failed_batch = [
+                        {
+                            "sequence_id": sid,
+                            "prediction_type": self.prediction_type,
+                            "model_name": self.model_name,
+                            "value": None,
+                            "metadata": {
+                                "status": "failed",
+                                "error": str(e),
+                                "params": self.params,
+                            },
+                        }
+                        for sid in uncached_ids
+                    ]
+                    datastore.add_predictions_batch(failed_batch)
+                else:
+                    print(f"  Error during prediction: {e}")
+                    raise
+
+        # Return WorkingSet: IDs that now have predictions
+        if self.action in ("predict", "score"):
+            ids_with_pred = datastore.get_sequence_ids_with_prediction(
+                input_ids, self.prediction_type, self.model_name
+            )
+            ws_out = WorkingSet.from_ids(ids_with_pred)
+        elif self.action == "encode":
+            emb_ids = set(
+                datastore.conn.execute(
+                    "SELECT DISTINCT sequence_id FROM embeddings WHERE model_name = ?",
+                    [self.model_name],
+                )
+                .df()["sequence_id"]
+                .tolist()
+            )
+            ws_out = WorkingSet(
+                frozenset(sid for sid in ws.sequence_ids if sid in emb_ids)
+            )
+        else:
+            ws_out = ws
+
+        return ws_out, StageResult(
+            stage_name=self.name,
+            input_count=input_count,
+            output_count=len(ws_out),
+            cached_count=cached_count,
+            computed_count=len(uncached_ids),
+            filtered_count=input_count - len(ws_out),
         )
 
 
@@ -577,6 +899,73 @@ class FilterStage(Stage):
             stage_name=self.name,
             input_count=start_count,
             output_count=len(df_filtered),
+            filtered_count=filtered_count,
+        )
+
+    async def process_ws(
+        self, ws: WorkingSet, datastore: DataStore, **kwargs
+    ) -> tuple[WorkingSet, StageResult]:
+        """Apply filter using WorkingSet.
+
+        Two execution paths — chosen at call time, not as a "fallback":
+
+        1. **SQL-native** (zero materialization): filters that implement
+           ``to_sql()`` return a complete SELECT scoped to the working set.
+           DuckDB executes it directly; no DataFrame is ever created.
+
+        2. **DataFrame-based**: filters that *cannot* be expressed in SQL
+           (e.g. HammingDistanceFilter, CustomFilter) must materialize a
+           DataFrame.  This is the correct path for those filters, not a
+           fallback.
+        """
+        input_count = len(ws)
+
+        print(f"  Applying filter: {self.filter_func}")
+
+        if not ws:
+            return ws, StageResult(
+                stage_name=self.name,
+                input_count=0,
+                output_count=0,
+                filtered_count=0,
+            )
+
+        # Determine execution path: SQL-native or DataFrame-based
+        sql_query = None
+        if isinstance(self.filter_func, BaseFilter):
+            sql_query = self.filter_func.to_sql()
+
+        if sql_query is not None:
+            # SQL-native path — zero materialization
+            surviving_ids = datastore.execute_filter_sql(
+                list(ws.sequence_ids), sql_query
+            )
+            ws_out = WorkingSet.from_ids(surviving_ids)
+        else:
+            # DataFrame-based path — required for non-SQL filters
+            df = datastore.materialize_working_set(ws)
+            df_filtered = self.filter_func(df).copy()
+            if "sequence_id" in df_filtered.columns:
+                ws_out = WorkingSet.from_ids(df_filtered["sequence_id"].tolist())
+            else:
+                ws_out = ws
+
+        filtered_count = input_count - len(ws_out)
+
+        print(f"  Filtered out: {filtered_count}/{input_count}")
+        print(f"  Remaining: {len(ws_out)}")
+
+        # Persist filter results for resume support
+        run_id = kwargs.get("run_id")
+        if run_id:
+            datastore.save_filter_results(
+                run_id, self.name, list(ws_out.sequence_ids)
+            )
+
+        return ws_out, StageResult(
+            stage_name=self.name,
+            input_count=input_count,
+            output_count=len(ws_out),
             filtered_count=filtered_count,
         )
 
@@ -646,6 +1035,7 @@ class CofoldingPredictionStage(Stage):
         self.static_entities = static_entities or []
         self.params = params or {}
         self.batch_size = batch_size
+        self._api_client = None
 
     def _build_item(self, sequence: str) -> dict:
         """Build the multi-molecule item dict for a single pipeline sequence."""
@@ -675,59 +1065,118 @@ class CofoldingPredictionStage(Stage):
         computed = 0
         df = df.copy()
 
-        api = None
-        try:
-            api = BioLMApiClient(self.model_name)
-            for i in range(0, len(df), self.batch_size):
-                batch = df.iloc[i : i + self.batch_size]
-                items = [
-                    self._build_item(row["sequence"]) for _, row in batch.iterrows()
-                ]
+        if self._api_client is None:
+            self._api_client = BioLMApiClient(self.model_name)
+        api = self._api_client
 
-                results = await getattr(api, self.action)(
-                    items=items, params=self.params
+        for i in range(0, len(df), self.batch_size):
+            batch = df.iloc[i : i + self.batch_size]
+            items = [
+                self._build_item(row["sequence"]) for _, row in batch.iterrows()
+            ]
+
+            results = await getattr(api, self.action)(
+                items=items, params=self.params
+            )
+
+            for _j, (result, (idx, row)) in enumerate(
+                zip(results, batch.iterrows())
+            ):
+                if not isinstance(result, dict):
+                    continue
+                cif = result.get("cif", "")
+                conf_data = result.get("confidence", {})
+                confidence = (
+                    conf_data.get("confidence_score")
+                    if isinstance(conf_data, dict)
+                    else None
                 )
-
-                for _j, (result, (idx, row)) in enumerate(
-                    zip(results, batch.iterrows())
-                ):
-                    if not isinstance(result, dict):
-                        continue
-                    cif = result.get("cif", "")
-                    conf_data = result.get("confidence", {})
-                    confidence = (
-                        conf_data.get("confidence_score")
-                        if isinstance(conf_data, dict)
-                        else None
+                seq_id = row.get("sequence_id")
+                if seq_id is not None and cif:
+                    datastore.add_structure(
+                        seq_id,
+                        model_name=self.model_name,
+                        structure_str=cif,
+                        format="cif",
                     )
-                    seq_id = row.get("sequence_id")
-                    if seq_id is not None and cif:
-                        datastore.add_structure(
-                            seq_id,
-                            model_name=self.model_name,
-                            structure_str=cif,
-                            format="cif",
-                        )
-                    if seq_id is not None and confidence is not None:
-                        datastore.add_prediction(
-                            seq_id,
-                            self.prediction_type,
-                            self.model_name,
-                            float(confidence),
-                            metadata={"cif_stored": bool(cif)},
-                        )
-                    df.at[idx, self.prediction_type] = confidence
-                    if cif:
-                        df.at[idx, "cif"] = cif
-                    computed += 1
-        finally:
-            if api:
-                await api.shutdown()
+                if seq_id is not None and confidence is not None:
+                    datastore.add_prediction(
+                        seq_id,
+                        self.prediction_type,
+                        self.model_name,
+                        float(confidence),
+                        metadata={"cif_stored": bool(cif)},
+                    )
+                df.at[idx, self.prediction_type] = confidence
+                if cif:
+                    df.at[idx, "cif"] = cif
+                computed += 1
 
         return df, StageResult(
             stage_name=self.name,
             input_count=start_count,
             output_count=len(df),
+            computed_count=computed,
+        )
+
+    async def process_ws(
+        self, ws: WorkingSet, datastore: DataStore, **kwargs
+    ) -> tuple[WorkingSet, StageResult]:
+        """Run co-folding prediction using WorkingSet — no DataFrame transport."""
+        input_count = len(ws)
+        computed = 0
+
+        id_seq_pairs = datastore.get_sequences_for_ids(list(ws.sequence_ids))
+
+        if self._api_client is None:
+            self._api_client = BioLMApiClient(self.model_name)
+        api = self._api_client
+
+        for i in range(0, len(id_seq_pairs), self.batch_size):
+            chunk = id_seq_pairs[i : i + self.batch_size]
+            items = [self._build_item(seq) for _sid, seq in chunk]
+
+            results = await getattr(api, self.action)(
+                items=items, params=self.params
+            )
+
+            for (seq_id, _seq), result in zip(chunk, results):
+                if not isinstance(result, dict):
+                    continue
+                cif = result.get("cif", "")
+                conf_data = result.get("confidence", {})
+                confidence = (
+                    conf_data.get("confidence_score")
+                    if isinstance(conf_data, dict)
+                    else None
+                )
+                if cif:
+                    datastore.add_structure(
+                        seq_id,
+                        model_name=self.model_name,
+                        structure_str=cif,
+                        format="cif",
+                    )
+                if confidence is not None:
+                    datastore.add_prediction(
+                        seq_id,
+                        self.prediction_type,
+                        self.model_name,
+                        float(confidence),
+                        metadata={"cif_stored": bool(cif)},
+                    )
+                computed += 1
+
+        # Return IDs that got predictions
+        ids_with_pred = datastore.get_sequence_ids_with_prediction(
+            list(ws.sequence_ids), self.prediction_type, self.model_name
+        )
+        ws_out = WorkingSet.from_ids(ids_with_pred) if ids_with_pred else ws
+
+        return ws_out, StageResult(
+            stage_name=self.name,
+            input_count=input_count,
+            output_count=len(ws_out),
             computed_count=computed,
         )
 
@@ -871,6 +1320,36 @@ class ClusteringStage(Stage):
             computed_count=start_count,
         )
 
+    async def process_ws(
+        self, ws: WorkingSet, datastore: DataStore, **kwargs
+    ) -> tuple[WorkingSet, StageResult]:
+        """Cluster sequences — materializes internally for scikit-learn.
+
+        Clustering doesn't filter rows (all sequences survive), so the
+        returned WorkingSet is the same as the input.  Cluster assignments
+        are stored as predictions (prediction_type ``'cluster_id'``) so that
+        ``materialize_working_set()`` includes them in ``get_final_data()``.
+        """
+        df = datastore.materialize_working_set(ws, include_predictions=False)
+        df_out, result = await self.process(df, datastore, **kwargs)
+
+        # Store cluster_id as predictions so get_final_data() picks them up
+        if "cluster_id" in df_out.columns and "sequence_id" in df_out.columns:
+            batch = [
+                {
+                    "sequence_id": int(row["sequence_id"]),
+                    "prediction_type": "cluster_id",
+                    "model_name": self.name,
+                    "value": float(row["cluster_id"]),
+                }
+                for _, row in df_out.iterrows()
+                if row["cluster_id"] is not None
+            ]
+            if batch:
+                datastore.add_predictions_batch(batch)
+
+        return ws, result
+
 
 class DataPipeline(BasePipeline):
     """
@@ -911,11 +1390,16 @@ class DataPipeline(BasePipeline):
         self,
         sequences: Union[list[str], pd.DataFrame, str, Path] = None,
         diff_mode: bool = False,
+        input_columns: Optional[list[str]] = None,
         **kwargs,
     ):
+        # Build InputSchema if input_columns specified
+        if input_columns is not None:
+            kwargs["input_schema"] = InputSchema(columns=input_columns)
         super().__init__(**kwargs)
         self.input_sequences = sequences
         self.diff_mode = diff_mode
+        self.input_columns = input_columns
 
     async def _get_initial_data(self, **kwargs) -> pd.DataFrame:
         """Load sequences into DataFrame."""
@@ -929,8 +1413,6 @@ class DataPipeline(BasePipeline):
 
         elif isinstance(self.input_sequences, pd.DataFrame):
             df = self.input_sequences.copy()
-            if "sequence" not in df.columns:
-                raise ValueError("DataFrame must have 'sequence' column")
 
         elif isinstance(self.input_sequences, (str, Path)):
             path = Path(self.input_sequences)
@@ -940,8 +1422,6 @@ class DataPipeline(BasePipeline):
 
             if path.suffix == ".csv":
                 df = pd.read_csv(path)
-                if "sequence" not in df.columns:
-                    raise ValueError("CSV must have 'sequence' column")
 
             elif path.suffix in [".fasta", ".fa", ".faa"]:
                 # Simple FASTA parser
@@ -975,6 +1455,51 @@ class DataPipeline(BasePipeline):
                 f"Unsupported type for sequences: {type(self.input_sequences)}"
             )
 
+        # ----- Multi-column input path ------------------------------------------
+        if self.input_columns is not None:
+            # Validate that all input columns are present
+            missing = [c for c in self.input_columns if c not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"input_columns {missing} not found in DataFrame. "
+                    f"Available: {list(df.columns)}"
+                )
+
+            # Ensure the sequences table has the extra columns
+            self.datastore.ensure_input_columns(self.input_columns)
+
+            # Deduplicate across all input columns
+            initial_count = len(df)
+            df = df.drop_duplicates(subset=self.input_columns).reset_index(drop=True)
+            deduplicated_count = initial_count - len(df)
+            if deduplicated_count > 0 and self.verbose:
+                print(f"Deduplicated {deduplicated_count} rows ({len(df)} unique)")
+
+            # Use the multi-column add_sequences_batch path
+            df["sequence_id"] = self.datastore.add_sequences_batch(
+                input_df=df, input_columns=self.input_columns
+            )
+
+            # Also persist non-input extra columns as sequence attributes
+            extra_cols = [
+                c
+                for c in df.columns
+                if c not in self.input_columns
+                and c not in ("sequence", "sequence_id", "length", "hash")
+            ]
+            if extra_cols:
+                seq_ids = df["sequence_id"].tolist()
+                for col in extra_cols:
+                    self.datastore.store_sequence_attributes(
+                        seq_ids, col, df[col].tolist()
+                    )
+
+            return df
+
+        # ----- Legacy single-column path ----------------------------------------
+        if "sequence" not in df.columns:
+            raise ValueError("DataFrame must have 'sequence' column")
+
         # Deduplicate before inserting into datastore
         initial_count = len(df)
         df = df.drop_duplicates(subset=["sequence"]).reset_index(drop=True)
@@ -984,6 +1509,18 @@ class DataPipeline(BasePipeline):
 
         # Batch-add all sequences in one vectorized call instead of N individual calls
         df["sequence_id"] = self.datastore.add_sequences_batch(df["sequence"].tolist())
+
+        # Persist extra columns (e.g. heavy_chain, light_chain) as sequence attributes
+        # so they're available to stages that need them (item_columns in PredictionStage)
+        extra_cols = [
+            c for c in df.columns if c not in ("sequence", "sequence_id", "length", "hash")
+        ]
+        if extra_cols:
+            seq_ids = df["sequence_id"].tolist()
+            for col in extra_cols:
+                self.datastore.store_sequence_attributes(
+                    seq_ids, col, df[col].tolist()
+                )
 
         # In diff mode, report how many sequences are new vs. already cached
         if self.diff_mode:
@@ -1287,7 +1824,12 @@ class DataPipeline(BasePipeline):
             stage_name: Custom stage name (defaults to model_name)
             depends_on: List of stage names this depends on
         """
-        stage_name = stage_name or f"{model_name}_{action}"
+        # Default stage name: prefer prediction_type (slug-independent) over model slug
+        if stage_name is None:
+            if prediction_type:
+                stage_name = f"predict_{prediction_type}"
+            else:
+                stage_name = f"{model_name}_{action}"
 
         stage = PredictionStage(
             name=stage_name,
@@ -1324,7 +1866,7 @@ class DataPipeline(BasePipeline):
             self for chaining
 
         Example:
-            >>> pipeline.add_predictions(['temberture', 'proteinmpnn', 'esm2'])
+            >>> pipeline.add_predictions(['temberture-regression', 'proteinmpnn', 'esm2'])
             >>> pipeline.add_predictions([
             ...     {'model_name': 'esmfold', 'prediction_type': 'structure'},
             ...     {'model_name': 'alphafold2', 'prediction_type': 'structure'}
@@ -1607,18 +2149,10 @@ def Embed(
     pipeline.run()
     df = pipeline.get_final_data()
 
-    # Load embeddings into DataFrame for convenience
-    embeddings_list = []
-    for seq in df["sequence"]:
-        emb_list = pipeline.datastore.get_embeddings_by_sequence(
-            seq, model_name=model_name, load_data=True
-        )
-        if emb_list:
-            # get_embeddings_by_sequence returns List[Dict]; access 'embedding' key
-            embeddings_list.append(emb_list[0].get("embedding"))
-        else:
-            embeddings_list.append(None)
-
-    df["embedding"] = embeddings_list
+    # Load embeddings via bulk fetch (single DuckDB JOIN + batch Parquet reads)
+    # instead of N per-sequence queries
+    seq_ids = df["sequence_id"].tolist()
+    emb_map = pipeline.datastore.get_embeddings_bulk(seq_ids, model_name=model_name)
+    df["embedding"] = [emb_map.get(int(sid)) for sid in seq_ids]
 
     return df

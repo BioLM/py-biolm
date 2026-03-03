@@ -17,7 +17,7 @@ from typing import Any, Optional, Union
 import pandas as pd
 
 from biolmai.client import BioLMApiClient  # Use async client
-from biolmai.pipeline.base import BasePipeline, Stage, StageResult
+from biolmai.pipeline.base import BasePipeline, Stage, StageResult, WorkingSet
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 from biolmai.pipeline.mlm_remasking import MLMRemasker, RemaskingConfig
 
@@ -77,6 +77,9 @@ class DirectGenerationConfig:
     # Simple fallbacks used only when params is empty
     num_sequences: int = 100
     temperature: float = 1.0
+    # Read structures from the DuckDB structures table (set by an upstream stage)
+    structure_from_stage: Optional[str] = None
+    structure_from_model: Optional[str] = None
 
 
 @dataclass
@@ -336,6 +339,7 @@ class GenerationStage(Stage):
         config: DirectGenerationConfig,
         datastore: DataStore,
         df_input: pd.DataFrame,
+        context=None,
     ) -> list[dict]:
         """Run generation using DirectGenerationConfig.
 
@@ -343,7 +347,32 @@ class GenerationStage(Stage):
         ``params`` for the target model.  No auto-detection is performed.
         """
         # ---- Resolve input values ----------------------------------------
-        if config.structure_column and config.structure_column in df_input.columns:
+        if config.structure_from_stage or config.structure_from_model:
+            # Read structures from DuckDB (set by an upstream prediction stage)
+            model_filter = config.structure_from_model
+            if model_filter:
+                seq_ids_rows = datastore.conn.execute(
+                    "SELECT sequence_id FROM structures WHERE model_name = ?",
+                    [model_filter],
+                ).fetchall()
+            else:
+                seq_ids_rows = datastore.conn.execute(
+                    "SELECT sequence_id FROM structures"
+                ).fetchall()
+            struct_seq_ids = [r[0] for r in seq_ids_rows]
+            if not struct_seq_ids:
+                raise ValueError(
+                    f"No structures found in datastore"
+                    f"{' for model ' + model_filter if model_filter else ''}"
+                )
+            structs_df = datastore.get_structures_bulk(struct_seq_ids)
+            if structs_df.empty:
+                raise ValueError(
+                    f"No structures found in datastore"
+                    f"{' for model ' + model_filter if model_filter else ''}"
+                )
+            input_values = structs_df["structure_str"].dropna().tolist()
+        elif config.structure_column and config.structure_column in df_input.columns:
             input_values = df_input[config.structure_column].dropna().tolist()
         elif config.structure_path:
             import tempfile
@@ -544,6 +573,7 @@ class GenerationStage(Stage):
         cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig],
         datastore: DataStore,
         df_input: pd.DataFrame,
+        context=None,
     ) -> list[dict]:
         """Dispatch a single config to the appropriate generation method."""
         if isinstance(cfg, RemaskingConfig):
@@ -555,7 +585,9 @@ class GenerationStage(Stage):
                 cfg, parent_sequence=parent, num_variants=num
             )
         elif isinstance(cfg, DirectGenerationConfig):
-            return await self._run_direct_generation(cfg, datastore, df_input)
+            return await self._run_direct_generation(
+                cfg, datastore, df_input, context=context
+            )
         elif isinstance(cfg, GenerationConfig):
             return await self._generate_with_config(cfg, datastore)
         else:
@@ -565,13 +597,19 @@ class GenerationStage(Stage):
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
     ) -> tuple[pd.DataFrame, StageResult]:
         """Generate sequences using configured models."""
+        context = kwargs.get("context")
 
         print(f"  Generating with {len(self.configs)} model configuration(s)...")
 
         if len(self.configs) == 1:
-            results = await self._dispatch_config(self.configs[0], datastore, df)
+            results = await self._dispatch_config(
+                self.configs[0], datastore, df, context=context
+            )
         else:
-            tasks = [self._dispatch_config(cfg, datastore, df) for cfg in self.configs]
+            tasks = [
+                self._dispatch_config(cfg, datastore, df, context=context)
+                for cfg in self.configs
+            ]
             results_list = await asyncio.gather(*tasks)
             results = [item for sublist in results_list for item in sublist]
 
@@ -636,6 +674,15 @@ class GenerationStage(Stage):
                 )
             },
         )
+
+    async def process_ws(
+        self, ws: WorkingSet, datastore: DataStore, **kwargs
+    ) -> tuple[WorkingSet, StageResult]:
+        """Generate sequences and return a WorkingSet of the new IDs."""
+        df_generated, result = await self.process(pd.DataFrame(), datastore, **kwargs)
+        if "sequence_id" in df_generated.columns:
+            return WorkingSet.from_ids(df_generated["sequence_id"].tolist()), result
+        return WorkingSet(frozenset()), result
 
 
 class GenerativePipeline(BasePipeline):
@@ -726,6 +773,16 @@ class GenerativePipeline(BasePipeline):
         # If no generation configs, return empty DataFrame
         return pd.DataFrame(columns=["sequence", "sequence_id"])
 
+    async def _get_initial_data_ws(self, **kwargs) -> WorkingSet:
+        """Return the WorkingSet from the generation stage directly."""
+        if "generation" in self._working_sets:
+            return self._working_sets["generation"]
+        # Fallback: use the DataFrame path
+        df = await self._get_initial_data(**kwargs)
+        if "sequence_id" in df.columns:
+            return WorkingSet.from_ids(df["sequence_id"].tolist())
+        return WorkingSet(frozenset())
+
     def add_generation_config(self, config: GenerationConfig):
         """Add a generation configuration."""
         self.generation_configs.append(config)
@@ -757,7 +814,12 @@ class GenerativePipeline(BasePipeline):
         """Add a prediction stage (same as DataPipeline)."""
         from biolmai.pipeline.data import PredictionStage
 
-        stage_name = stage_name or f"{model_name}_{action}"
+        # Default stage name: prefer prediction_type (slug-independent) over model slug
+        if stage_name is None:
+            if prediction_type:
+                stage_name = f"predict_{prediction_type}"
+            else:
+                stage_name = f"{model_name}_{action}"
 
         stage = PredictionStage(
             name=stage_name,
@@ -792,7 +854,7 @@ class GenerativePipeline(BasePipeline):
             self for chaining
 
         Example:
-            >>> pipeline.add_predictions(['temberture', 'proteinmpnn', 'esm2'])
+            >>> pipeline.add_predictions(['temberture-regression', 'proteinmpnn', 'esm2'])
         """
 
         for model in models:
@@ -932,6 +994,11 @@ class GenerativePipeline(BasePipeline):
                 )
                 self.stage_results[gen_stage.name] = result
                 self._stage_data[gen_stage.name] = df_generated
+                # Also populate _working_sets for the WorkingSet pipeline path
+                if "sequence_id" in df_generated.columns:
+                    self._working_sets[gen_stage.name] = WorkingSet.from_ids(
+                        df_generated["sequence_id"].tolist()
+                    )
 
                 if self.verbose:
                     print(f"\n{result}")

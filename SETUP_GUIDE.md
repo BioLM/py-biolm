@@ -271,7 +271,7 @@ make help             # Show all commands
 from biolmai.pipeline import Predict
 
 # One-liner prediction
-df = Predict('temberture', sequences=['MKTAYIAKQRQ', 'MKLAVIDSAQ'])
+df = Predict('temberture-regression', sequences=['MKTAYIAKQRQ', 'MKLAVIDSAQ'])
 print(df)
 ```
 
@@ -283,7 +283,7 @@ from biolmai.pipeline import DataPipeline, RankingFilter
 pipeline = DataPipeline(sequences='sequences.csv')
 
 # Parallel predictions
-pipeline.add_predictions(['esmfold', 'temberture', 'proteinmpnn'])
+pipeline.add_predictions(['esmfold', 'temberture-regression', 'proteinmpnn'])
 
 # Ranking filter
 pipeline.add_filter(RankingFilter('tm', n=100, ascending=False))
