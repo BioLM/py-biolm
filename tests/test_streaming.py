@@ -36,8 +36,8 @@ async def test_prediction_stage_streaming(datastore):
         name="test_predict",
         model_name="esm2_t6_8M",
         action="predict",
-        prediction_type="test_score",
         extractions="prediction",
+        columns="test_score",
     )
 
     # Mock input data
@@ -82,8 +82,8 @@ async def test_pipeline_with_streaming_enabled(datastore, tmp_path):
             name="predict_tm",
             model_name="esm2_t6_8M",
             action="predict",
-            prediction_type="tm",
             extractions="prediction",
+            columns="tm",
         )
     )
 
@@ -101,10 +101,11 @@ async def test_pipeline_with_streaming_enabled(datastore, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_pipeline_identifies_streaming_opportunity():
+async def test_pipeline_identifies_streaming_opportunity(tmp_path):
     """Test pipeline correctly identifies when streaming is possible."""
     from biolmai.pipeline.base import BasePipeline
     from biolmai.pipeline.data import FilterStage, PredictionStage
+    from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
     from biolmai.pipeline.filters import RankingFilter, ThresholdFilter
 
     # Create mock pipeline
@@ -112,14 +113,15 @@ async def test_pipeline_identifies_streaming_opportunity():
         async def _get_initial_data(self, **kwargs):
             return pd.DataFrame({"sequence": ["ABC", "DEF"]})
 
-    pipeline = TestPipeline(datastore=None, output_dir="/tmp")
+    ds = DuckDBDataStore(db_path=tmp_path / "test.duckdb", data_dir=tmp_path / "data")
+    pipeline = TestPipeline(datastore=ds, output_dir=str(tmp_path))
 
     pred_stage = PredictionStage(
         name="predict",
         model_name="esm2_t6_8M",
         action="predict",
-        prediction_type="score",
         extractions="prediction",
+        columns="score",
     )
 
     threshold_stage = FilterStage(

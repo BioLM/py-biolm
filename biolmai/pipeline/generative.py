@@ -80,6 +80,9 @@ class DirectGenerationConfig:
     # Read structures from the DuckDB structures table (set by an upstream stage)
     structure_from_stage: Optional[str] = None
     structure_from_model: Optional[str] = None
+    # Run the same generation call n_runs times in parallel.
+    # Total output = (sequences per call) × n_runs, then deduped.
+    n_runs: int = 1
 
 
 @dataclass
@@ -404,31 +407,50 @@ class GenerationStage(Stage):
         )
 
         # ---- Generate ----------------------------------------------------
+        n_runs = getattr(config, "n_runs", 1) or 1
         results: list[dict] = []
         api = None
         try:
             api = BioLMApiClient(config.model_name)
             for input_value in input_values:
-                print(f"  {config.model_name} (direct): generating sequences...")
+                if n_runs > 1:
+                    print(
+                        f"  {config.model_name} (direct): generating sequences "
+                        f"({n_runs} parallel runs)..."
+                    )
+                else:
+                    print(f"  {config.model_name} (direct): generating sequences...")
                 items = [{config.item_field: input_value}]
-                raw = await api.generate(items=items, params=params)
-                if isinstance(raw, dict) and "error" in raw:
-                    raise ValueError(
-                        f"API error from {config.model_name}: {raw.get('error')}"
+
+                # Run generation n_runs times in parallel
+                async def _single_run():
+                    return await api.generate(items=items, params=params)
+
+                if n_runs > 1:
+                    raw_list = await asyncio.gather(
+                        *[_single_run() for _ in range(n_runs)]
                     )
-                for seq_data in self._extract_sequences(raw):
-                    results.append(
-                        {
-                            "model_name": config.model_name,
-                            "temperature": params.get(
-                                "temperature", config.temperature
-                            ),
-                            "sampling_params": params,
-                            "generation_method": "direct",
-                            "parent_sequence": config.sequence,
-                            **seq_data,
-                        }
-                    )
+                else:
+                    raw_list = [await api.generate(items=items, params=params)]
+
+                for raw in raw_list:
+                    if isinstance(raw, dict) and "error" in raw:
+                        raise ValueError(
+                            f"API error from {config.model_name}: {raw.get('error')}"
+                        )
+                    for seq_data in self._extract_sequences(raw):
+                        results.append(
+                            {
+                                "model_name": config.model_name,
+                                "temperature": params.get(
+                                    "temperature", config.temperature
+                                ),
+                                "sampling_params": params,
+                                "generation_method": "direct",
+                                "parent_sequence": config.sequence,
+                                **seq_data,
+                            }
+                        )
         finally:
             if api:
                 await api.shutdown()
@@ -796,7 +818,8 @@ class GenerativePipeline(BasePipeline):
         self,
         model_name: str,
         action: str = "predict",
-        prediction_type: Optional[str] = None,
+        extractions=None,
+        columns=None,
         params: Optional[dict] = None,
         stage_name: Optional[str] = None,
         depends_on: Optional[list[str]] = None,
@@ -805,10 +828,11 @@ class GenerativePipeline(BasePipeline):
         """Add a prediction stage (same as DataPipeline)."""
         from biolmai.pipeline.data import PredictionStage
 
-        # Default stage name: prefer prediction_type (slug-independent) over model slug
         if stage_name is None:
-            if prediction_type:
-                stage_name = f"predict_{prediction_type}"
+            if columns and isinstance(columns, str):
+                stage_name = f"predict_{columns}"
+            elif extractions and isinstance(extractions, str):
+                stage_name = f"predict_{extractions}"
             else:
                 stage_name = f"{model_name}_{action}"
 
@@ -816,7 +840,8 @@ class GenerativePipeline(BasePipeline):
             name=stage_name,
             model_name=model_name,
             action=action,
-            prediction_type=prediction_type,
+            extractions=extractions,
+            columns=columns,
             params=params,
             depends_on=depends_on or [],
             **kwargs,

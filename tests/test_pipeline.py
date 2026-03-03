@@ -12,6 +12,7 @@ import pandas as pd
 
 from biolmai.pipeline import DataPipeline, SingleStepPipeline
 from biolmai.pipeline.base import Stage, StageResult, WorkingSet
+from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 from biolmai.pipeline.filters import SequenceLengthFilter
 
 
@@ -64,8 +65,12 @@ class TestDataPipeline(unittest.TestCase):
     """Test DataPipeline functionality."""
 
     def setUp(self):
-        """Create temporary directory."""
+        """Create temporary directory and datastore."""
         self.test_dir = tempfile.mkdtemp()
+        self.datastore = DuckDBDataStore(
+            db_path=Path(self.test_dir) / "test.duckdb",
+            data_dir=Path(self.test_dir) / "data",
+        )
 
     def tearDown(self):
         """Clean up."""
@@ -75,7 +80,7 @@ class TestDataPipeline(unittest.TestCase):
         """Test creating a pipeline."""
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
-        pipeline = DataPipeline(sequences=sequences, output_dir=self.test_dir)
+        pipeline = DataPipeline(sequences=sequences, datastore=self.datastore, output_dir=self.test_dir)
 
         self.assertIsNotNone(pipeline)
         self.assertEqual(pipeline.pipeline_type, "DataPipeline")
@@ -84,7 +89,7 @@ class TestDataPipeline(unittest.TestCase):
         """Test adding stages to pipeline."""
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
-        pipeline = DataPipeline(sequences=sequences, output_dir=self.test_dir)
+        pipeline = DataPipeline(sequences=sequences, datastore=self.datastore, output_dir=self.test_dir)
 
         # Add mock stage
         stage = MockPredictionStage("test_stage", "test_pred")
@@ -97,7 +102,7 @@ class TestDataPipeline(unittest.TestCase):
         """Test adding filter to pipeline."""
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ", "MKTAY"]
 
-        pipeline = DataPipeline(sequences=sequences, output_dir=self.test_dir)
+        pipeline = DataPipeline(sequences=sequences, datastore=self.datastore, output_dir=self.test_dir)
 
         pipeline.add_filter(SequenceLengthFilter(min_length=10))
 
@@ -107,7 +112,7 @@ class TestDataPipeline(unittest.TestCase):
         """Test stage dependency resolution."""
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
-        pipeline = DataPipeline(sequences=sequences, output_dir=self.test_dir)
+        pipeline = DataPipeline(sequences=sequences, datastore=self.datastore, output_dir=self.test_dir)
 
         stage1 = MockPredictionStage("stage1", "pred1")
         stage2 = MockPredictionStage("stage2", "pred2", depends_on=["stage1"])
@@ -126,7 +131,7 @@ class TestDataPipeline(unittest.TestCase):
         """Test parallel stage execution."""
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
-        pipeline = DataPipeline(sequences=sequences, output_dir=self.test_dir)
+        pipeline = DataPipeline(sequences=sequences, datastore=self.datastore, output_dir=self.test_dir)
 
         # Add two stages with no dependencies (can run in parallel)
         stage1 = MockPredictionStage("stage1", "pred1")
@@ -145,7 +150,7 @@ class TestDataPipeline(unittest.TestCase):
         """Test detection of circular dependencies."""
         sequences = ["MKTAYIAKQRQ"]
 
-        pipeline = DataPipeline(sequences=sequences, output_dir=self.test_dir)
+        pipeline = DataPipeline(sequences=sequences, datastore=self.datastore, output_dir=self.test_dir)
 
         # Create circular dependency manually
         stage1 = MockPredictionStage("stage1", "pred1", depends_on=["stage2"])
@@ -162,7 +167,7 @@ class TestDataPipeline(unittest.TestCase):
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
         pipeline = DataPipeline(
-            sequences=sequences, output_dir=self.test_dir, verbose=False
+            sequences=sequences, datastore=self.datastore, output_dir=self.test_dir, verbose=False
         )
 
         # Add multiple predictions (they should be at same level)
@@ -185,7 +190,7 @@ class TestDataPipeline(unittest.TestCase):
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
         pipeline = DataPipeline(
-            sequences=sequences, output_dir=self.test_dir, verbose=False
+            sequences=sequences, datastore=self.datastore, output_dir=self.test_dir, verbose=False
         )
 
         # Add and run mock stage
@@ -213,7 +218,7 @@ class TestDataPipeline(unittest.TestCase):
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
         pipeline = DataPipeline(
-            sequences=sequences, output_dir=self.test_dir, verbose=False
+            sequences=sequences, datastore=self.datastore, output_dir=self.test_dir, verbose=False
         )
 
         stage = MockPredictionStage("test", "tm")
@@ -235,8 +240,12 @@ class TestSingleStepPipeline(unittest.TestCase):
     """Test SingleStepPipeline."""
 
     def setUp(self):
-        """Create temporary directory."""
+        """Create temporary directory and datastore."""
         self.test_dir = tempfile.mkdtemp()
+        self.datastore = DuckDBDataStore(
+            db_path=Path(self.test_dir) / "test.duckdb",
+            data_dir=Path(self.test_dir) / "data",
+        )
 
     def tearDown(self):
         """Clean up."""
@@ -250,6 +259,7 @@ class TestSingleStepPipeline(unittest.TestCase):
         pipeline = SingleStepPipeline(
             model_name="test_model",
             sequences=sequences,
+            datastore=self.datastore,
             output_dir=self.test_dir,
             verbose=False,
             extractions="prediction",
@@ -263,8 +273,12 @@ class TestPipelineResumability(unittest.TestCase):
     """Test pipeline resumability."""
 
     def setUp(self):
-        """Create temporary directory."""
+        """Create temporary directory and datastore."""
         self.test_dir = tempfile.mkdtemp()
+        self.datastore = DuckDBDataStore(
+            db_path=Path(self.test_dir) / "test.duckdb",
+            data_dir=Path(self.test_dir) / "data",
+        )
 
     def tearDown(self):
         """Clean up."""
@@ -276,6 +290,7 @@ class TestPipelineResumability(unittest.TestCase):
 
         pipeline = DataPipeline(
             sequences=sequences,
+            datastore=self.datastore,
             output_dir=self.test_dir,
             run_id="test_run_123",
             verbose=False,
@@ -289,6 +304,7 @@ class TestPipelineResumability(unittest.TestCase):
 
         pipeline = DataPipeline(
             sequences=sequences,
+            datastore=self.datastore,
             output_dir=self.test_dir,
             run_id="test_run",
             verbose=False,
@@ -309,8 +325,12 @@ class TestPipelineInputFormats(unittest.TestCase):
     """Test different input formats."""
 
     def setUp(self):
-        """Create temporary directory."""
+        """Create temporary directory and datastore."""
         self.test_dir = tempfile.mkdtemp()
+        self.datastore = DuckDBDataStore(
+            db_path=Path(self.test_dir) / "test.duckdb",
+            data_dir=Path(self.test_dir) / "data",
+        )
 
     def tearDown(self):
         """Clean up."""
@@ -321,7 +341,7 @@ class TestPipelineInputFormats(unittest.TestCase):
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
 
         pipeline = DataPipeline(
-            sequences=sequences, output_dir=self.test_dir, verbose=False
+            sequences=sequences, datastore=self.datastore, output_dir=self.test_dir, verbose=False
         )
 
         # Get initial data
@@ -337,7 +357,7 @@ class TestPipelineInputFormats(unittest.TestCase):
             {"sequence": ["MKTAYIAKQRQ", "MKLAVIDSAQ"], "name": ["seq1", "seq2"]}
         )
 
-        pipeline = DataPipeline(sequences=df, output_dir=self.test_dir, verbose=False)
+        pipeline = DataPipeline(sequences=df, datastore=self.datastore, output_dir=self.test_dir, verbose=False)
 
         df_init = asyncio.run(pipeline._get_initial_data())
 
@@ -352,7 +372,7 @@ class TestPipelineInputFormats(unittest.TestCase):
         df.to_csv(csv_path, index=False)
 
         pipeline = DataPipeline(
-            sequences=str(csv_path), output_dir=self.test_dir, verbose=False
+            sequences=str(csv_path), datastore=self.datastore, output_dir=self.test_dir, verbose=False
         )
 
         df_init = asyncio.run(pipeline._get_initial_data())
@@ -369,7 +389,7 @@ class TestPipelineInputFormats(unittest.TestCase):
         write_fasta(sequences, fasta_path)
 
         pipeline = DataPipeline(
-            sequences=str(fasta_path), output_dir=self.test_dir, verbose=False
+            sequences=str(fasta_path), datastore=self.datastore, output_dir=self.test_dir, verbose=False
         )
 
         df_init = asyncio.run(pipeline._get_initial_data())
@@ -381,8 +401,12 @@ class TestPipelineDeduplication(unittest.TestCase):
     """Test sequence deduplication."""
 
     def setUp(self):
-        """Create temporary directory."""
+        """Create temporary directory and datastore."""
         self.test_dir = tempfile.mkdtemp()
+        self.datastore = DuckDBDataStore(
+            db_path=Path(self.test_dir) / "test.duckdb",
+            data_dir=Path(self.test_dir) / "data",
+        )
 
     def tearDown(self):
         """Clean up."""
@@ -393,7 +417,7 @@ class TestPipelineDeduplication(unittest.TestCase):
         sequences = ["MKTAYIAKQRQ", "MKLAVIDSAQ", "MKTAYIAKQRQ", "MKTAYIAKQRQ"]
 
         pipeline = DataPipeline(
-            sequences=sequences, output_dir=self.test_dir, verbose=False
+            sequences=sequences, datastore=self.datastore, output_dir=self.test_dir, verbose=False
         )
 
         df = asyncio.run(pipeline._get_initial_data())

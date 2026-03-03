@@ -420,14 +420,16 @@ class DuckDBDataStore:
                 ),
                 axis=1,
             )
-            # Synthesize a 'sequence' column for compatibility
+            # Set 'sequence' column: use real value if provided, else empty string
+            # (column is NOT NULL in schema). Real data lives in input columns.
             if "sequence" in input_columns:
                 df_new["sequence"] = input_df["sequence"]
+                df_new["length"] = df_new["sequence"].str.len()
             else:
-                df_new["sequence"] = df_new[input_columns].astype(str).agg(
-                    ":".join, axis=1
+                df_new["sequence"] = ""
+                df_new["length"] = sum(
+                    df_new[c].astype(str).str.len() for c in input_columns
                 )
-            df_new["length"] = df_new["sequence"].str.len()
 
             # Dedup within batch
             original_hashes = df_new["hash"].tolist()

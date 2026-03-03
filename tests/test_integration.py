@@ -33,6 +33,7 @@ from biolmai.pipeline import (  # noqa: E402
     SequenceLengthFilter,
     ThresholdFilter,
 )
+from biolmai.pipeline.data import EmbeddingSpec  # noqa: E402
 
 
 def skip_if_no_api_key():
@@ -76,7 +77,7 @@ class TestDataPipelineIntegration(unittest.TestCase):
         )
 
         # Add esm2stabp prediction - returns melting_temperature
-        pipeline.add_prediction("esm2stabp", stage_name="tm_pred")
+        pipeline.add_prediction("esm2stabp", extractions="prediction", columns="tm", stage_name="tm_pred")
 
         pipeline.run()
         df = pipeline.get_final_data()
@@ -104,7 +105,7 @@ class TestDataPipelineIntegration(unittest.TestCase):
         pipeline1 = DataPipeline(
             sequences=self.test_sequences, datastore=self.db_path, verbose=True
         )
-        pipeline1.add_prediction("esm2stabp", stage_name="tm_pred")
+        pipeline1.add_prediction("esm2stabp", extractions="prediction", columns="tm", stage_name="tm_pred")
 
         start1 = time.time()
         pipeline1.run()
@@ -114,7 +115,7 @@ class TestDataPipelineIntegration(unittest.TestCase):
         pipeline2 = DataPipeline(
             sequences=self.test_sequences, datastore=self.db_path, verbose=True
         )
-        pipeline2.add_prediction("esm2stabp", stage_name="tm_pred")
+        pipeline2.add_prediction("esm2stabp", extractions="prediction", columns="tm", stage_name="tm_pred")
 
         start2 = time.time()
         pipeline2.run()
@@ -152,18 +153,21 @@ class TestDataPipelineIntegration(unittest.TestCase):
         )
 
         # Add multiple predictions that can run in parallel
-        pipeline.add_predictions(["esm2stabp", "biolmsol"])
+        pipeline.add_predictions([
+            {"model_name": "esm2stabp", "extractions": "prediction", "columns": "tm"},
+            {"model_name": "biolmsol", "extractions": "prediction", "columns": "sol"},
+        ])
 
         results = pipeline.run()
         df = pipeline.get_final_data()
 
         # Verify both models ran
-        self.assertIn("esm2stabp_predict", results)
-        self.assertIn("biolmsol_predict", results)
+        self.assertIn("predict_tm", results)
+        self.assertIn("predict_sol", results)
 
         # Verify both predictions in dataframe
-        self.assertIn("melting_temperature", df.columns)
-        self.assertIn("solubility_score", df.columns)
+        self.assertIn("tm", df.columns)
+        self.assertIn("sol", df.columns)
 
         print("\n✅ Both predictions completed in parallel")
 
@@ -176,15 +180,16 @@ class TestDataPipelineIntegration(unittest.TestCase):
         )
 
         # Predict -> Filter -> Predict
-        pipeline.add_prediction("esm2stabp", stage_name="tm_pred")
+        pipeline.add_prediction("esm2stabp", extractions="prediction", columns="tm", stage_name="tm_pred")
         pipeline.add_filter(
             ThresholdFilter(
-                "melting_temperature", min_value=0
+                "tm", min_value=0
             ),  # Keep all that have values
             stage_name="filter_tm",
         )
         pipeline.add_prediction(
-            "biolmsol", stage_name="sol_pred", depends_on=["filter_tm"]
+            "biolmsol", extractions="prediction", columns="sol",
+            stage_name="sol_pred", depends_on=["filter_tm"]
         )
 
         results = pipeline.run()
@@ -205,7 +210,7 @@ class TestDataPipelineIntegration(unittest.TestCase):
         pipeline1 = DataPipeline(
             sequences=self.test_sequences, datastore=self.db_path, verbose=True
         )
-        pipeline1.add_prediction("esm2stabp", stage_name="tm_pred")
+        pipeline1.add_prediction("esm2stabp", extractions="prediction", columns="tm", stage_name="tm_pred")
         pipeline1.add_filter(
             ThresholdFilter("melting_temperature", min_value=100),  # High threshold
             stage_name="filter_1",
@@ -221,7 +226,7 @@ class TestDataPipelineIntegration(unittest.TestCase):
             verbose=True,
             run_id="run2",
         )
-        pipeline2.add_prediction("esm2stabp", stage_name="tm_pred")
+        pipeline2.add_prediction("esm2stabp", extractions="prediction", columns="tm", stage_name="tm_pred")
         pipeline2.add_filter(
             ThresholdFilter("melting_temperature", min_value=0),  # Lower threshold
             stage_name="filter_1",
@@ -308,7 +313,7 @@ class TestEmbeddingsAndPCAIntegration(unittest.TestCase):
         )
 
         # Generate embeddings
-        pipeline.add_prediction("esm2-650m", action="encode", stage_name="embeddings")
+        pipeline.add_prediction("esm2-650m", action="encode", stage_name="embeddings", embedding_extractor=EmbeddingSpec(key="embeddings"))
 
         results = pipeline.run()
         pipeline.get_final_data()
@@ -340,7 +345,7 @@ class TestEmbeddingsAndPCAIntegration(unittest.TestCase):
         )
 
         # Generate embeddings
-        pipeline.add_prediction("esm2-650m", action="encode", stage_name="embeddings")
+        pipeline.add_prediction("esm2-650m", action="encode", stage_name="embeddings", embedding_extractor=EmbeddingSpec(key="embeddings"))
         pipeline.run()
 
         # Get data with embeddings
@@ -428,8 +433,8 @@ class TestComplexMultiLevelPipeline(unittest.TestCase):
 
         # Level 1: Initial predictions (parallel)
         print("\n[Level 1] Adding initial predictions...")
-        pipeline.add_prediction("esm2stabp", stage_name="tm_pred")
-        pipeline.add_prediction("biolmsol", stage_name="sol_pred")
+        pipeline.add_prediction("esm2stabp", extractions="prediction", columns="tm", stage_name="tm_pred")
+        pipeline.add_prediction("biolmsol", extractions="prediction", columns="sol", stage_name="sol_pred")
 
         # Level 2: Filter based on predictions
         print("[Level 2] Adding filter...")
@@ -444,7 +449,8 @@ class TestComplexMultiLevelPipeline(unittest.TestCase):
         pipeline.add_prediction(
             "esmfold",
             action="predict",
-            prediction_type="structure",
+            extractions="mean_plddt",
+            columns="structure",
             stage_name="structure_pred",
             depends_on=["tm_filter"],
         )
@@ -458,6 +464,7 @@ class TestComplexMultiLevelPipeline(unittest.TestCase):
             action="encode",
             stage_name="final_embed",
             depends_on=["structure_pred"],
+            embedding_extractor=EmbeddingSpec(key="embeddings"),
         )
 
         # Show execution plan
@@ -516,7 +523,7 @@ class TestEdgeCasesIntegration(unittest.TestCase):
             sequences=["MKTAY", "MKLAVIY"], datastore=self.db_path, verbose=True
         )
 
-        pipeline.add_prediction("esm2stabp")
+        pipeline.add_prediction("esm2stabp", extractions="prediction", columns="tm")
         pipeline.add_filter(
             ThresholdFilter(
                 "melting_temperature", min_value=500
@@ -539,7 +546,7 @@ class TestEdgeCasesIntegration(unittest.TestCase):
             sequences=sequences, datastore=self.db_path, verbose=True
         )
 
-        pipeline.add_prediction("esm2stabp")
+        pipeline.add_prediction("esm2stabp", extractions="prediction", columns="tm")
         pipeline.run()
         df = pipeline.get_final_data()
 
@@ -567,7 +574,7 @@ class TestEdgeCasesIntegration(unittest.TestCase):
 
         # Filter to medium length first
         pipeline.add_filter(SequenceLengthFilter(min_length=10, max_length=30))
-        pipeline.add_prediction("esm2stabp")
+        pipeline.add_prediction("esm2stabp", extractions="prediction", columns="tm")
 
         results = pipeline.run()
         pipeline.get_final_data()
@@ -607,8 +614,8 @@ class TestDataStoreIntegration(unittest.TestCase):
             sequences=self.test_sequences, datastore=self.db_path, verbose=True
         )
 
-        pipeline.add_prediction("esm2stabp")
-        pipeline.add_prediction("biolmsol")
+        pipeline.add_prediction("esm2stabp", extractions="prediction", columns="tm")
+        pipeline.add_prediction("biolmsol", extractions="prediction", columns="sol")
 
         pipeline.run()
 
@@ -636,7 +643,10 @@ class TestDataStoreIntegration(unittest.TestCase):
             sequences=self.test_sequences, datastore=self.db_path, verbose=True
         )
 
-        pipeline.add_predictions(["esm2stabp", "biolmsol"])
+        pipeline.add_predictions([
+            {"model_name": "esm2stabp", "extractions": "prediction", "columns": "tm"},
+            {"model_name": "biolmsol", "extractions": "prediction", "columns": "sol"},
+        ])
         pipeline.run()
 
         # Export to CSV

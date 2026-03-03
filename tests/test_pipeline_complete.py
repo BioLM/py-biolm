@@ -93,7 +93,7 @@ def test_filter_stage_actually_filters_in_batch_mode(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.add_filter(
             ThresholdFilter("tm", min_value=60.0),
             stage_name="filter_tm",
@@ -163,7 +163,7 @@ def test_resume_skips_completed_stage_and_reloads_output(tmp_path):
 
         # First run — populates DB
         pipeline1 = _make_pipeline(tmp_path, sequences=SEQS[:4], run_id=run_id)
-        pipeline1.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline1.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline1.run()
 
         call_count_first = mock_inst.predict.call_count
@@ -176,7 +176,7 @@ def test_resume_skips_completed_stage_and_reloads_output(tmp_path):
         pipeline2 = _make_pipeline(
             tmp_path, sequences=SEQS[:4], run_id=run_id, resume=True
         )
-        pipeline2.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline2.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline2.run()
 
         call_count_second = mock_inst2.predict.call_count
@@ -201,7 +201,7 @@ def test_diff_mode_skips_existing_sequences(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         p1 = _make_pipeline(tmp_path, sequences=SEQS[:2], diff_mode=True)
-        p1.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        p1.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         p1.run()
 
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
@@ -209,7 +209,7 @@ def test_diff_mode_skips_existing_sequences(tmp_path):
         MockCls.return_value = mock_inst
         # Add 2 new sequences — only they should need predictions
         p2 = _make_pipeline(tmp_path, sequences=SEQS, diff_mode=True)
-        p2.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        p2.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         p2.run()
 
     # Only the 2 new sequences should have been predicted
@@ -234,7 +234,7 @@ def test_explore_and_stats_methods(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.run()
 
     info = pipeline.explore()
@@ -257,7 +257,7 @@ def test_query_method(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=[70.0] * 4)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.run()
 
     df = pipeline.query("SELECT COUNT(*) AS n FROM sequences")
@@ -382,8 +382,8 @@ def test_multi_stage_pipeline_generation_prediction_filter(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
         )
         pipeline.add_filter(
             ThresholdFilter("tm", min_value=60.0),
@@ -410,7 +410,7 @@ def test_streaming_marks_stages_complete(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.add_filter(
             ThresholdFilter("tm", min_value=60.0),
             stage_name="filter_tm",
@@ -466,8 +466,8 @@ def test_parallel_merge_uses_intersection_of_rows(tmp_path):
                 name="tm_stage",
                 model_name="temberture-regression",
                 action="predict",
-                prediction_type="tm",
                 extractions="melting_temperature",
+                columns="tm",
                 batch_size=32,
             )
         )
@@ -476,8 +476,8 @@ def test_parallel_merge_uses_intersection_of_rows(tmp_path):
                 name="sol_stage",
                 model_name="pro4s",
                 action="predict",
-                prediction_type="sol",
                 extractions="solubility_score",
+                columns="sol",
                 batch_size=32,
             )
         )
@@ -497,7 +497,7 @@ def test_ranking_filter_top_n_ascending(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.add_filter(
             RankingFilter("tm", n=2, ascending=True),  # keep 2 lowest tm
             stage_name="rank_filter",
@@ -518,7 +518,7 @@ def test_ranking_filter_top_n_descending(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.add_filter(
             RankingFilter("tm", n=2, ascending=False),  # keep 2 highest tm
             stage_name="rank_filter",
@@ -544,7 +544,7 @@ def test_filter_stage_does_not_mutate_input_df(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.add_filter(
             ThresholdFilter("tm", min_value=60.0),
             stage_name="filter_tm",
@@ -592,7 +592,7 @@ def test_extraction_spec_single_key(tmp_path):
             "esmfold",
             action="predict",
             extractions="mean_plddt",
-            prediction_type="plddt",
+            columns="plddt",
         )
         pipeline.run()
 
@@ -612,7 +612,8 @@ def test_extraction_spec_multi_key(tmp_path):
         pipeline.add_prediction(
             "esmfold",
             action="predict",
-            extractions={"mean_plddt": "plddt", "ptm": "ptm"},
+            extractions=["mean_plddt", "ptm"],
+            columns={"mean_plddt": "plddt"},
         )
         pipeline.run()
 
@@ -642,9 +643,10 @@ def test_extraction_spec_with_reduction(tmp_path):
             "esmfold",
             action="predict",
             extractions=[
-                ExtractionSpec("plddt", "mean_plddt", reduction="mean"),
-                ExtractionSpec("ptm", "ptm"),
+                ExtractionSpec("plddt", reduction="mean"),
+                ExtractionSpec("ptm"),
             ],
+            columns={"plddt": "mean_plddt"},
         )
         pipeline.run()
 
@@ -663,7 +665,7 @@ def test_extraction_spec_legacy_fallback(tmp_path):
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:2])
         # No extractions — legacy mode
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.run()
 
     df = pipeline.get_final_data()
@@ -699,7 +701,8 @@ def test_extraction_spec_cache_check(tmp_path):
         pipeline1.add_prediction(
             "esmfold",
             action="predict",
-            extractions={"mean_plddt": "plddt", "ptm": "ptm"},
+            extractions=["mean_plddt", "ptm"],
+            columns={"mean_plddt": "plddt"},
         )
         pipeline1.run()
         first_call_count = mock1.predict.call_count
@@ -712,7 +715,8 @@ def test_extraction_spec_cache_check(tmp_path):
         pipeline2.add_prediction(
             "esmfold",
             action="predict",
-            extractions={"mean_plddt": "plddt", "ptm": "ptm"},
+            extractions=["mean_plddt", "ptm"],
+            columns={"mean_plddt": "plddt"},
         )
         pipeline2.run()
         second_call_count = mock2.predict.call_count
@@ -925,7 +929,7 @@ def test_sql_filter_in_full_pipeline(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.add_filter(
             ThresholdFilter("tm", min_value=60.0),
             stage_name="filter_tm",
@@ -953,7 +957,7 @@ def test_ranking_filter_sql_in_full_pipeline(tmp_path):
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=api_values)
         pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.add_filter(
             RankingFilter("tm", n=2, ascending=False),
             stage_name="top2",
@@ -983,22 +987,20 @@ def test_pipeline_metadata_exposed(tmp_path):
     assert meta.db_path.exists()
 
 
-def test_default_cache_dir_created(tmp_path, monkeypatch):
-    """When no datastore is given, pipeline creates .biolm/pipelines/<id>/ cache."""
-    import biolmai.pipeline.base as base_mod
-
-    # Point the cache root into tmp_path so we don't pollute the real working dir
-    monkeypatch.setattr(base_mod, "_BIOLM_CACHE_ROOT", tmp_path / ".biolm" / "pipelines")
+def test_default_cache_dir_created(tmp_path):
+    """Pipeline with explicit datastore creates cache at the given path."""
+    db_path = tmp_path / "cache" / "pipeline.duckdb"
+    ds = DuckDBDataStore(db_path=db_path, data_dir=tmp_path / "cache" / "data")
 
     with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
         MockCls.return_value = make_api_mock(values=[70.0, 80.0])
-        pipeline = DataPipeline(sequences=SEQS[:2], verbose=False)
-        pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+        pipeline = DataPipeline(sequences=SEQS[:2], datastore=ds, verbose=False)
+        pipeline.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
         pipeline.run()
 
     meta = pipeline.metadata
     assert meta.cache_dir.exists()
-    assert (meta.cache_dir / "pipeline.duckdb").exists()
+    assert meta.db_path.exists()
     assert meta.pipeline_id == pipeline.run_id
 
     # Verify the data is accessible via the cache path
@@ -1226,8 +1228,8 @@ def test_context_passed_to_stages(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
         )
         pipeline.run()
 
@@ -1261,8 +1263,8 @@ def test_multi_column_full_pipeline_with_prediction(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
         )
         pipeline.add_filter(
             ThresholdFilter("tm", min_value=60.0),
@@ -1391,7 +1393,6 @@ def test_custom_embedding_extractor_in_pipeline(tmp_path):
         pipeline.add_prediction(
             "my-model",
             action="encode",
-            prediction_type="embedding",
             stage_name="embed",
             embedding_extractor=my_extractor,
         )
@@ -1433,7 +1434,6 @@ def test_embedding_spec_in_pipeline(tmp_path):
         pipeline.add_prediction(
             "ablang2",
             action="encode",
-            prediction_type="embedding",
             stage_name="embed",
             embedding_extractor=EmbeddingSpec(key="seqcoding"),
         )
@@ -1448,3 +1448,168 @@ def test_embedding_spec_in_pipeline(tmp_path):
     emb_map = ds.get_embeddings_bulk(seq_ids, model_name="ablang2")
     assert len(emb_map) == 1
     assert list(emb_map.values())[0].shape == (32,)
+
+
+# ---------------------------------------------------------------------------
+# Validation tests
+# ---------------------------------------------------------------------------
+
+
+def test_duplicate_stage_name_raises(tmp_path):
+    """Adding two stages with the same name raises ValueError."""
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+    pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=False)
+
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="Duplicate stage name"):
+        pipeline.add_prediction(
+            "temberture-regression",
+            extractions="prediction",
+            columns="tm",
+        )
+
+
+def test_column_collision_different_model_raises(tmp_path):
+    """Two different models with the same output column raises ValueError."""
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+    pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=False)
+
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="Column"):
+        pipeline.add_prediction(
+            "soluprot",
+            extractions="soluble",
+            columns="tm",
+            stage_name="predict_tm_soluprot",
+        )
+
+
+def test_same_model_same_column_ok(tmp_path):
+    """Same model + same column with different stage name is allowed (cache reuse)."""
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+    pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=False)
+
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="predict_tm_1",
+    )
+    # Same model, same column, different stage name — should not raise
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="predict_tm_2",
+    )
+    assert len(pipeline.stages) == 2
+
+
+def test_schema_mismatch_multi_on_single_raises(tmp_path):
+    """Multi-column pipeline on a datastore with existing single-column data raises."""
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    # First: insert single-column data
+    ds.add_sequences_batch(["MKLLIV", "ACDEFG"])
+
+    # Now try multi-column on the same datastore
+    df_input = pd.DataFrame({
+        "heavy_chain": ["EVQLVES"],
+        "light_chain": ["DIQMTQS"],
+    })
+    pipeline = DataPipeline(
+        sequences=df_input,
+        input_columns=["heavy_chain", "light_chain"],
+        datastore=ds,
+        verbose=False,
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="Cannot use multi-column input"):
+        asyncio.run(pipeline._get_initial_data())
+
+
+def test_schema_mismatch_single_on_multi_raises(tmp_path):
+    """Single-column pipeline on a datastore with existing multi-column data raises."""
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    # First: insert multi-column data
+    df_input = pd.DataFrame({
+        "heavy_chain": ["EVQLVES"],
+        "light_chain": ["DIQMTQS"],
+    })
+    ds.ensure_input_columns(["heavy_chain", "light_chain"])
+    ds.add_sequences_batch(input_df=df_input, input_columns=["heavy_chain", "light_chain"])
+
+    # Now try single-column on the same datastore
+    pipeline = DataPipeline(
+        sequences=["MKLLIV"],
+        datastore=ds,
+        verbose=False,
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="Cannot use single-column input"):
+        asyncio.run(pipeline._get_initial_data())
+
+
+def test_schema_validation_empty_datastore_ok(tmp_path):
+    """Empty datastore accepts any schema without error."""
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    # Multi-column on empty datastore — should work
+    df_input = pd.DataFrame({
+        "heavy_chain": ["EVQLVES"],
+        "light_chain": ["DIQMTQS"],
+    })
+    pipeline = DataPipeline(
+        sequences=df_input,
+        input_columns=["heavy_chain", "light_chain"],
+        datastore=ds,
+        verbose=False,
+    )
+    df = asyncio.run(pipeline._get_initial_data())
+    assert len(df) == 1
+
+
+def test_multi_column_no_synthetic_sequence(tmp_path):
+    """Multi-column input sets sequence='' instead of concatenating columns."""
+    df_input = pd.DataFrame({
+        "heavy_chain": ["EVQLVES"],
+        "light_chain": ["DIQMTQS"],
+    })
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+    pipeline = DataPipeline(
+        sequences=df_input,
+        input_columns=["heavy_chain", "light_chain"],
+        datastore=ds,
+        verbose=False,
+    )
+    asyncio.run(pipeline._get_initial_data())
+
+    row = ds.conn.execute(
+        "SELECT sequence, length FROM sequences LIMIT 1"
+    ).fetchone()
+    # sequence should be empty, not "EVQLVES:DIQMTQS"
+    assert row[0] == ""
+    # length should be sum of input column lengths
+    assert row[1] == len("EVQLVES") + len("DIQMTQS")

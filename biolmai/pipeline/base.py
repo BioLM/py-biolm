@@ -279,8 +279,7 @@ class BasePipeline(ABC):
     users can reconnect to the same cache in later sessions.
 
     Args:
-        datastore: DataStore instance, path to a DuckDB file, or ``None``
-            (auto-creates under ``.biolm/pipelines/``).
+        datastore: DataStore instance or path to a DuckDB file.  Required.
         run_id: Unique run identifier (auto-generated if not provided).
         output_dir: Directory for CSV/Parquet exports (default ``pipeline_outputs``).
         resume: Whether to resume from a previous run.
@@ -289,7 +288,7 @@ class BasePipeline(ABC):
 
     def __init__(
         self,
-        datastore: Optional[Union[DataStore, str, Path]] = None,
+        datastore: Union[DataStore, str, Path],
         run_id: Optional[str] = None,
         output_dir: Union[str, Path] = "pipeline_outputs",
         resume: bool = False,
@@ -304,18 +303,15 @@ class BasePipeline(ABC):
             self._pipeline_id = self.run_id
             self._cache_dir = Path(datastore.db_path).parent
         elif isinstance(datastore, (str, Path)):
-            self.datastore = DataStore(datastore)
+            self.datastore = DataStore(str(datastore))
             self._pipeline_id = self.run_id
             self._cache_dir = Path(datastore).parent
         else:
-            # Auto-create under .biolm/pipelines/<pipeline_id>/
-            self._pipeline_id = self.run_id
-            cache_dir = _BIOLM_CACHE_ROOT / self._pipeline_id
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            self._cache_dir = cache_dir
-            db_path = cache_dir / "pipeline.duckdb"
-            data_dir = cache_dir / "data"
-            self.datastore = DataStore(db_path, data_dir)
+            raise TypeError(
+                f"datastore must be a DuckDBDataStore instance or a path to a "
+                f"DuckDB file, got {type(datastore).__name__}. Example: "
+                f"DataPipeline(sequences=..., datastore='my_pipeline.duckdb')"
+            )
 
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -359,9 +355,35 @@ class BasePipeline(ABC):
 
     def add_stage(self, stage: Stage):
         """Add a stage to the pipeline."""
+        # Check for duplicate stage name
+        existing_names = {s.name for s in self.stages}
+        if stage.name in existing_names:
+            raise ValueError(
+                f"Duplicate stage name '{stage.name}'. "
+                "Use stage_name= to provide a unique name."
+            )
+
+        # Check for column name collision (different model, same output column)
+        stage_columns = {
+            r.column for r in getattr(stage, "_resolved", [])
+        }
+        stage_model = getattr(stage, "model_name", None)
+        if stage_columns:
+            for s in self.stages:
+                s_columns = {r.column for r in getattr(s, "_resolved", [])}
+                s_model = getattr(s, "model_name", None)
+                overlap = stage_columns & s_columns
+                if overlap and s_model != stage_model:
+                    raise ValueError(
+                        f"Column(s) {overlap} already used by stage '{s.name}' "
+                        f"(model '{s_model}'). New stage '{stage.name}' uses "
+                        f"model '{stage_model}'. Use different column names via "
+                        "the 'columns' parameter to avoid collision."
+                    )
+
         # Validate dependencies
         for dep in stage.depends_on:
-            if dep not in [s.name for s in self.stages]:
+            if dep not in existing_names:
                 raise ValueError(
                     f"Stage '{stage.name}' depends on '{dep}' which hasn't been added yet"
                 )
