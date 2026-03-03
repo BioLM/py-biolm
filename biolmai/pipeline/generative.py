@@ -292,12 +292,6 @@ class GenerationStage(Stage):
         masked_seq = "".join(seq_list)
         return masked_seq, sorted(positions)
 
-    @staticmethod
-    def _is_masked_lm(model_name: str) -> bool:
-        """Check if a model is a masked language model."""
-        mlm_models = ["esm", "esm1v", "esm2", "esm1b"]
-        return any(mlm in model_name.lower() for mlm in mlm_models)
-
     async def _run_remasking(
         self,
         config: RemaskingConfig,
@@ -468,10 +462,7 @@ class GenerationStage(Stage):
             api = None
             try:
                 api = BioLMApiClient(config.model_name)
-                if config.generation_method == "remask" or (
-                    config.generation_method == "auto"
-                    and self._is_masked_lm(config.model_name)
-                ):
+                if config.generation_method == "remask":
                     # Remasking approach for MLMs
                     if config.parent_sequence is None:
                         raise ValueError("parent_sequence required for remasking")

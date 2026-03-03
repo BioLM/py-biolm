@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from biolmai.pipeline.base import WorkingSet
-from biolmai.pipeline.data import DataPipeline, ExtractionSpec, PredictionStage
+from biolmai.pipeline.data import DataPipeline, EmbeddingSpec, ExtractionSpec, PredictionStage
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 from biolmai.pipeline.filters import (
     CustomFilter,
@@ -1277,3 +1277,174 @@ def test_multi_column_full_pipeline_with_prediction(tmp_path):
     # Input columns should be present in final data
     assert "heavy_chain" in df_final.columns
     assert "light_chain" in df_final.columns
+
+
+# ---------------------------------------------------------------------------
+# EmbeddingSpec tests
+# ---------------------------------------------------------------------------
+
+
+def test_embedding_spec_key(tmp_path):
+    """EmbeddingSpec extracts from the specified key."""
+    spec = EmbeddingSpec(key="seqcoding")
+    result = spec({"seqcoding": [1.0, 2.0, 3.0], "other": [9.0]})
+    assert len(result) == 1
+    arr, layer = result[0]
+    assert list(arr) == [1.0, 2.0, 3.0]
+    assert layer is None
+
+
+def test_embedding_spec_missing_key():
+    """EmbeddingSpec returns empty list when key is absent."""
+    spec = EmbeddingSpec(key="seqcoding")
+    result = spec({"embedding": [1.0, 2.0]})
+    assert result == []
+
+
+def test_embedding_spec_layer_filter():
+    """EmbeddingSpec filters by layer number."""
+    spec = EmbeddingSpec(key="embeddings", layer=33)
+    response = {
+        "embeddings": [
+            {"layer": 6, "embedding": [1.0, 2.0]},
+            {"layer": 33, "embedding": [3.0, 4.0]},
+            {"layer": 36, "embedding": [5.0, 6.0]},
+        ]
+    }
+    result = spec(response)
+    assert len(result) == 1
+    arr, layer = result[0]
+    assert list(arr) == [3.0, 4.0]
+    assert layer == 33
+
+
+def test_embedding_spec_all_layers():
+    """EmbeddingSpec(layer=None) returns all layers."""
+    spec = EmbeddingSpec(key="embeddings")
+    response = {
+        "embeddings": [
+            {"layer": 6, "embedding": [1.0, 2.0]},
+            {"layer": 33, "embedding": [3.0, 4.0]},
+        ]
+    }
+    result = spec(response)
+    assert len(result) == 2
+    assert result[0][1] == 6
+    assert result[1][1] == 33
+
+
+def test_embedding_spec_reduction_mean():
+    """EmbeddingSpec reduction='mean' pools 2-D to 1-D."""
+    spec = EmbeddingSpec(key="embedding", reduction="mean")
+    response = {"embedding": [[1.0, 2.0], [3.0, 4.0]]}
+    result = spec(response)
+    assert len(result) == 1
+    arr, _ = result[0]
+    np.testing.assert_allclose(arr, [2.0, 3.0])
+
+
+def test_embedding_spec_reduction_first():
+    """EmbeddingSpec reduction='first' takes first token."""
+    spec = EmbeddingSpec(key="embedding", reduction="first")
+    response = {"embedding": [[10.0, 20.0], [30.0, 40.0]]}
+    result = spec(response)
+    arr, _ = result[0]
+    np.testing.assert_allclose(arr, [10.0, 20.0])
+
+
+def test_embedding_spec_no_reduction_on_1d():
+    """EmbeddingSpec reduction is no-op on 1-D arrays."""
+    spec = EmbeddingSpec(key="embedding", reduction="mean")
+    response = {"embedding": [1.0, 2.0, 3.0]}
+    result = spec(response)
+    arr, _ = result[0]
+    assert list(arr) == [1.0, 2.0, 3.0]  # Not reduced, already 1-D
+
+
+def test_custom_embedding_extractor_in_pipeline(tmp_path):
+    """PredictionStage with custom callable embedding_extractor."""
+    db = tmp_path / "emb.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "emb_data")
+
+    # Custom extractor: takes "my_vectors" key
+    def my_extractor(result):
+        vec = result.get("my_vectors")
+        if vec is not None:
+            return [(np.array(vec), None)]
+        return []
+
+    with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
+        mock = AsyncMock()
+
+        async def _encode(items, params=None):
+            return [{"my_vectors": list(np.ones(16))} for _ in items]
+
+        mock.encode = AsyncMock(side_effect=_encode)
+        mock.shutdown = AsyncMock()
+        MockCls.return_value = mock
+
+        pipeline = DataPipeline(
+            sequences=["MKLLIV", "ACDEFG"],
+            datastore=ds,
+            verbose=False,
+        )
+        pipeline.add_prediction(
+            "my-model",
+            action="encode",
+            prediction_type="embedding",
+            stage_name="embed",
+            embedding_extractor=my_extractor,
+        )
+        pipeline.run(enable_streaming=False)
+
+    # Verify embeddings stored
+    emb_count = ds.conn.execute(
+        "SELECT COUNT(*) FROM embeddings WHERE model_name='my-model'"
+    ).fetchone()[0]
+    assert emb_count == 2
+
+    seq_ids = ds.conn.execute("SELECT sequence_id FROM sequences").df()["sequence_id"].tolist()
+    emb_map = ds.get_embeddings_bulk(seq_ids, model_name="my-model")
+    assert len(emb_map) == 2
+    for emb in emb_map.values():
+        assert emb.shape == (16,)
+
+
+def test_embedding_spec_in_pipeline(tmp_path):
+    """PredictionStage with EmbeddingSpec extracts from the right key."""
+    db = tmp_path / "emb2.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "emb2_data")
+
+    with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
+        mock = AsyncMock()
+
+        async def _encode(items, params=None):
+            return [{"seqcoding": list(np.ones(32)), "other_stuff": "ignore"} for _ in items]
+
+        mock.encode = AsyncMock(side_effect=_encode)
+        mock.shutdown = AsyncMock()
+        MockCls.return_value = mock
+
+        pipeline = DataPipeline(
+            sequences=["MKLLIV"],
+            datastore=ds,
+            verbose=False,
+        )
+        pipeline.add_prediction(
+            "ablang2",
+            action="encode",
+            prediction_type="embedding",
+            stage_name="embed",
+            embedding_extractor=EmbeddingSpec(key="seqcoding"),
+        )
+        pipeline.run(enable_streaming=False)
+
+    emb_count = ds.conn.execute(
+        "SELECT COUNT(*) FROM embeddings WHERE model_name='ablang2'"
+    ).fetchone()[0]
+    assert emb_count == 1
+
+    seq_ids = ds.conn.execute("SELECT sequence_id FROM sequences").df()["sequence_id"].tolist()
+    emb_map = ds.get_embeddings_bulk(seq_ids, model_name="ablang2")
+    assert len(emb_map) == 1
+    assert list(emb_map.values())[0].shape == (32,)

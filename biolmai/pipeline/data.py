@@ -34,6 +34,100 @@ class ExtractionSpec:
     reduction: Optional[str] = None
 
 
+# ---------------------------------------------------------------------------
+# Embedding extraction
+# ---------------------------------------------------------------------------
+
+# Return type for embedding extractors: list of (array, optional_layer_number)
+EmbeddingResult = list[tuple[np.ndarray, Optional[int]]]
+
+
+@dataclass
+class EmbeddingSpec:
+    """Declarative specification for extracting embeddings from API responses.
+
+    Covers common response formats without writing a custom function.
+
+    Args:
+        key: Response dict key containing the embedding data (e.g.
+            ``"embedding"``, ``"seqcoding"``, ``"embeddings"``).
+        layer: Which layer to extract when the response contains multiple
+            layers (list of ``{layer: int, embedding: [...]}`` dicts).
+            ``None`` stores all layers; an ``int`` stores only that layer.
+        reduction: Reduce per-token 2-D embeddings to a single vector:
+            ``"mean"``, ``"first"``, ``"last"``, ``"sum"``.
+            ``None`` stores the full array as-is.
+
+    Examples::
+
+        # ablang2 returns {"seqcoding": [float, ...]}
+        EmbeddingSpec(key="seqcoding")
+
+        # esm2-8m returns {"embeddings": [{embedding: [...], layer: 33}]}
+        # Store only layer 33:
+        EmbeddingSpec(key="embeddings", layer=33)
+
+        # Per-residue → mean-pool:
+        EmbeddingSpec(key="embedding", reduction="mean")
+    """
+
+    key: str
+    layer: Optional[int] = None
+    reduction: Optional[str] = None
+
+    def __call__(self, result: dict) -> EmbeddingResult:
+        """Extract embeddings from an API response dict."""
+        val = result.get(self.key)
+        if val is None:
+            return []
+
+        # Case 1: flat list of floats or a nested numeric array
+        if isinstance(val, (list, np.ndarray)):
+            arr = np.array(val)
+            if arr.size == 0:
+                return []
+
+            # Check if it's a list of dicts (multi-layer format)
+            if isinstance(val, list) and val and isinstance(val[0], dict):
+                return self._extract_layers(val)
+
+            # Apply reduction if requested (e.g. per-token 2-D → 1-D)
+            arr = self._apply_reduction(arr)
+            return [(arr, None)]
+
+        return []
+
+    def _extract_layers(self, items: list[dict]) -> EmbeddingResult:
+        """Handle list-of-dicts format: [{layer: 0, embedding: [...]}, ...]."""
+        results: EmbeddingResult = []
+        for item in items:
+            layer_num = item.get("layer")
+            emb_data = item.get("embedding")
+            if emb_data is None:
+                continue
+            if self.layer is not None and layer_num != self.layer:
+                continue
+            arr = np.array(emb_data)
+            if arr.size > 0:
+                arr = self._apply_reduction(arr)
+                results.append((arr, layer_num))
+        return results
+
+    def _apply_reduction(self, arr: np.ndarray) -> np.ndarray:
+        """Reduce a 2-D array to 1-D if a reduction is set."""
+        if self.reduction is None or arr.ndim < 2:
+            return arr
+        if self.reduction == "mean":
+            return arr.mean(axis=0)
+        elif self.reduction == "first":
+            return arr[0]
+        elif self.reduction == "last":
+            return arr[-1]
+        elif self.reduction == "sum":
+            return arr.sum(axis=0)
+        return arr
+
+
 class PredictionStage(Stage):
     """
     Generic prediction stage using BioLM API.
@@ -59,6 +153,7 @@ class PredictionStage(Stage):
         max_concurrent: int = 5,
         item_columns: Optional[dict[str, str]] = None,
         extractions: Optional[Union[str, dict[str, str], list[ExtractionSpec]]] = None,
+        embedding_extractor: Optional[Union[EmbeddingSpec, callable]] = None,
         **kwargs,
     ):
         # Extract skip_on_error before passing to parent
@@ -82,6 +177,11 @@ class PredictionStage(Stage):
         # Reuse API client across calls for connection pooling
         self._api_client = None
 
+        # Embedding extraction: user-defined function or EmbeddingSpec.
+        # When set, _store_embeddings uses this instead of heuristic guessing.
+        # When None, falls back to the legacy heuristic for backward compat.
+        self._embedding_extractor = embedding_extractor
+
         # Normalize extractions into list[ExtractionSpec] or None (legacy mode)
         self._extractions: Optional[list[ExtractionSpec]] = None
         if extractions is not None:
@@ -103,6 +203,22 @@ class PredictionStage(Stage):
             self.prediction_type = self._extractions[0].prediction_type
         else:
             self.prediction_type = prediction_type or f"{model_name}_{action}"
+
+        # Require explicit extraction — no heuristic guessing
+        if action in ("predict", "score") and self._extractions is None:
+            raise ValueError(
+                f"PredictionStage '{name}': `extractions` is required. "
+                f"Set extractions='response_key' or "
+                f"extractions=ExtractionSpec('response_key', 'column_name'). "
+                f"Check your model's API response to find the correct key."
+            )
+        if action == "encode" and self._embedding_extractor is None:
+            raise ValueError(
+                f"PredictionStage '{name}': `embedding_extractor` is required. "
+                f"Set embedding_extractor=EmbeddingSpec('response_key') or "
+                f"pass a callable. Check your model's API response for the "
+                f"embedding key (e.g. 'embedding', 'seqcoding', 'embeddings')."
+            )
 
     async def process_streaming(self, df: pd.DataFrame, datastore: DataStore, **kwargs):
         """
@@ -212,7 +328,7 @@ class PredictionStage(Stage):
                         idx = row.name
 
                         if self.action in ("predict", "score"):
-                            if self._extractions and isinstance(result, dict):
+                            if isinstance(result, dict):
                                 for spec in self._extractions:
                                     val = self._extract_with_spec(result, spec)
                                     if val is not None:
@@ -226,30 +342,9 @@ class PredictionStage(Stage):
                                             }
                                         )
                                         out_df.at[idx, spec.prediction_type] = val
-                            else:
-                                value = (
-                                    self._extract_prediction_value(result)
-                                    if isinstance(result, dict)
-                                    else (float(result) if result is not None else None)
-                                )
-                                if value is not None:
-                                    batch_data.append(
-                                        {
-                                            "sequence_id": seq_id,
-                                            "prediction_type": self.prediction_type,
-                                            "model_name": self.model_name,
-                                            "value": value,
-                                            "metadata": {"params": self.params},
-                                        }
-                                    )
-                                    out_df.at[idx, self.prediction_type] = value
 
                         elif self.action == "encode":
-                            if isinstance(result, dict) and "embedding" in result:
-                                embedding = np.array(result["embedding"])
-                                datastore.add_embedding(
-                                    seq_id, self.model_name, embedding
-                                )
+                            self._store_embeddings(datastore, seq_id, result)
 
                     # Single batch insert per completed async task
                     if batch_data:
@@ -281,50 +376,6 @@ class PredictionStage(Stage):
                     else:
                         print(f"  Error processing batch: {e}")
                         raise
-
-    def _extract_prediction_value(self, result: dict) -> Optional[float]:
-        """Extract primary numeric prediction value from API result dict.
-
-        For scalar-output models: looks for well-known keys or any float value.
-        For structure models (e.g. abodybuilder3-plddt): computes mean of nested
-        pLDDT list when no scalar field is present.
-        """
-        # Well-known scalar keys first
-        for key in (
-            "melting_temperature",
-            "solubility_score",
-            "prediction",
-            "score",
-            "value",
-            "log_prob",
-        ):
-            if key in result and isinstance(result[key], (int, float)):
-                return float(result[key])
-        # Any bare float value
-        bare = next(
-            (float(v) for v in result.values() if isinstance(v, (int, float))), None
-        )
-        if bare is not None:
-            return bare
-        # pLDDT or similar: nested list of floats → flatten and mean
-        for key in ("plddt", "confidence", "plddts"):
-            v = result.get(key)
-            if v is None:
-                continue
-            if isinstance(v, (int, float)):
-                return float(v)
-            if isinstance(v, list) and v:
-                flat: list[float] = []
-                for item in v:
-                    if isinstance(item, (int, float)):
-                        flat.append(float(item))
-                    elif isinstance(item, list):
-                        flat.extend(
-                            float(x) for x in item if isinstance(x, (int, float))
-                        )
-                if flat:
-                    return float(np.mean(flat))
-        return None
 
     @staticmethod
     def _extract_with_spec(result: dict, spec: ExtractionSpec) -> Optional[float]:
@@ -359,38 +410,19 @@ class PredictionStage(Stage):
         return None
 
     def _store_embeddings(self, datastore: DataStore, seq_id: int, result: Any):
-        """Store embedding(s) from a single API result dict into the datastore."""
+        """Store embedding(s) from a single API result dict into the datastore.
+
+        Uses ``self._embedding_extractor`` (``EmbeddingSpec`` or callable)
+        to extract embeddings from the API response.
+        """
         if not isinstance(result, dict):
             return
-        if "embedding" in result:
-            embedding = np.array(result["embedding"])
+
+        extracted = self._embedding_extractor(result)
+
+        for embedding, layer in extracted:
             if embedding.size > 0:
-                datastore.add_embedding(seq_id, self.model_name, embedding)
-        elif "embeddings" in result:
-            embs = result["embeddings"]
-            if isinstance(embs, list) and embs:
-                first = embs[0]
-                if isinstance(first, (int, float)):
-                    # Flat list of floats → single embedding vector (e.g. IgBERT mean)
-                    embedding = np.array(embs)
-                    if embedding.size > 0:
-                        datastore.add_embedding(seq_id, self.model_name, embedding)
-                elif isinstance(first, dict):
-                    # List of {layer, embedding} dicts (e.g. ESM2 layer outputs)
-                    for emb_item in embs:
-                        layer_num = emb_item.get("layer")
-                        emb_data = emb_item.get("embedding")
-                        if emb_data is not None:
-                            embedding = np.array(emb_data)
-                            if embedding.size > 0:
-                                datastore.add_embedding(
-                                    seq_id, self.model_name, embedding, layer=layer_num
-                                )
-                elif isinstance(first, (list, np.ndarray)):
-                    # List of lists → per-residue embeddings; store as a single 2D array
-                    embedding = np.array(embs)
-                    if embedding.size > 0:
-                        datastore.add_embedding(seq_id, self.model_name, embedding)
+                datastore.add_embedding(seq_id, self.model_name, embedding, layer=layer)
 
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
@@ -418,9 +450,6 @@ class PredictionStage(Stage):
 
         print(f"  Cached: {cached_count}/{start_count}")
         print(f"  To compute: {len(df_uncached)}")
-
-        # Collect extra scalar fields returned alongside the main prediction value
-        extra_fields: dict[str, dict[int, Any]] = {}
 
         if len(df_uncached) > 0:
             print(f"  Calling {self.model_name}.{self.action}...")
@@ -511,8 +540,7 @@ class PredictionStage(Stage):
                             continue  # don't store a prediction for this item
 
                         if self.action in ("predict", "score"):
-                            if self._extractions and isinstance(result, dict):
-                                # Explicit extraction: one batch_data entry per spec
+                            if isinstance(result, dict):
                                 for spec in self._extractions:
                                     value = self._extract_with_spec(result, spec)
                                     batch_data.append(
@@ -524,29 +552,6 @@ class PredictionStage(Stage):
                                             "metadata": {"params": self.params},
                                         }
                                     )
-                            else:
-                                # Legacy heuristic extraction
-                                value = (
-                                    self._extract_prediction_value(result)
-                                    if isinstance(result, dict)
-                                    else (float(result) if result is not None else None)
-                                )
-                                batch_data.append(
-                                    {
-                                        "sequence_id": seq_id,
-                                        "prediction_type": self.prediction_type,
-                                        "model_name": self.model_name,
-                                        "value": value,
-                                        "metadata": {"params": self.params},
-                                    }
-                                )
-                            # Collect additional scalar fields from the result dict
-                            # (only in legacy mode — when extractions are set, the user
-                            # explicitly chose what to extract)
-                            if not self._extractions and isinstance(result, dict):
-                                for key, val in result.items():
-                                    if isinstance(val, (int, float)) and key != "value":
-                                        extra_fields.setdefault(key, {})[seq_id] = val
                         elif self.action == "encode":
                             self._store_embeddings(datastore, seq_id, result)
 
@@ -599,11 +604,6 @@ class PredictionStage(Stage):
                     df[spec.prediction_type] = df["sequence_id"].map(val_map)
                 else:
                     df[spec.prediction_type] = None
-
-            # Add any extra scalar fields collected during this run
-            for field, id_to_val in extra_fields.items():
-                if field not in df.columns:
-                    df[field] = df["sequence_id"].map(id_to_val)
 
             # Use first spec's prediction_type for the .notna() output filter
             primary_type = merge_specs[0].prediction_type
@@ -762,7 +762,7 @@ class PredictionStage(Stage):
                             continue
 
                         if self.action in ("predict", "score"):
-                            if self._extractions and isinstance(result, dict):
+                            if isinstance(result, dict):
                                 for spec in self._extractions:
                                     value = self._extract_with_spec(result, spec)
                                     batch_data.append(
@@ -774,23 +774,6 @@ class PredictionStage(Stage):
                                             "metadata": {"params": self.params},
                                         }
                                     )
-                            else:
-                                value = (
-                                    self._extract_prediction_value(result)
-                                    if isinstance(result, dict)
-                                    else (
-                                        float(result) if result is not None else None
-                                    )
-                                )
-                                batch_data.append(
-                                    {
-                                        "sequence_id": seq_id,
-                                        "prediction_type": self.prediction_type,
-                                        "model_name": self.model_name,
-                                        "value": value,
-                                        "metadata": {"params": self.params},
-                                    }
-                                )
                         elif self.action == "encode":
                             self._store_embeddings(datastore, seq_id, result)
 
@@ -2069,6 +2052,8 @@ class SingleStepPipeline(DataPipeline):
         sequences: Union[list[str], pd.DataFrame, str, Path] = None,
         params: Optional[dict] = None,
         prediction_type: Optional[str] = None,
+        extractions=None,
+        embedding_extractor=None,
         **kwargs,
     ):
         super().__init__(sequences=sequences, **kwargs)
@@ -2079,6 +2064,8 @@ class SingleStepPipeline(DataPipeline):
             action=action,
             prediction_type=prediction_type,
             params=params,
+            extractions=extractions,
+            embedding_extractor=embedding_extractor,
         )
 
 

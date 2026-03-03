@@ -1026,7 +1026,7 @@ class DuckDBDataStore:
         self.conn.register("_emb_bulk_ids", ids_df)
         try:
             sql = """
-                SELECT e.sequence_id, e.values, e.embedding_path
+                SELECT e.sequence_id, e.values
                 FROM embeddings e
                 INNER JOIN _emb_bulk_ids b ON e.sequence_id = b.sequence_id
             """
@@ -1043,12 +1043,6 @@ class DuckDBDataStore:
             vals = row.get("values")
             if vals is not None and not (isinstance(vals, float) and np.isnan(vals)):
                 result[int(row["sequence_id"])] = np.array(vals, dtype=np.float32)
-            elif row.get("embedding_path"):
-                try:
-                    df_emb = pd.read_parquet(row["embedding_path"])
-                    result[int(row["sequence_id"])] = np.array(df_emb["values"].iloc[0])
-                except Exception:
-                    pass
         return result
 
     def get_uncached_sequence_ids(

@@ -37,6 +37,7 @@ async def test_prediction_stage_streaming(datastore):
         model_name="esm2_t6_8M",
         action="predict",
         prediction_type="test_score",
+        extractions="prediction",
     )
 
     # Mock input data
@@ -82,6 +83,7 @@ async def test_pipeline_with_streaming_enabled(datastore, tmp_path):
             model_name="esm2_t6_8M",
             action="predict",
             prediction_type="tm",
+            extractions="prediction",
         )
     )
 
@@ -117,6 +119,7 @@ async def test_pipeline_identifies_streaming_opportunity():
         model_name="esm2_t6_8M",
         action="predict",
         prediction_type="score",
+        extractions="prediction",
     )
 
     threshold_stage = FilterStage(

@@ -252,6 +252,7 @@ class TestSingleStepPipeline(unittest.TestCase):
             sequences=sequences,
             output_dir=self.test_dir,
             verbose=False,
+            extractions="prediction",
         )
 
         # Should have one stage automatically added

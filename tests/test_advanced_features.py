@@ -55,6 +55,7 @@ class TestPipelineResumability:
             model_name="test_model",
             action="predict",
             prediction_type="tm",
+            extractions="prediction",
         )
         pipeline.add_stage(stage)
 
@@ -117,6 +118,7 @@ class TestStreamingBehavior:
             model_name="esm2_t6_8M",
             action="predict",
             prediction_type="score",
+            extractions="prediction",
         )
 
         # Mock data
@@ -188,6 +190,7 @@ class TestStreamingBehavior:
             model_name="esm2_t6_8M",
             action="predict",
             prediction_type="score",
+            extractions="prediction",
         )
 
         sequences = [f"SEQ{i:03d}" * 5 for i in range(50)]
@@ -197,7 +200,7 @@ class TestStreamingBehavior:
         class MockClient:
             async def predict(self, items, params=None):
                 await asyncio.sleep(0.05)
-                return [0.5] * len(items)
+                return [{"prediction": 0.5}] * len(items)
 
             async def shutdown(self):
                 pass
@@ -228,6 +231,7 @@ class TestErrorHandling:
             model_name="esm2_t6_8M",
             action="predict",
             prediction_type="score",
+            extractions="prediction",
             skip_on_error=False,  # Explicit
         )
 
@@ -255,6 +259,7 @@ class TestErrorHandling:
             model_name="esm2_t6_8M",
             action="predict",
             prediction_type="score",
+            extractions="prediction",
             skip_on_error=True,  # Enable skip on error
         )
 
@@ -313,6 +318,7 @@ class TestStreamingWithFilters:
             model_name="esm2_t6_8M",
             action="predict",
             prediction_type="score",
+            extractions="prediction",
         )
 
         # Add streamable filter
