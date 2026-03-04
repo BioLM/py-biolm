@@ -11,5 +11,5 @@ On model tasks, ``response_mapping`` can be a string expression (e.g. to pull a 
       slug: esmfold
       action: predict
       request_body:
-        items: "{{ inputs.sequences }}"
-      response_mapping: "{{ response.results[*].pdb }}"
+        items: "${{ sequences }}"
+      response_mapping: "${{ response.results[*].pdb }}"

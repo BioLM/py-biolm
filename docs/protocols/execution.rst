@@ -12,10 +12,10 @@ Tasks run in order. You can make a task wait for others (``depends_on``), run co
         slug: esm2-8m
         action: encode
         request_body:
-          items: "{{ inputs.sequences }}"
+          items: "${{ sequences }}"
       - id: predict
         slug: esmfold
         action: predict
         depends_on: [encode]
         request_body:
-          items: "{{ tasks.encode.response.results }}"
+          items: "${{ tasks.encode.response.results }}"

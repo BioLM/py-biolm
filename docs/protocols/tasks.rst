@@ -11,7 +11,7 @@ Task forms
       slug: esmfold
       action: predict
       request_body:
-        items: "{{ inputs.sequences }}"
+        items: "${{ sequences }}"
         params: {}
 
 **Gather task** — collects fields from another task or from an input. Set ``type`` to "gather", ``from`` to a task ID or input name, and ``fields`` to the list of field names. Optional: ``into``, ``depends_on``, ``skip_if_empty``.
