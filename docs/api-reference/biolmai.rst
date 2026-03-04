@@ -77,6 +77,14 @@ biolmai.models module
    :undoc-members:
    :show-inheritance:
 
+biolmai.progress module
+-----------------------
+
+.. automodule:: biolmai.progress
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 biolmai.protocols module
 ------------------------
 
