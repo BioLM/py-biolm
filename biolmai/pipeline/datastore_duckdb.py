@@ -317,6 +317,41 @@ class DuckDBDataStore:
         """
         )
 
+        # Pipeline definitions table — content-hashed, one row per unique stage config
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_definitions (
+                definition_id VARCHAR PRIMARY KEY,
+                pipeline_type VARCHAR NOT NULL,
+                input_schema_json TEXT,
+                stages_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        # Prediction column registry — enforces (column, model, action) uniqueness per DB
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS prediction_column_registry (
+                column_name VARCHAR NOT NULL,
+                model_name VARCHAR NOT NULL,
+                action VARCHAR NOT NULL,
+                definition_id VARCHAR NOT NULL,
+                stage_name VARCHAR NOT NULL,
+                PRIMARY KEY (column_name, model_name, action)
+            )
+        """
+        )
+
+        # Add definition_id to pipeline_runs (migration — safe to run on existing DBs)
+        try:
+            self.conn.execute(
+                "ALTER TABLE pipeline_runs ADD COLUMN definition_id VARCHAR"
+            )
+        except Exception:
+            pass  # Column already exists
+
         # Track which extra columns have been added to the sequences table
         self._extra_columns: set[str] = set()
         # Discover columns already present (for resume / re-open)
@@ -1878,6 +1913,100 @@ class DuckDBDataStore:
             sid = int(row[0])
             result[sid] = {col: row[i + 1] for i, col in enumerate(columns)}
         return result
+
+    # ------------------------------------------------------------------
+    # Pipeline definition methods (for from_db() recovery)
+    # ------------------------------------------------------------------
+
+    def save_pipeline_definition(
+        self,
+        definition_id: str,
+        pipeline_type: str,
+        input_schema_json: Optional[str],
+        stages_json: str,
+    ):
+        """Persist a pipeline definition. Idempotent via content-hash primary key."""
+        self.conn.execute(
+            """
+            INSERT INTO pipeline_definitions
+                (definition_id, pipeline_type, input_schema_json, stages_json, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (definition_id) DO NOTHING
+        """,
+            [definition_id, pipeline_type, input_schema_json, stages_json, datetime.now()],
+        )
+
+    def load_pipeline_definition(self, definition_id: Optional[str] = None) -> Optional[dict]:
+        """Load a pipeline definition by ID, or the latest one if ID is None."""
+        if definition_id is not None:
+            row = self.conn.execute(
+                "SELECT definition_id, pipeline_type, input_schema_json, stages_json "
+                "FROM pipeline_definitions WHERE definition_id = ?",
+                [definition_id],
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT definition_id, pipeline_type, input_schema_json, stages_json "
+                "FROM pipeline_definitions ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "definition_id": row[0],
+            "pipeline_type": row[1],
+            "input_schema_json": row[2],
+            "stages_json": row[3],
+        }
+
+    def get_latest_definition_id(self) -> Optional[str]:
+        """Return the definition_id of the most recently created pipeline definition."""
+        row = self.conn.execute(
+            "SELECT definition_id FROM pipeline_definitions ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        return row[0] if row else None
+
+    def register_column(
+        self,
+        column_name: str,
+        model_name: str,
+        action: str,
+        definition_id: str,
+        stage_name: str,
+    ):
+        """Register an output column in the prediction_column_registry. Idempotent."""
+        self.conn.execute(
+            """
+            INSERT INTO prediction_column_registry
+                (column_name, model_name, action, definition_id, stage_name)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (column_name, model_name, action) DO NOTHING
+        """,
+            [column_name, model_name, action, definition_id, stage_name],
+        )
+
+    def get_column_registry_entry(self, column_name: str) -> Optional[dict]:
+        """Return the registry entry for a column, or None if not registered."""
+        row = self.conn.execute(
+            "SELECT model_name, action, definition_id, stage_name "
+            "FROM prediction_column_registry WHERE column_name = ?",
+            [column_name],
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "model_name": row[0],
+            "action": row[1],
+            "definition_id": row[2],
+            "stage_name": row[3],
+        }
+
+    def get_existing_input_columns(self) -> list[str]:
+        """Return extra columns on the sequences table (beyond the base schema).
+
+        Used for input-schema validation when connecting to an existing DB.
+        Returns an empty list if only the base columns are present.
+        """
+        return sorted(self._extra_columns)
 
     def close(self):
         """Close database connection."""

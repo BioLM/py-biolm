@@ -12,6 +12,7 @@ import asyncio
 import random
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional, Union
 
 import pandas as pd
@@ -83,6 +84,76 @@ class DirectGenerationConfig:
     # Run the same generation call n_runs times in parallel.
     # Total output = (sequences per call) × n_runs, then deduped.
     n_runs: int = 1
+
+
+    def to_spec(self) -> dict:
+        """Return a serializable dict for pipeline definition persistence."""
+        return {
+            "type": "DirectGenerationConfig",
+            "model_name": self.model_name,
+            "structure_path": self.structure_path,
+            "structure_column": self.structure_column,
+            "sequence": self.sequence,
+            "item_field": self.item_field,
+            "params": self.params,
+            "num_sequences": self.num_sequences,
+            "temperature": self.temperature,
+            "structure_from_stage": self.structure_from_stage,
+            "structure_from_model": self.structure_from_model,
+            "n_runs": self.n_runs,
+        }
+
+
+@dataclass
+class SequenceSourceConfig:
+    """Use existing sequences as the generation-slot source — no API calls made.
+
+    Plug into ``set_generation()`` (or use ``pipeline.use_sequences()``) to
+    feed existing data through prediction/filter stages without generating new
+    sequences.  The provided sequences are added to the DuckDB via the normal
+    dedup path, so sequences already present just return their existing IDs.
+
+    Args:
+        sequences: Source of sequences — one of:
+
+            * ``list[str]``: plain amino-acid strings
+            * ``pd.DataFrame``: must contain *column* (default ``"sequence"``)
+            * ``str`` / ``Path``: path to a CSV or FASTA (``.fasta``/``.fa``) file
+            * ``None``: reload all sequences already in the DuckDB (requires
+              ``from_db=True`` OR leaving *sequences* as None)
+
+        column: Column name when *sequences* is a DataFrame or CSV
+            (default ``"sequence"``).
+        from_db: Pull all sequences already present in the pipeline's DuckDB
+            instead of loading new ones.  Equivalent to ``sequences=None``.
+
+    Example::
+
+        # Inject a list
+        pipeline.use_sequences(["MKTAY", "MKLLIV"]).run()
+
+        # Use all sequences already in the DB (e.g. after from_db() recovery)
+        pipeline.use_sequences(from_db=True).run()
+
+        # Load from CSV
+        pipeline.use_sequences("candidates.csv").run()
+    """
+
+    sequences: Optional[Union[list, "pd.DataFrame", str, Path]] = None
+    column: str = "sequence"
+    from_db: bool = False
+
+    def to_spec(self) -> dict:
+        """Serialize for pipeline definition persistence.
+
+        Live DataFrames / arbitrary paths are not serializable — on reconstruct
+        we fall back to ``from_db=True`` so the existing DB sequences are reused.
+        """
+        return {
+            "type": "SequenceSourceConfig",
+            "from_db": True,
+            "column": self.column,
+        }
 
 
 @dataclass
@@ -196,6 +267,27 @@ class GenerationStage(Stage):
         else:
             self.configs = []
         self.deduplicate = deduplicate
+
+    def to_spec(self) -> dict:
+        """Return a serializable dict for pipeline definition persistence."""
+        configs_specs = []
+        for cfg in self.configs:
+            if hasattr(cfg, "to_spec"):
+                configs_specs.append(cfg.to_spec())
+            else:
+                raise NotImplementedError(
+                    f"GenerationStage '{self.name}': config type "
+                    f"'{type(cfg).__name__}' does not implement to_spec(). "
+                    "Only RemaskingConfig and DirectGenerationConfig are serializable. "
+                    "Migrate away from GenerationConfig (deprecated) to enable from_db() recovery."
+                )
+        return {
+            "type": "GenerationStage",
+            "name": self.name,
+            "configs": configs_specs,
+            "deduplicate": self.deduplicate,
+            "depends_on": self.depends_on,
+        }
 
     # ------------------------------------------------------------------
     # Response extraction
@@ -581,15 +673,90 @@ class GenerationStage(Stage):
 
         return results
 
+    @staticmethod
+    async def _run_sequence_source(
+        config: SequenceSourceConfig, datastore: DataStore
+    ) -> list[dict]:
+        """Load sequences from an existing source without calling any API.
+
+        Handles list[str], pd.DataFrame, CSV/FASTA paths, and DB reload.
+        """
+        sequences: list[str] = []
+
+        if config.from_db or config.sequences is None:
+            df_db = datastore.get_all_sequences()
+            sequences = df_db["sequence"].dropna().tolist() if not df_db.empty else []
+
+        elif isinstance(config.sequences, list):
+            sequences = [str(s) for s in config.sequences if s]
+
+        elif isinstance(config.sequences, pd.DataFrame):
+            col = config.column
+            if col not in config.sequences.columns:
+                raise ValueError(
+                    f"SequenceSourceConfig: column '{col}' not found in DataFrame. "
+                    f"Available: {list(config.sequences.columns)}"
+                )
+            sequences = config.sequences[col].dropna().tolist()
+
+        elif isinstance(config.sequences, (str, Path)):
+            path = Path(config.sequences)
+            if path.suffix.lower() in (".fasta", ".fa", ".faa"):
+                # Minimal FASTA parser — no external deps
+                seqs: list[str] = []
+                current: list[str] = []
+                with open(path) as fh:
+                    for line in fh:
+                        line = line.rstrip()
+                        if line.startswith(">"):
+                            if current:
+                                seqs.append("".join(current))
+                                current = []
+                        else:
+                            current.append(line)
+                    if current:
+                        seqs.append("".join(current))
+                sequences = [s for s in seqs if s]
+            else:
+                df_csv = pd.read_csv(path)
+                col = config.column
+                if col not in df_csv.columns:
+                    raise ValueError(
+                        f"SequenceSourceConfig: column '{col}' not found in '{path}'. "
+                        f"Available: {list(df_csv.columns)}"
+                    )
+                sequences = df_csv[col].dropna().tolist()
+
+        else:
+            raise TypeError(
+                f"SequenceSourceConfig.sequences must be list, DataFrame, file path, or None. "
+                f"Got {type(config.sequences)}"
+            )
+
+        return [
+            {
+                "sequence": s,
+                "model_name": "data_source",
+                "temperature": None,
+                "sampling_params": {},
+                "generation_method": "data_source",
+                "parent_sequence": None,
+            }
+            for s in sequences
+            if s
+        ]
+
     async def _dispatch_config(
         self,
-        cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig],
+        cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, SequenceSourceConfig],
         datastore: DataStore,
         df_input: pd.DataFrame,
         context=None,
     ) -> list[dict]:
         """Dispatch a single config to the appropriate generation method."""
-        if isinstance(cfg, RemaskingConfig):
+        if isinstance(cfg, SequenceSourceConfig):
+            return await self._run_sequence_source(cfg, datastore)
+        elif isinstance(cfg, RemaskingConfig):
             parent = getattr(cfg, "parent_sequence", None)
             num = getattr(cfg, "num_variants", 100)
             if parent is None:
@@ -739,7 +906,7 @@ class GenerativePipeline(BasePipeline):
         ...     generation_configs=[config1, config2]
         ... )
         >>> pipeline.add_filter(ThresholdFilter('length', min_value=50))
-        >>> pipeline.add_prediction('esmfold', prediction_type='structure')
+        >>> pipeline.add_prediction('esmfold', extractions='mean_plddt', columns='plddt')
         >>> results = pipeline.run()
     """
 
@@ -755,6 +922,7 @@ class GenerativePipeline(BasePipeline):
 
         self.generation_configs = generation_configs or []
         self.deduplicate = deduplicate
+        self._generated_ws = None  # set by run_async() after generation stage
 
         # Add generation stage automatically
         if self.generation_configs:
@@ -773,46 +941,183 @@ class GenerativePipeline(BasePipeline):
             self.datastore.close()
         return False
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _generation_slot(self) -> Optional[GenerationStage]:
+        """Return the single GenerationStage at slot-0, or None."""
+        if self.stages and isinstance(self.stages[0], GenerationStage):
+            return self.stages[0]
+        return None
+
+    def _set_generation_slot(self, stage: GenerationStage) -> None:
+        """Replace slot-0 with *stage*, preserving all downstream stages."""
+        self.stages = [s for s in self.stages if not isinstance(s, GenerationStage)]
+        self.stages.insert(0, stage)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def add_stage(self, stage: Stage) -> None:
+        """Add a stage to the pipeline.
+
+        If *stage* is a :class:`GenerationStage` it **replaces** the current
+        generation slot (there is always exactly one, at position 0) rather
+        than appending.  All other stage types are appended normally.
+        """
+        if isinstance(stage, GenerationStage):
+            self._set_generation_slot(stage)
+        else:
+            super().add_stage(stage)
+
+    def set_generation(
+        self,
+        *configs: Union[RemaskingConfig, DirectGenerationConfig],
+        stage_name: str = "generation",
+        deduplicate: bool = True,
+    ) -> "GenerativePipeline":
+        """Set (or replace) the generation slot with one or more configs.
+
+        Multiple configs run in parallel — use this for multi-model generation
+        or temperature scanning.  Every call to ``.run()`` re-runs generation
+        from scratch; downstream stages use their prediction cache so only
+        truly new sequences are computed.
+
+        Args:
+            *configs: One or more :class:`RemaskingConfig` or
+                :class:`DirectGenerationConfig` objects.
+            stage_name: Name for the generation stage (default ``"generation"``).
+            deduplicate: Deduplicate across all configs (default True).
+
+        Returns:
+            Self, for method chaining.
+
+        Example::
+
+            # Single model
+            pipeline.set_generation(
+                DirectGenerationConfig("dsm-150m-base", sequence=parent, num_sequences=200)
+            ).run()
+
+            # Two models in parallel — sequences from both trickle through the funnel
+            pipeline.set_generation(
+                DirectGenerationConfig("dsm-150m-base", sequence=parent, num_sequences=100),
+                RemaskingConfig("esm-150m", mask_fraction=0.15),
+            ).run()
+        """
+        if not configs:
+            raise ValueError("set_generation() requires at least one config")
+        new_stage = GenerationStage(
+            name=stage_name,
+            configs=list(configs),
+            deduplicate=deduplicate,
+        )
+        self._set_generation_slot(new_stage)
+        return self
+
+    # Keep replace_generation as a convenience alias for single-config swaps
+    def replace_generation(
+        self,
+        config: Union[RemaskingConfig, DirectGenerationConfig],
+        stage_name: Optional[str] = None,
+        deduplicate: bool = True,
+    ) -> "GenerativePipeline":
+        """Swap the generation slot with a single new config.
+
+        Equivalent to ``set_generation(config, stage_name=stage_name)``.
+        Kept for backwards compatibility and single-config convenience.
+        """
+        existing = self._generation_slot()
+        name = stage_name or (existing.name if existing else "generation")
+        return self.set_generation(config, stage_name=name, deduplicate=deduplicate)
+
+    def use_sequences(
+        self,
+        sequences=None,
+        column: str = "sequence",
+        stage_name: str = "data_source",
+        from_db: bool = False,
+    ) -> "GenerativePipeline":
+        """Use existing sequences as the pipeline source instead of generating.
+
+        Replaces the generation slot with a :class:`SequenceSourceConfig`.
+        Downstream prediction and filter stages run on the provided sequences,
+        using the normal DuckDB prediction cache for anything already computed.
+
+        Args:
+            sequences: One of:
+
+                * ``list[str]`` — plain amino-acid strings
+                * ``pd.DataFrame`` — must contain *column* (default ``"sequence"``)
+                * ``str`` / ``Path`` — CSV or FASTA file
+                * ``None`` — reload all sequences already in the DuckDB
+
+            column: Column name when *sequences* is a DataFrame or CSV.
+            stage_name: Name for the source stage (default ``"data_source"``).
+            from_db: Pull all sequences already present in this pipeline's DuckDB.
+
+        Returns:
+            Self, for method chaining.
+
+        Example::
+
+            # Inject a list
+            pipeline.use_sequences(["MKTAY", "MKLLIV"]).run()
+
+            # Use all sequences already in the DB (e.g. recover + rerun)
+            pipeline.use_sequences(from_db=True).run()
+
+            # Load from CSV and run through the existing filter/predict stages
+            pipeline.use_sequences("candidates.csv").run()
+        """
+        return self.set_generation(
+            SequenceSourceConfig(sequences=sequences, column=column, from_db=from_db),
+            stage_name=stage_name,
+        )
+
+    def add_generation_config(
+        self, config: Union[RemaskingConfig, DirectGenerationConfig]
+    ) -> "GenerativePipeline":
+        """Append a config to the existing generation slot.
+
+        Use this to add a second model or temperature variant *alongside*
+        the current generation config rather than replacing it.  If there is
+        no generation slot yet, one is created.
+
+        Args:
+            config: Config to add.
+
+        Returns:
+            Self, for method chaining.
+        """
+        slot = self._generation_slot()
+        if slot is not None:
+            slot.configs.append(config)
+        else:
+            self._set_generation_slot(
+                GenerationStage(
+                    name="generation",
+                    configs=[config],
+                    deduplicate=self.deduplicate,
+                )
+            )
+        return self
+
     async def _get_initial_data(self, **kwargs) -> pd.DataFrame:
-        """
-        For generative pipeline, initial data comes from generation stage.
-
-        This method is called after generation stage completes.
-        """
-        # Generation stage will populate _stage_data['generation']
-        if "generation" in self._stage_data:
-            return self._stage_data["generation"]
-
-        # If no generation configs, return empty DataFrame
+        """Not used — GenerativePipeline overrides _get_initial_data_ws directly."""
         return pd.DataFrame(columns=["sequence", "sequence_id"])
 
     async def _get_initial_data_ws(self, **kwargs) -> WorkingSet:
-        """Return the WorkingSet from the generation stage directly."""
-        if "generation" in self._working_sets:
-            return self._working_sets["generation"]
-        # Fallback: use the DataFrame path
-        df = await self._get_initial_data(**kwargs)
-        if "sequence_id" in df.columns:
-            return WorkingSet.from_ids(df["sequence_id"].tolist())
+        """Return the WorkingSet produced by the generation slot.
+
+        ``_generated_ws`` is populated by ``run_async()`` after all
+        GenerationStages have run; it is the union of every generated sequence ID.
+        """
+        if getattr(self, "_generated_ws", None) is not None:
+            return self._generated_ws
         return WorkingSet(frozenset())
-
-    def add_generation_config(self, config: GenerationConfig):
-        """Add a generation configuration."""
-        self.generation_configs.append(config)
-
-        # Update generation stage if it exists
-        if self.stages and isinstance(self.stages[0], GenerationStage):
-            self.stages[0].configs = self.generation_configs
-        else:
-            # Create generation stage
-            gen_stage = GenerationStage(
-                name="generation",
-                configs=self.generation_configs,
-                deduplicate=self.deduplicate,
-            )
-            self.stages.insert(0, gen_stage)
-
-        return self
 
     def add_prediction(
         self,
@@ -986,8 +1291,11 @@ class GenerativePipeline(BasePipeline):
         """
         Run the generative pipeline.
 
-        This override handles the special case of generation stage.
-        Idempotent: self.stages is always restored after execution.
+        All GenerationStages (regardless of position) are extracted and run first
+        as sources — their outputs are unioned into the initial WorkingSet so
+        generated sequences trickle through every downstream prediction/filter
+        stage (the "funnel").  Idempotent: self.stages is always restored after
+        execution.
         """
         import copy as _copy
 
@@ -995,43 +1303,49 @@ class GenerativePipeline(BasePipeline):
         original_stages = self.stages
 
         try:
-            # Run generation stage first if it exists
-            if self.stages and isinstance(self.stages[0], GenerationStage):
-                gen_stage = self.stages[0]
+            # Separate generation stages from processing stages (order-independent)
+            gen_stages = [s for s in self.stages if isinstance(s, GenerationStage)]
+            non_gen_stages = [s for s in self.stages if not isinstance(s, GenerationStage)]
+            gen_names = {s.name for s in gen_stages}
 
-                print(f"\n{'='*60}")
-                print(f"Stage: {gen_stage.name} (Generation)")
-                print(f"Configs: {len(gen_stage.configs)}")
-                print(f"{'='*60}")
+            # Run every generation stage first, collect all produced sequence IDs
+            all_gen_ids: set[int] = set()
+            for gen_stage in gen_stages:
+                if self.verbose:
+                    print(f"\n{'='*60}")
+                    print(f"Stage: {gen_stage.name} (Generation)")
+                    print(f"Configs: {len(gen_stage.configs)}")
+                    print(f"{'='*60}")
 
-                # Execute generation — returns (df_generated, StageResult)
                 df_generated, result = await gen_stage.process(
                     pd.DataFrame(), self.datastore
                 )
                 self.stage_results[gen_stage.name] = result
                 self._stage_data[gen_stage.name] = df_generated
-                # Also populate _working_sets for the WorkingSet pipeline path
+
                 if "sequence_id" in df_generated.columns:
-                    self._working_sets[gen_stage.name] = WorkingSet.from_ids(
-                        df_generated["sequence_id"].tolist()
-                    )
+                    ids = df_generated["sequence_id"].tolist()
+                    ws = WorkingSet.from_ids(ids)
+                    self._working_sets[gen_stage.name] = ws
+                    all_gen_ids |= set(ids)
 
                 if self.verbose:
                     print(f"\n{result}")
                     print(f"{'='*60}")
 
-                # Build patched stage list without mutating stage objects or self.stages.
-                # Each remaining stage gets a shallow copy with depends_on stripped of
-                # the generation stage name, so base-class dependency resolution works.
-                gen_name = gen_stage.name
-                remaining_stages = []
-                for s in self.stages[1:]:
-                    s_copy = _copy.copy(s)
-                    s_copy.depends_on = [d for d in s.depends_on if d != gen_name]
-                    remaining_stages.append(s_copy)
-                self.stages = remaining_stages
+            # Union of all generated IDs becomes the initial WS for downstream stages
+            self._generated_ws = WorkingSet.from_ids(list(all_gen_ids)) if all_gen_ids else None
 
-            # Run remaining stages using base class
+            # Build the execution plan without the generation stages.
+            # Strip gen stage names from depends_on so dependency resolution works.
+            remaining_stages = []
+            for s in non_gen_stages:
+                s_copy = _copy.copy(s)
+                s_copy.depends_on = [d for d in s.depends_on if d not in gen_names]
+                remaining_stages.append(s_copy)
+            self.stages = remaining_stages
+
+            # Run remaining stages using base class (starts from _generated_ws)
             return await super().run_async(**kwargs)
         finally:
             # Always restore original stages so the pipeline remains idempotent

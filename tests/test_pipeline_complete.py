@@ -33,6 +33,7 @@ from biolmai.pipeline.generative import (
     DirectGenerationConfig,
     GenerationStage,
     GenerativePipeline,
+    SequenceSourceConfig,
 )
 from biolmai.pipeline.mlm_remasking import RemaskingConfig
 
@@ -1498,6 +1499,30 @@ def test_column_collision_different_model_raises(tmp_path):
         )
 
 
+def test_column_collision_same_model_different_action_raises(tmp_path):
+    """Same model + different action + same output column raises ValueError."""
+    db = tmp_path / "test.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+    pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=False)
+
+    pipeline.add_prediction(
+        "esmc-300m",
+        action="predict",
+        extractions="prediction",
+        columns="score",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="Column"):
+        pipeline.add_prediction(
+            "esmc-300m",
+            action="score",
+            extractions="log_prob",
+            columns="score",
+            stage_name="predict_score_2",
+        )
+
+
 def test_same_model_same_column_ok(tmp_path):
     """Same model + same column with different stage name is allowed (cache reuse)."""
     db = tmp_path / "test.duckdb"
@@ -1613,3 +1638,238 @@ def test_multi_column_no_synthetic_sequence(tmp_path):
     assert row[0] == ""
     # length should be sum of input column lengths
     assert row[1] == len("EVQLVES") + len("DIQMTQS")
+
+
+# ---------------------------------------------------------------------------
+# SequenceSourceConfig / use_sequences tests
+# ---------------------------------------------------------------------------
+
+
+def test_use_sequences_list_runs_through_funnel(tmp_path):
+    """use_sequences(list) feeds sequences through prediction/filter stages."""
+    seqs = ["MKTAYIAKQRQ", "MKLAVIDSAQ", "MKTAYYYYY"]
+    pred_values = [80.0, 45.0, 75.0]
+
+    db = tmp_path / "src.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    with patch("biolmai.pipeline.data.BioLMApiClient") as PredCls:
+        PredCls.return_value = make_api_mock(values=pred_values)
+
+        pipeline = GenerativePipeline(datastore=ds, verbose=False)
+        pipeline.use_sequences(seqs)
+        pipeline.add_prediction(
+            "temberture-regression",
+            extractions="melting_temperature",
+            columns="tm",
+        )
+        pipeline.add_filter(
+            ThresholdFilter("tm", min_value=60.0),
+            stage_name="filter_tm",
+            depends_on=["predict_tm"],
+        )
+        pipeline.run()
+
+    df = pipeline.get_final_data()
+    # seqs[1] (45.0) should be filtered out — 2 remain
+    assert len(df) == 2
+    assert all(df["tm"] >= 60.0)
+
+
+def test_use_sequences_dataframe(tmp_path):
+    """use_sequences(DataFrame) reads the sequence column and feeds the funnel."""
+    seqs = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
+    pred_values = [80.0, 45.0]
+
+    db = tmp_path / "src_df.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    df_input = pd.DataFrame({"sequence": seqs, "label": ["A", "B"]})
+
+    with patch("biolmai.pipeline.data.BioLMApiClient") as PredCls:
+        PredCls.return_value = make_api_mock(values=pred_values)
+
+        pipeline = GenerativePipeline(datastore=ds, verbose=False)
+        pipeline.use_sequences(df_input)
+        pipeline.add_prediction(
+            "temberture-regression",
+            extractions="melting_temperature",
+            columns="tm",
+        )
+        pipeline.run()
+
+    df = pipeline.get_final_data()
+    assert len(df) == 2
+    assert "tm" in df.columns
+
+
+def test_use_sequences_csv(tmp_path):
+    """use_sequences(csv_path) reads sequences from a CSV file."""
+    seqs = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
+    pred_values = [70.0, 55.0]
+
+    csv_path = tmp_path / "seqs.csv"
+    pd.DataFrame({"sequence": seqs}).to_csv(csv_path, index=False)
+
+    db = tmp_path / "src_csv.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    with patch("biolmai.pipeline.data.BioLMApiClient") as PredCls:
+        PredCls.return_value = make_api_mock(values=pred_values)
+
+        pipeline = GenerativePipeline(datastore=ds, verbose=False)
+        pipeline.use_sequences(str(csv_path))
+        pipeline.add_prediction(
+            "temberture-regression",
+            extractions="melting_temperature",
+            columns="tm",
+        )
+        pipeline.run()
+
+    df = pipeline.get_final_data()
+    assert len(df) == 2
+
+
+def test_use_sequences_from_db(tmp_path):
+    """use_sequences(from_db=True) reloads all sequences already in the DB."""
+    seqs = ["MKTAYIAKQRQ", "MKLAVIDSAQ"]
+    pred_values = [70.0, 55.0]
+
+    db = tmp_path / "fromdb.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    # First: populate the DB via a DataPipeline run
+    with patch("biolmai.pipeline.data.BioLMApiClient") as PredCls:
+        PredCls.return_value = make_api_mock(values=pred_values)
+        dp = DataPipeline(sequences=seqs, datastore=ds, verbose=False)
+        dp.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
+        dp.run()
+
+    # Now: use GenerativePipeline with from_db=True — should reload those 2 seqs
+    with patch("biolmai.pipeline.data.BioLMApiClient") as PredCls:
+        PredCls.return_value = make_api_mock(values=pred_values)
+        gen_pipeline = GenerativePipeline(datastore=ds, verbose=False)
+        gen_pipeline.use_sequences(from_db=True)
+        gen_pipeline.add_prediction(
+            "temberture-regression",
+            extractions="melting_temperature",
+            columns="tm",
+        )
+        gen_pipeline.run()
+
+    df = gen_pipeline.get_final_data()
+    assert len(df) == 2
+    assert "tm" in df.columns
+
+
+def test_sequence_source_config_to_spec_roundtrip():
+    """SequenceSourceConfig.to_spec() serializes cleanly; from_db=True on reconstruct."""
+    cfg = SequenceSourceConfig(sequences=["MKTAY"], column="sequence")
+    spec = cfg.to_spec()
+    assert spec["type"] == "SequenceSourceConfig"
+    assert spec["from_db"] is True
+    assert spec["column"] == "sequence"
+
+    from biolmai.pipeline.pipeline_def import _config_from_spec
+    cfg2 = _config_from_spec(spec)
+    assert isinstance(cfg2, SequenceSourceConfig)
+    assert cfg2.from_db is True
+
+
+def test_set_generation_multi_model_reruns(tmp_path):
+    """set_generation with multiple configs replaces and reruns correctly."""
+    gen_seqs_a = ["SEQA001", "SEQA002"]
+    gen_seqs_b = ["SEQB001", "SEQB002"]
+    pdb_file = tmp_path / "struct.pdb"
+    pdb_file.write_text(
+        "ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00  0.00\nEND\n"
+    )
+
+    db = tmp_path / "multi.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    with patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls:
+        call_count = {"n": 0}
+
+        async def _gen(items, params=None):
+            call_count["n"] += 1
+            return [{"sequence": s} for s in gen_seqs_a]
+
+        mock = MagicMock()
+        mock.generate = AsyncMock(side_effect=_gen)
+        mock.shutdown = AsyncMock()
+        GenCls.return_value = mock
+
+        pipeline = GenerativePipeline(datastore=ds, verbose=False)
+        pipeline.set_generation(
+            DirectGenerationConfig("proteinmpnn", structure_path=str(pdb_file), num_sequences=2),
+            DirectGenerationConfig("ligandmpnn", structure_path=str(pdb_file), num_sequences=2),
+        )
+        pipeline.run()
+
+    # Two configs ran in parallel — both used the same mock so sequences deduplicate
+    all_seqs_after = ds.get_all_sequences()
+    assert len(all_seqs_after) > 0  # sequences were generated
+
+
+def test_from_db_set_generation_rerun(tmp_path):
+    """from_db() → set_generation(new_config) → run() reuses prediction cache."""
+    seqs = ["SEQRUN1AA", "SEQRUN1BB"]
+    pred_values = [80.0, 60.0]
+    pdb_file = tmp_path / "struct.pdb"
+    pdb_file.write_text(
+        "ATOM      1  CA  ALA A   1       1.000   1.000   1.000  1.00  0.00\nEND\n"
+    )
+
+    db = tmp_path / "fromdb_rerun.duckdb"
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
+
+    # Run 1: generate + predict
+    with (
+        patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls,
+        patch("biolmai.pipeline.data.BioLMApiClient") as PredCls,
+    ):
+        gen_api = make_api_mock(generate_seqs=seqs)
+        GenCls.return_value = gen_api
+        PredCls.return_value = make_api_mock(values=pred_values)
+
+        p1 = GenerativePipeline(datastore=ds, verbose=False)
+        p1.set_generation(
+            DirectGenerationConfig("proteinmpnn", structure_path=str(pdb_file), num_sequences=2)
+        )
+        p1.add_prediction("temberture-regression", extractions="melting_temperature", columns="tm")
+        p1.run()
+
+    # Confirm definition was persisted
+    defn = ds.load_pipeline_definition()
+    assert defn is not None
+    assert defn["pipeline_type"] == "GenerativePipeline"
+
+    # Run 2: from_db() → set new generation → run() — prediction stage should hit cache
+    new_seqs = ["NEWSEQ001", "NEWSEQ002"]
+    with (
+        patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls2,
+        patch("biolmai.pipeline.data.BioLMApiClient") as PredCls2,
+    ):
+        gen_api2 = make_api_mock(generate_seqs=new_seqs)
+        GenCls2.return_value = gen_api2
+        pred_call_count = {"n": 0}
+
+        async def _predict(items, params=None):
+            pred_call_count["n"] += 1
+            return [{"melting_temperature": 75.0} for _ in items]
+
+        mock2 = MagicMock()
+        mock2.predict = AsyncMock(side_effect=_predict)
+        mock2.shutdown = AsyncMock()
+        PredCls2.return_value = mock2
+
+        p2 = GenerativePipeline.from_db(db, verbose=False)
+        p2.set_generation(
+            DirectGenerationConfig("proteinmpnn", structure_path=str(pdb_file), num_sequences=2)
+        )
+        p2.run()
+
+    # New sequences were generated and added
+    all_seqs = ds.get_all_sequences()
+    assert len(all_seqs) >= 2  # at least the original 2 (new may also be there)

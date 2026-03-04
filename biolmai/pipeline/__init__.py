@@ -43,6 +43,7 @@ from biolmai.pipeline.generative import (
     FoldingEntity,
     GenerationConfig,
     GenerativePipeline,
+    SequenceSourceConfig,
 )
 from biolmai.pipeline.mlm_remasking import (
     AGGRESSIVE_CONFIG,
@@ -74,6 +75,7 @@ __all__ = [
     "GenerativePipeline",
     "GenerationConfig",
     "DirectGenerationConfig",
+    "SequenceSourceConfig",
     "FoldingEntity",
     "CofoldingPredictionStage",
     "PipelinePlotter",

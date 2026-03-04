@@ -268,5 +268,26 @@ class TestFilterEdgeCases(unittest.TestCase):
         self.assertEqual(len(df_filtered), 2)
 
 
+    def test_filter_streamability_flags(self):
+        """Filters have correct requires_complete_data flags."""
+        from biolmai.pipeline.filters import RankingFilter, ThresholdFilter
+        assert ThresholdFilter("col").requires_complete_data is False
+        assert RankingFilter("col", n=10).requires_complete_data is True
+
+    def test_all_filter_subclasses_have_streamability_flag(self):
+        """Every BaseFilter subclass must declare requires_complete_data."""
+        import inspect
+        from biolmai.pipeline import filters
+        subclasses = [
+            cls for name, cls in inspect.getmembers(filters, inspect.isclass)
+            if issubclass(cls, filters.BaseFilter) and cls is not filters.BaseFilter
+        ]
+        for cls in subclasses:
+            self.assertIsInstance(
+                cls.requires_complete_data, bool,
+                f"{cls.__name__}.requires_complete_data must be bool"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

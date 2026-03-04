@@ -62,6 +62,25 @@ class RemaskingConfig:
     block_size: int = 3
     confidence_threshold: float = 0.8
 
+    def to_spec(self) -> dict:
+        """Return a serializable dict for pipeline definition persistence."""
+        return {
+            "type": "RemaskingConfig",
+            "model_name": self.model_name,
+            "action": self.action,
+            "mask_fraction": self.mask_fraction,
+            "mask_positions": self.mask_positions,
+            "num_iterations": self.num_iterations,
+            "temperature": self.temperature,
+            "top_k": self.top_k,
+            "top_p": self.top_p,
+            "mask_token": self.mask_token,
+            "conserved_positions": self.conserved_positions,
+            "mask_strategy": self.mask_strategy,
+            "block_size": self.block_size,
+            "confidence_threshold": self.confidence_threshold,
+        }
+
 
 class MLMRemasker:
     """

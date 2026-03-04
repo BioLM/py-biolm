@@ -662,5 +662,177 @@ class TestDataStoreIntegration(unittest.TestCase):
         print(f"\n✅ CSV export successful: {csv_path}")
 
 
+class TestPredictionCorrelation(unittest.TestCase):
+    """Verify that pipeline batch predictions are correctly aligned to their input sequences.
+
+    The pipeline batches sequences and processes them concurrently.  A misalignment
+    bug (results shuffled relative to inputs) would silently corrupt every prediction
+    without raising an error.  These tests catch that by comparing each pipeline row
+    against an individual (one-sequence) API call for the same sequence.
+    """
+
+    def setUp(self):
+        self.test_dir = Path(tempfile.mkdtemp())
+        self.db_path = self.test_dir / "test_correlator.db"
+        # Deliberately varied sequences so predictions differ from one another.
+        self.test_sequences = [
+            "MKTAYIAKQRQGHQAMAEIKQ",
+            "ACDEFGHIKLMNPQRSTVWY",
+            "MKLAVIDSAQGHILMNPQRSTVWY",
+            "AAAAAAAAAAAAAAAAAAAAAA",
+            "WRWWRWWRWWRWWRWWRWWRW",
+        ]
+
+    def tearDown(self):
+        if self.test_dir.exists():
+            shutil.rmtree(self.test_dir)
+
+    @integration_test
+    @skip_if_no_api_key()
+    def test_pipeline_predictions_match_individual_api_calls(self):
+        """Each pipeline prediction value must match a direct one-sequence API call.
+
+        Uses temberture-regression (fast, returns {"prediction": float}).
+        Runs the pipeline over all sequences, then calls the API individually
+        for each sequence and compares values row-by-row.
+        """
+        import asyncio
+
+        from biolmai.client import BioLMApiClient
+
+        # --- Step 1: run the pipeline ---
+        pipeline = DataPipeline(
+            sequences=self.test_sequences,
+            datastore=self.db_path,
+            verbose=False,
+        )
+        pipeline.add_prediction(
+            "temberture-regression",
+            extractions="prediction",
+            columns="tm",
+            stage_name="predict_tm",
+        )
+        pipeline.run()
+        df_pipeline = pipeline.get_final_data()
+
+        self.assertEqual(
+            len(df_pipeline),
+            len(self.test_sequences),
+            "Pipeline should return one row per input sequence",
+        )
+        self.assertIn("tm", df_pipeline.columns, "Pipeline result must contain 'tm' column")
+        self.assertIn("sequence", df_pipeline.columns)
+
+        # Build a lookup: sequence -> pipeline prediction
+        pipeline_preds: dict[str, float] = {}
+        for _, row in df_pipeline.iterrows():
+            seq = row["sequence"]
+            val = row["tm"]
+            self.assertIsNotNone(val, f"Pipeline prediction for '{seq}' is None")
+            self.assertFalse(
+                pd.isna(val), f"Pipeline prediction for '{seq}' is NaN"
+            )
+            pipeline_preds[seq] = float(val)
+
+        print(f"\nPipeline predictions: {pipeline_preds}")
+
+        # --- Step 2: call the API individually for each sequence ---
+        async def predict_one(seq: str) -> float:
+            api = BioLMApiClient("temberture-regression")
+            try:
+                results = await api.predict(items=[{"sequence": seq}])
+                result = results[0]
+                if isinstance(result, dict):
+                    return float(result["prediction"])
+                return float(result)
+            finally:
+                await api.shutdown()
+
+        individual_preds: dict[str, float] = {}
+        for seq in self.test_sequences:
+            val = asyncio.run(predict_one(seq))
+            individual_preds[seq] = val
+            print(f"  Individual API: {seq[:15]}... → {val:.4f}")
+
+        # --- Step 3: compare ---
+        for seq in self.test_sequences:
+            pipeline_val = pipeline_preds[seq]
+            individual_val = individual_preds[seq]
+            self.assertAlmostEqual(
+                pipeline_val,
+                individual_val,
+                places=4,
+                msg=(
+                    f"Prediction mismatch for sequence '{seq}': "
+                    f"pipeline={pipeline_val}, individual={individual_val}. "
+                    "Row may be misaligned (wrong sequence paired with wrong result)."
+                ),
+            )
+            print(f"  ✓ {seq[:15]}... pipeline={pipeline_val:.4f} == individual={individual_val:.4f}")
+
+        print(f"\n✅ All {len(self.test_sequences)} predictions correctly aligned")
+
+    @integration_test
+    @skip_if_no_api_key()
+    def test_cached_predictions_same_alignment(self):
+        """Re-running the pipeline with cached predictions preserves alignment."""
+        import asyncio
+
+        from biolmai.client import BioLMApiClient
+
+        # --- First run to populate cache ---
+        pipeline1 = DataPipeline(
+            sequences=self.test_sequences,
+            datastore=self.db_path,
+            verbose=False,
+        )
+        pipeline1.add_prediction(
+            "temberture-regression",
+            extractions="prediction",
+            columns="tm",
+            stage_name="predict_tm",
+        )
+        pipeline1.run()
+        df_first = pipeline1.get_final_data()
+        first_preds = dict(zip(df_first["sequence"], df_first["tm"].astype(float)))
+
+        # --- Second run: all from cache ---
+        pipeline2 = DataPipeline(
+            sequences=self.test_sequences,
+            datastore=self.db_path,
+            verbose=False,
+            run_id="run2",
+        )
+        pipeline2.add_prediction(
+            "temberture-regression",
+            extractions="prediction",
+            columns="tm",
+            stage_name="predict_tm",
+        )
+        result2 = pipeline2.run()
+        df_second = pipeline2.get_final_data()
+        second_preds = dict(zip(df_second["sequence"], df_second["tm"].astype(float)))
+
+        # Cached run should report all sequences cached
+        stage_result = result2["predict_tm"]
+        self.assertEqual(
+            stage_result.cached_count,
+            len(self.test_sequences),
+            "Second run should be 100% cached",
+        )
+
+        # Values must be identical sequence-for-sequence
+        for seq in self.test_sequences:
+            self.assertAlmostEqual(
+                first_preds[seq],
+                second_preds[seq],
+                places=4,
+                msg=f"Cached prediction for '{seq}' differs from original — cache misalignment",
+            )
+            print(f"  ✓ {seq[:15]}... first={first_preds[seq]:.4f} == cached={second_preds[seq]:.4f}")
+
+        print(f"\n✅ Cached alignment verified for {len(self.test_sequences)} sequences")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

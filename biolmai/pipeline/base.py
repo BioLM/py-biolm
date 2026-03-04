@@ -3,6 +3,7 @@ Base Pipeline classes for stage management and execution.
 """
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -167,7 +168,7 @@ class Stage(ABC):
 
     Args:
         name: Stage name (must be unique within pipeline)
-        cache_key: Key for caching results (prediction_type for predictions)
+        cache_key: Unused collision-dedup key (auto-derived by PredictionStage)
         depends_on: List of stage names this stage depends on
         model_name: Model name for predictions/structures
         max_concurrent: Maximum concurrent API calls (for rate limiting)
@@ -208,6 +209,19 @@ class Stage(ABC):
             Tuple of (output WorkingSet, StageResult).
         """
         pass
+
+    def to_spec(self) -> dict:
+        """Return a serializable dict describing this stage.
+
+        Used by BasePipeline.run_async() to persist pipeline definitions to DuckDB
+        (enabling DataPipeline.from_db() recovery after kernel death).
+
+        Subclasses must override this. Raises NotImplementedError by default.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement to_spec(). "
+            "Implement to_spec() to enable pipeline definition saving and from_db() recovery."
+        )
 
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
@@ -363,22 +377,43 @@ class BasePipeline(ABC):
                 "Use stage_name= to provide a unique name."
             )
 
-        # Check for column name collision (different model, same output column)
-        stage_columns = {
-            r.column for r in getattr(stage, "_resolved", [])
-        }
-        stage_model = getattr(stage, "model_name", None)
+        # Check for column name collision.
+        # Two stages may share output columns only if they have the exact same
+        # (model_name, action) pair — meaning they are the same prediction and
+        # one will just hit the cache.  Different model OR different action with
+        # the same column name would silently overwrite DuckDB storage.
+        stage_columns = {r.column for r in getattr(stage, "_resolved", [])}
+        stage_key = (getattr(stage, "model_name", None), getattr(stage, "action", None))
         if stage_columns:
             for s in self.stages:
                 s_columns = {r.column for r in getattr(s, "_resolved", [])}
-                s_model = getattr(s, "model_name", None)
+                s_key = (getattr(s, "model_name", None), getattr(s, "action", None))
                 overlap = stage_columns & s_columns
-                if overlap and s_model != stage_model:
+                if overlap and s_key != stage_key:
                     raise ValueError(
                         f"Column(s) {overlap} already used by stage '{s.name}' "
-                        f"(model '{s_model}'). New stage '{stage.name}' uses "
-                        f"model '{stage_model}'. Use different column names via "
+                        f"(model='{s_key[0]}', action='{s_key[1]}'). "
+                        f"New stage '{stage.name}' uses model='{stage_key[0]}', "
+                        f"action='{stage_key[1]}'. Use different column names via "
                         "the 'columns' parameter to avoid collision."
+                    )
+
+        # Cross-pipeline column registry check: ensure no column conflicts with
+        # data stored in this DuckDB from a different (model, action) pair.
+        if self.datastore and stage_columns:
+            for r in getattr(stage, "_resolved", []):
+                existing = self.datastore.get_column_registry_entry(r.column)
+                if existing and (existing["model_name"], existing["action"]) != (
+                    getattr(stage, "model_name", None),
+                    getattr(stage, "action", None),
+                ):
+                    raise ValueError(
+                        f"Column '{r.column}' was previously used by "
+                        f"model='{existing['model_name']}', action='{existing['action']}' "
+                        f"(definition '{existing['definition_id']}'). "
+                        "Using a different (model, action) with the same column name would "
+                        "overwrite existing predictions in DuckDB. "
+                        "Use a different column name via the 'columns' parameter."
                     )
 
         # Validate dependencies
@@ -391,6 +426,80 @@ class BasePipeline(ABC):
         self.stages.append(stage)
         if self.verbose:
             print(f"Added stage: {stage}")
+
+    def _save_definition_and_register_columns(self):
+        """Serialize stages, save definition to DuckDB, register output columns."""
+        if self.datastore is None:
+            return
+        from biolmai.pipeline.pipeline_def import _pipeline_def_hash
+
+        stages_specs = []
+        for s in self.stages:
+            try:
+                stages_specs.append(s.to_spec())
+            except NotImplementedError:
+                # Stage doesn't support serialization — store minimal info
+                stages_specs.append({"type": s.__class__.__name__, "name": s.name})
+
+        input_cols = self.input_schema.columns if self.input_schema else None
+        def_id = _pipeline_def_hash(self.pipeline_type, input_cols, stages_specs)
+        self.datastore.save_pipeline_definition(
+            def_id,
+            self.pipeline_type,
+            json.dumps(input_cols) if input_cols is not None else None,
+            json.dumps(stages_specs),
+        )
+        for s in self.stages:
+            for r in getattr(s, "_resolved", []):
+                self.datastore.register_column(
+                    r.column,
+                    getattr(s, "model_name", ""),
+                    getattr(s, "action", ""),
+                    def_id,
+                    s.name,
+                )
+        self.datastore.conn.execute(
+            "UPDATE pipeline_runs SET definition_id = ? WHERE run_id = ?",
+            [def_id, self.run_id],
+        )
+
+    @classmethod
+    def from_db(
+        cls,
+        db_path: Union[str, "Path"],
+        definition_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        verbose: bool = True,
+    ) -> "BasePipeline":
+        """Reconstruct a pipeline from an existing DuckDB database.
+
+        Useful for recovering after a kernel death without re-running
+        already-completed stages.
+
+        Args:
+            db_path: Path to the DuckDB database file.
+            definition_id: Specific definition to load (``None`` = latest).
+            run_id: Run ID for the reconstructed pipeline (``None`` = generate new).
+            verbose: Enable verbose output.
+
+        Returns:
+            Reconstructed :class:`BasePipeline` subclass instance.
+
+        Example::
+
+            pipeline = DataPipeline.from_db("my_pipeline.duckdb")
+            pipeline.run(resume=True)
+        """
+        from biolmai.pipeline.pipeline_def import pipeline_from_definition
+
+        ds = DataStore(str(db_path))
+        defn = ds.load_pipeline_definition(definition_id)
+        if defn is None:
+            raise ValueError(
+                f"No pipeline definition found in '{db_path}'. "
+                "Run a pipeline with this datastore first to persist a definition."
+            )
+        return pipeline_from_definition(defn, datastore=ds, run_id=run_id, verbose=verbose)
 
     def _resolve_dependencies(self) -> list[list[Stage]]:
         """
@@ -456,15 +565,26 @@ class BasePipeline(ABC):
             from biolmai.pipeline.generative import GenerationStage
 
             if isinstance(stage, PredictionStage):
-                # IDs that have predictions = those that survived this stage
-                ids_with_pred = self.datastore.get_sequence_ids_with_prediction(
-                    list(ws_input.sequence_ids),
-                    stage.prediction_type,
-                    stage.model_name,
-                )
-                if not ids_with_pred:
+                # Encode stages store to the embeddings table, not predictions.
+                # We can't reconstruct their WS from predictions — force re-run.
+                if getattr(stage, "action", None) == "encode":
                     return None
-                return WorkingSet.from_ids(ids_with_pred)
+
+                # For predict/score: IDs that have ALL resolved columns in DuckDB.
+                resolved = getattr(stage, "_resolved", [])
+                if not resolved:
+                    return None
+                candidate_ids = set(ws_input.sequence_ids)
+                for r in resolved:
+                    ids_with_col = self.datastore.get_sequence_ids_with_prediction(
+                        list(candidate_ids),
+                        r.column,
+                        stage.model_name,
+                    )
+                    candidate_ids &= set(ids_with_col)
+                    if not candidate_ids:
+                        return None
+                return WorkingSet.from_ids(candidate_ids)
 
             elif isinstance(stage, FilterStage):
                 passed_ids = self.datastore.get_filter_results(self.run_id, stage.name)
@@ -602,6 +722,9 @@ class BasePipeline(ABC):
         )
 
         try:
+            # Save pipeline definition (content-hash dedup) + register output columns
+            self._save_definition_and_register_columns()
+
             # Get initial data — returns WorkingSet
             ws_current = await self._get_initial_data_ws(**kwargs)
 

@@ -426,5 +426,37 @@ class TestPipelineDeduplication(unittest.TestCase):
         self.assertEqual(len(df), 2)
 
 
+    def test_filter_stage_inherits_streamability(self):
+        """FilterStage.requires_complete_data mirrors the wrapped filter."""
+        from biolmai.pipeline.data import FilterStage
+        from biolmai.pipeline.filters import RankingFilter, ThresholdFilter
+
+        t_stage = FilterStage(name="t", filter_func=ThresholdFilter("col"))
+        r_stage = FilterStage(name="r", filter_func=RankingFilter("col", n=5))
+        self.assertFalse(t_stage.requires_complete_data)
+        self.assertTrue(r_stage.requires_complete_data)
+
+    def test_can_stream_to_next(self):
+        """_can_stream_to_next() correctly identifies streaming opportunities."""
+        from biolmai.pipeline.data import FilterStage, PredictionStage
+        from biolmai.pipeline.filters import RankingFilter, ThresholdFilter
+
+        ds = DuckDBDataStore(
+            db_path=Path(self.test_dir) / "stream.duckdb",
+            data_dir=Path(self.test_dir) / "stream_data",
+        )
+        pipeline = DataPipeline(sequences=["MKLLIV"], datastore=ds, verbose=False)
+
+        pred = PredictionStage(
+            name="p", model_name="m", action="predict",
+            extractions="val", columns="val",
+        )
+        threshold = FilterStage(name="t", filter_func=ThresholdFilter("val"))
+        ranking = FilterStage(name="r", filter_func=RankingFilter("val", n=5))
+
+        self.assertTrue(pipeline._can_stream_to_next(pred, threshold))
+        self.assertFalse(pipeline._can_stream_to_next(pred, ranking))
+
+
 if __name__ == "__main__":
     unittest.main()

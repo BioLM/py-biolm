@@ -260,6 +260,7 @@ class PredictionStage(Stage):
         self.params = params or {}
         self.batch_size = batch_size
         self.skip_on_error = skip_on_error
+        self._max_connections = max_connections
         # SDK-level HTTP connection semaphore — separate from pipeline flight limit
         self._connection_semaphore = asyncio.Semaphore(max_connections)
         # item_columns: maps API field name → DataFrame column name.
@@ -314,6 +315,44 @@ class PredictionStage(Stage):
             **kwargs,
         )
 
+    def to_spec(self) -> dict:
+        """Return a serializable dict for pipeline definition persistence."""
+        embedding_extractor_spec = None
+        if isinstance(self._embedding_extractor, EmbeddingSpec):
+            embedding_extractor_spec = {
+                "type": "EmbeddingSpec",
+                "key": self._embedding_extractor.key,
+                "layer": self._embedding_extractor.layer,
+                "reduction": self._embedding_extractor.reduction,
+            }
+        elif callable(self._embedding_extractor):
+            raise NotImplementedError(
+                f"PredictionStage '{self.name}': custom callable embedding_extractor "
+                "cannot be serialized. Use EmbeddingSpec instead of a lambda/function."
+            )
+        return {
+            "type": "PredictionStage",
+            "name": self.name,
+            "model_name": self.model_name,
+            "action": self.action,
+            "resolved": [
+                {
+                    "response_key": r.response_key,
+                    "column": r.column,
+                    "reduction": r.reduction,
+                }
+                for r in self._resolved
+            ],
+            "params": self.params,
+            "batch_size": self.batch_size,
+            "max_concurrent": self.max_concurrent,
+            "max_connections": self._max_connections,
+            "item_columns": self.item_columns,
+            "embedding_extractor": embedding_extractor_spec,
+            "skip_on_error": self.skip_on_error,
+            "depends_on": self.depends_on,
+        }
+
     async def process_streaming(self, df: pd.DataFrame, datastore: DataStore, **kwargs):
         """
         Process sequences and yield results as batches complete (streaming).
@@ -329,11 +368,17 @@ class PredictionStage(Stage):
             df = df.copy()
             df["sequence_id"] = datastore.add_sequences_batch(df["sequence"].tolist())
 
-        # Vectorized cache check: single anti-join, not N individual has_prediction() calls
-        uncached_ids = datastore.get_uncached_sequence_ids(
-            df["sequence_id"].tolist(), self.prediction_type, self.model_name
-        )
-        uncached_mask = df["sequence_id"].isin(uncached_ids)
+        # Vectorized cache check: a sequence is uncached if ANY resolved column is missing.
+        # For multi-extraction stages we must check every column — checking only the first
+        # would silently skip sequences that have col[0] but not col[1].
+        all_seq_ids = df["sequence_id"].tolist()
+        uncached_id_set: set[int] = set()
+        for spec in self._resolved:
+            uncached_id_set |= set(
+                datastore.get_uncached_sequence_ids(all_seq_ids, spec.column, self.model_name)
+            )
+        uncached_ids = list(uncached_id_set)
+        uncached_mask = df["sequence_id"].isin(uncached_id_set)
         df_uncached = df[uncached_mask].copy()
         cached_count = start_count - len(df_uncached)
 
@@ -447,10 +492,12 @@ class PredictionStage(Stage):
                     if self.skip_on_error:
                         pending_batch_df, _ = pending_tasks[completed_task]
                         print(f"  Error processing batch (skipped): {e}")
+                        # Write one NULL row per resolved column so that resume
+                        # correctly detects all columns as present (failed).
                         failed_batch = [
                             {
                                 "sequence_id": int(sid),
-                                "prediction_type": self.prediction_type,
+                                "prediction_type": spec.column,
                                 "model_name": self.model_name,
                                 "value": None,
                                 "metadata": {
@@ -460,6 +507,7 @@ class PredictionStage(Stage):
                                 },
                             }
                             for sid in pending_batch_df["sequence_id"].tolist()
+                            for spec in self._resolved
                         ]
                         datastore.add_predictions_batch(failed_batch)
                         # Don't yield failed batch - sequences are filtered out
@@ -498,7 +546,11 @@ class PredictionStage(Stage):
                 return float(np.min(arr))
             elif reduction == "sum":
                 return float(np.sum(arr))
-            return float(np.mean(arr))
+            else:
+                raise ValueError(
+                    f"Unknown reduction '{reduction}'. "
+                    "Valid values: 'mean', 'max', 'min', 'sum'."
+                )
         return None
 
     def _store_embeddings(self, datastore: DataStore, seq_id: int, result: Any):
@@ -534,11 +586,26 @@ class PredictionStage(Stage):
             df = df.copy()
             df["sequence_id"] = datastore.add_sequences_batch(df["sequence"].tolist())
 
-        # --- Vectorized cache check: single anti-join, not N individual queries ---
-        uncached_ids = datastore.get_uncached_sequence_ids(
-            df["sequence_id"].tolist(), self.prediction_type, self.model_name
-        )
-        uncached_mask = df["sequence_id"].isin(uncached_ids)
+        # --- Cache check: encode stores to embeddings table (not predictions).
+        # For predict/score, union uncached across ALL resolved columns so a
+        # sequence missing any column is treated as uncached.
+        _all_seq_ids = df["sequence_id"].tolist()
+        if self.action == "encode":
+            _cached_emb_ids = set(
+                datastore.conn.execute(
+                    "SELECT DISTINCT sequence_id FROM embeddings WHERE model_name = ?",
+                    [self.model_name],
+                ).df()["sequence_id"].tolist()
+            )
+            _uncached_set = {int(sid) for sid in _all_seq_ids if sid not in _cached_emb_ids}
+        else:
+            _uncached_set: set[int] = set()
+            for _spec in self._resolved:
+                _uncached_set |= set(
+                    datastore.get_uncached_sequence_ids(_all_seq_ids, _spec.column, self.model_name)
+                )
+        uncached_ids = list(_uncached_set)
+        uncached_mask = df["sequence_id"].isin(_uncached_set)
         df_uncached = df[uncached_mask]
         cached_count = start_count - len(df_uncached)
 
@@ -663,7 +730,7 @@ class PredictionStage(Stage):
                     failed_batch = [
                         {
                             "sequence_id": sid,
-                            "prediction_type": self.prediction_type,
+                            "prediction_type": spec.column,
                             "model_name": self.model_name,
                             "value": None,
                             "metadata": {
@@ -673,6 +740,7 @@ class PredictionStage(Stage):
                             },
                         }
                         for sid in df_uncached["sequence_id"].tolist()
+                        for spec in self._resolved
                     ]
                     datastore.add_predictions_batch(failed_batch)
                 else:
@@ -698,9 +766,12 @@ class PredictionStage(Stage):
                 else:
                     df[spec.column] = None
 
-            # Use first extraction's column for the .notna() output filter
-            primary_type = merge_specs[0].column
-            df_out = df[df[primary_type].notna()].copy()
+            # Keep rows where ALL resolved columns have a value (not just the first).
+            all_present = pd.Series(True, index=df.index)
+            for _s in merge_specs:
+                if _s.column in df.columns:
+                    all_present &= df[_s.column].notna()
+            df_out = df[all_present].copy()
             filtered_count = len(df) - len(df_out)
 
         elif self.action == "encode":
@@ -768,10 +839,23 @@ class PredictionStage(Stage):
         input_count = len(ws)
         input_ids = list(ws.sequence_ids)
 
-        # Vectorized cache check
-        uncached_ids = datastore.get_uncached_sequence_ids(
-            input_ids, self.prediction_type, self.model_name
-        )
+        # Cache check: encode → embeddings table; predict/score → predictions table.
+        # For predict/score: union uncached across ALL resolved columns.
+        if self.action == "encode":
+            _cached_emb_ids_ws = set(
+                datastore.conn.execute(
+                    "SELECT DISTINCT sequence_id FROM embeddings WHERE model_name = ?",
+                    [self.model_name],
+                ).df()["sequence_id"].tolist()
+            )
+            uncached_ids = [sid for sid in input_ids if sid not in _cached_emb_ids_ws]
+        else:
+            _uncached_ws_set: set[int] = set()
+            for _spec in self._resolved:
+                _uncached_ws_set |= set(
+                    datastore.get_uncached_sequence_ids(input_ids, _spec.column, self.model_name)
+                )
+            uncached_ids = list(_uncached_ws_set)
         cached_count = input_count - len(uncached_ids)
 
         print(f"  Cached: {cached_count}/{input_count}")
@@ -926,7 +1010,7 @@ class PredictionStage(Stage):
                     failed_batch = [
                         {
                             "sequence_id": sid,
-                            "prediction_type": self.prediction_type,
+                            "prediction_type": spec.column,
                             "model_name": self.model_name,
                             "value": None,
                             "metadata": {
@@ -936,18 +1020,25 @@ class PredictionStage(Stage):
                             },
                         }
                         for sid in uncached_ids
+                        for spec in self._resolved
                     ]
                     datastore.add_predictions_batch(failed_batch)
                 else:
                     print(f"  Error during prediction: {e}")
                     raise
 
-        # Return WorkingSet: IDs that now have predictions
+        # Return WorkingSet: IDs that have ALL resolved columns stored in DuckDB.
+        # Intersect across columns so that a sequence missing any column is excluded.
         if self.action in ("predict", "score"):
-            ids_with_pred = datastore.get_sequence_ids_with_prediction(
-                input_ids, self.prediction_type, self.model_name
-            )
-            ws_out = WorkingSet.from_ids(ids_with_pred)
+            candidate_ids = set(input_ids)
+            for spec in self._resolved:
+                have_col = set(datastore.get_sequence_ids_with_prediction(
+                    list(candidate_ids), spec.column, self.model_name
+                ))
+                candidate_ids &= have_col
+                if not candidate_ids:
+                    break
+            ws_out = WorkingSet.from_ids(candidate_ids)
         elif self.action == "encode":
             emb_ids = set(
                 datastore.conn.execute(
@@ -992,6 +1083,15 @@ class FilterStage(Stage):
             True,  # Default: safe (batch)
         )
 
+    def to_spec(self) -> dict:
+        """Return a serializable dict for pipeline definition persistence."""
+        return {
+            "type": "FilterStage",
+            "name": self.name,
+            "filter_spec": self.filter_func.to_spec(),
+            "depends_on": self.depends_on,
+        }
+
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
     ) -> tuple[pd.DataFrame, StageResult]:
@@ -1000,7 +1100,7 @@ class FilterStage(Stage):
 
         print(f"  Applying filter: {self.filter_func}")
         if df.empty:
-            df_filtered = df
+            df_filtered = df.copy()
         else:
             df_filtered = self.filter_func(
                 df
@@ -1334,6 +1434,19 @@ class ClusteringStage(Stage):
         self.max_sample = max_sample
         self.cluster_kwargs = kwargs
 
+    def to_spec(self) -> dict:
+        """Return a serializable dict for pipeline definition persistence."""
+        return {
+            "type": "ClusteringStage",
+            "name": self.name,
+            "method": self.method,
+            "n_clusters": self.n_clusters,
+            "similarity_metric": self.similarity_metric,
+            "embedding_model": self.embedding_model,
+            "max_sample": self.max_sample,
+            "depends_on": self.depends_on,
+        }
+
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
     ) -> tuple[pd.DataFrame, StageResult]:
@@ -1495,13 +1608,13 @@ class DataPipeline(BasePipeline):
     Example:
         >>> # Standard mode
         >>> pipeline = DataPipeline(sequences='sequences.csv')
-        >>> pipeline.add_prediction('esmfold', prediction_type='structure')
+        >>> pipeline.add_prediction('esmfold', extractions='mean_plddt', columns='plddt')
         >>> pipeline.add_filter(ThresholdFilter('plddt', min_value=70))
         >>> results = pipeline.run()
 
         >>> # Diff mode - add new sequences to existing pipeline (SQL-based, efficient)
         >>> pipeline = DataPipeline(sequences='new_sequences.csv', diff_mode=True)
-        >>> pipeline.add_prediction('esmfold', prediction_type='structure')
+        >>> pipeline.add_prediction('esmfold', extractions='mean_plddt', columns='plddt')
         >>> results = pipeline.run()
         >>> # Efficiently query specific data (doesn't load all millions of rows!)
         >>> high_quality = pipeline.query_results("s.length > 100 AND p.value > 70")
@@ -1516,6 +1629,12 @@ class DataPipeline(BasePipeline):
         input_columns: Optional[list[str]] = None,
         **kwargs,
     ):
+        resume = kwargs.get("resume", False)
+        if sequences is None and not resume:
+            raise ValueError(
+                "sequences is required unless resume=True "
+                "(use DataPipeline.from_db() to reconstruct from an existing database)."
+            )
         # Build InputSchema if input_columns specified
         if input_columns is not None:
             kwargs["input_schema"] = InputSchema(columns=input_columns)
@@ -1528,7 +1647,17 @@ class DataPipeline(BasePipeline):
         """Load sequences into DataFrame."""
 
         if self.input_sequences is None:
-            raise ValueError("No sequences provided. Set 'sequences' parameter.")
+            # resume=True + no sequences: pull existing IDs from DuckDB directly
+            all_rows = self.datastore.conn.execute(
+                "SELECT sequence_id, sequence FROM sequences ORDER BY sequence_id"
+            ).fetchall()
+            if not all_rows:
+                raise ValueError(
+                    "No sequences provided and no sequences found in the datastore. "
+                    "Provide sequences or use a populated datastore."
+                )
+            df = pd.DataFrame(all_rows, columns=["sequence_id", "sequence"])
+            return df
 
         # Convert to DataFrame
         if isinstance(self.input_sequences, list):

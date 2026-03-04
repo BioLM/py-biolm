@@ -59,6 +59,19 @@ class BaseFilter(ABC):
         """
         return None
 
+    def to_spec(self) -> dict:
+        """Return a serializable dict describing this filter.
+
+        Subclasses should override this. The base implementation raises
+        ``NotImplementedError`` so that pipeline definition serialization
+        fails early for unsupported filter types.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement to_spec(). "
+            "Implement to_spec() to enable pipeline definition saving and "
+            "DataPipeline.from_db() recovery."
+        )
+
     @abstractmethod
     def __repr__(self) -> str:
         pass
@@ -135,6 +148,15 @@ class ThresholdFilter(BaseFilter):
             f"WHERE p.prediction_type = '{col}' AND {where}"
         )
 
+    def to_spec(self) -> dict:
+        return {
+            "type": "ThresholdFilter",
+            "column": self.column,
+            "min_value": self.min_value,
+            "max_value": self.max_value,
+            "keep_na": self.keep_na,
+        }
+
     def __repr__(self):
         parts = [f"column='{self.column}'"]
         if self.min_value is not None:
@@ -192,6 +214,13 @@ class SequenceLengthFilter(BaseFilter):
             f"INNER JOIN sequences s ON w.sequence_id = s.sequence_id "
             f"WHERE {where}"
         )
+
+    def to_spec(self) -> dict:
+        return {
+            "type": "SequenceLengthFilter",
+            "min_length": self.min_length,
+            "max_length": self.max_length,
+        }
 
     def __repr__(self):
         parts = []
@@ -272,6 +301,15 @@ class HammingDistanceFilter(BaseFilter):
             mask &= distances >= self.min_distance
 
         return df[mask].copy()
+
+    def to_spec(self) -> dict:
+        return {
+            "type": "HammingDistanceFilter",
+            "reference_sequence": self.reference_sequence,
+            "max_distance": self.max_distance,
+            "min_distance": self.min_distance,
+            "normalize": self.normalize,
+        }
 
     def __repr__(self):
         parts = [f"ref_len={len(self.reference_sequence)}"]
@@ -385,6 +423,16 @@ class RankingFilter(BaseFilter):
             f"ORDER BY p.value {order} LIMIT {self.n}"
         )
 
+    def to_spec(self) -> dict:
+        return {
+            "type": "RankingFilter",
+            "column": self.column,
+            "n": self.n,
+            "ascending": self.ascending,
+            "method": self.method,
+            "percentile": self.percentile,
+        }
+
     def __repr__(self):
         if self.method == "percentile":
             return f"RankingFilter(column='{self.column}', percentile={self.percentile}, ascending={self.ascending})"
@@ -415,6 +463,9 @@ class CustomFilter(BaseFilter):
 
     def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
         return self.func(df)
+
+    def to_spec(self) -> dict:
+        return {"type": "CustomFilter", "name": self.name, "func": None}
 
     def __repr__(self):
         return f"CustomFilter(name='{self.name}')"
@@ -460,6 +511,14 @@ class ConservedResidueFilter(BaseFilter):
 
         mask = df["sequence"].apply(check_conserved)
         return df[mask].copy()
+
+    def to_spec(self) -> dict:
+        return {
+            "type": "ConservedResidueFilter",
+            # Keys must be strings for JSON serialization
+            "conserved_positions": {str(k): v for k, v in self.conserved_positions.items()},
+            "reference_length": self.reference_length,
+        }
 
     def __repr__(self):
         return f"ConservedResidueFilter(positions={len(self.conserved_positions)})"
@@ -593,6 +652,16 @@ class DiversitySamplingFilter(BaseFilter):
         df_result[self._sampled_marker_col] = True
         return df_result
 
+    def to_spec(self) -> dict:
+        return {
+            "type": "DiversitySamplingFilter",
+            "n_samples": self.n_samples,
+            "method": self.method,
+            "score_column": self.score_column,
+            "random_seed": self.random_seed,
+            "resample": self.resample,
+        }
+
     def __repr__(self):
         return f"DiversitySamplingFilter(n={self.n_samples}, method='{self.method}')"
 
@@ -645,6 +714,14 @@ class ValidAminoAcidFilter(BaseFilter):
             f"INNER JOIN sequences s ON w.sequence_id = s.sequence_id "
             f'WHERE regexp_matches(s."{col}", \'^[{escaped}]+$\')'
         )
+
+    def to_spec(self) -> dict:
+        return {
+            "type": "ValidAminoAcidFilter",
+            "alphabet": self.alphabet,
+            "verbose": self.verbose,
+            "column": self.column,
+        }
 
     def __repr__(self):
         col_str = f", column='{self.column}'" if self.column != "sequence" else ""
