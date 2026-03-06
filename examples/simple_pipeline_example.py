@@ -6,7 +6,7 @@ This example demonstrates basic usage of the pipeline system.
 
 import sys
 
-sys.path.insert(0, "/home/c/py-biolm")
+
 
 from biolmai.pipeline import DataPipeline, GenerationConfig, GenerativePipeline, Predict
 from biolmai.pipeline.filters import (

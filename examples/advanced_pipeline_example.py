@@ -11,7 +11,7 @@ Demonstrates new features:
 
 import sys
 
-sys.path.insert(0, "/home/c/py-biolm")
+
 
 import numpy as np
 import pandas as pd

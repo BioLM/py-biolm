@@ -87,3 +87,5 @@ credentials
 example_*.db
 example_*.csv
 *_output/
+.biolm/
+outputs/
