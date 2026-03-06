@@ -5,11 +5,17 @@ Provides functionality for iterative remasking and prediction using
 masked language models like ESM, ESM-1v, ESM-2.
 """
 
+import asyncio
+import logging
+import math
 import random
+import warnings
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -61,6 +67,26 @@ class RemaskingConfig:
     mask_strategy: str = "random"
     block_size: int = 3
     confidence_threshold: float = 0.8
+    # GEN-06: proper dataclass fields for parent_sequence and num_variants.
+    # Previously set as dynamic attributes after construction, which caused
+    # to_spec() to omit them and from_db() reconstruction to always fail.
+    parent_sequence: Optional[str] = None
+    num_variants: int = 100
+
+    def __post_init__(self):
+        if not (0 < self.mask_fraction <= 1.0):
+            raise ValueError(
+                f"mask_fraction must be in (0, 1], got {self.mask_fraction}"
+            )
+        if self.num_iterations < 1:
+            raise ValueError(
+                f"num_iterations must be >= 1, got {self.num_iterations}"
+            )
+        if self.temperature <= 0:
+            raise ValueError(
+                f"temperature must be > 0. For greedy decoding, use temperature=1e-6 "
+                f"(very low). Got {self.temperature}"
+            )
 
     def to_spec(self) -> dict:
         """Return a serializable dict for pipeline definition persistence."""
@@ -79,6 +105,8 @@ class RemaskingConfig:
             "mask_strategy": self.mask_strategy,
             "block_size": self.block_size,
             "confidence_threshold": self.confidence_threshold,
+            "parent_sequence": self.parent_sequence,
+            "num_variants": self.num_variants,
         }
 
 
@@ -138,6 +166,16 @@ class MLMRemasker:
         if len(available_positions) < num_to_mask:
             num_to_mask = len(available_positions)
 
+        # BUG-MLM-01: guard against empty available_positions before any strategy branch
+        if not available_positions:
+            warnings.warn(
+                f"All positions are conserved; cannot mask any positions. "
+                f"Returning empty mask selection.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return []
+
         # Select based on strategy
         if self.config.mask_strategy == "random":
             return self.random.sample(available_positions, num_to_mask)
@@ -148,7 +186,12 @@ class MLMRemasker:
                 return self.random.sample(available_positions, num_to_mask)
 
             # Select positions with lowest confidence
-            available_confidences = [(i, confidences[i]) for i in available_positions]
+            available_confidences = [
+                (i, confidences[i]) for i in available_positions if i < len(confidences)
+            ]
+            if len(available_confidences) == 0:
+                # Fall back to random if no valid confidence scores
+                return self.random.sample(available_positions, num_to_mask)
             available_confidences.sort(key=lambda x: x[1])
 
             return [i for i, _ in available_confidences[:num_to_mask]]
@@ -157,8 +200,17 @@ class MLMRemasker:
             # Mask contiguous blocks
             positions = []
             block_size = self.config.block_size
+            max_block_iters = max(len(available_positions) * 10, 100)
+            block_iter_count = 0
+
+            # BUG-MLM-02: guard against empty available_positions before entering loop
+            if not available_positions:
+                return []
 
             while len(positions) < num_to_mask:
+                block_iter_count += 1
+                if block_iter_count > max_block_iters:
+                    break  # Return whatever positions we have
                 # Pick random start position
                 start = self.random.choice(available_positions)
 
@@ -268,11 +320,21 @@ class MLMRemasker:
                 confidences: dict[int, float] = {}
                 log_prob = pred_result.get("log_prob")
                 if log_prob is not None:
-                    # Distribute log_prob evenly across mask positions as a proxy
-                    per_pos = abs(float(log_prob)) / max(len(mask_positions), 1)
+                    # Convert from nats/position to probability-space [0, 1]
+                    per_pos = min(
+                        1.0,
+                        math.exp(-abs(float(log_prob)) / max(len(mask_positions), 1)),
+                    )
                     for pos in mask_positions:
                         confidences[pos] = per_pos
                 return predicted_seq, confidences
+
+            # MLM-06: explicit error when mask token survives in the returned sequence
+            if predicted_seq is not None and self.config.mask_token in predicted_seq:
+                raise ValueError(
+                    f"Model returned sequence still containing mask token: "
+                    f"{predicted_seq!r}. Expected all mask positions to be filled."
+                )
 
             # Path 2: Model returns logits (ESM2 predict)
             logits = pred_result.get("logits")
@@ -304,6 +366,13 @@ class MLMRemasker:
         logits_arr = np.array(logits, dtype=np.float64)
         seq_list = list(original_sequence)
         confidences: dict[int, float] = {}
+
+        if len(logits_arr) != len(seq_tokens):
+            raise ValueError(
+                f"Logits array length ({len(logits_arr)}) != sequence token length "
+                f"({len(seq_tokens)}). The API may be returning special tokens "
+                f"(CLS/EOS) in the logits. Slice to remove them."
+            )
 
         # Map mask_positions (0-indexed in sequence) to token indices
         # seq_tokens mirrors the sequence: ['M', 'K', '<mask>', ...]
@@ -340,6 +409,10 @@ class MLMRemasker:
                 mask[keep] = 1.0
                 probs = probs * mask
                 probs = probs / (probs.sum() or 1.0)
+
+            # Guard: if all probs were zeroed by top-k/top-p, fall back to uniform
+            if probs.sum() <= 0:
+                probs = np.ones(len(probs)) / len(probs)
 
             # Sample
             chosen_idx = self.random.choices(range(len(vocab_tokens)), weights=probs, k=1)[0]
@@ -414,38 +487,61 @@ class MLMRemasker:
         self, parent_sequence: str, num_variants: int = 100, deduplicate: bool = True
     ) -> list[tuple[str, dict[str, Any]]]:
         """
-        Generate multiple variants through remasking (async).
+        Generate multiple variants through remasking (async, concurrent).
+
+        Uses asyncio.gather with a semaphore to generate variants concurrently
+        rather than sequentially, significantly reducing wall-clock time when
+        the API client supports concurrent calls.
 
         Args:
             parent_sequence: Starting sequence
             num_variants: Number of variants to generate
-            deduplicate: Remove duplicate sequences
+            deduplicate: Remove duplicate sequences (parent excluded when True)
 
         Returns:
             List of (variant_sequence, metadata) tuples
         """
-        variants = []
-        seen_sequences = {parent_sequence} if deduplicate else set()
+        max_concurrent = min(num_variants, 16)
+        semaphore = asyncio.Semaphore(max_concurrent)
 
-        attempts = 0
-        max_attempts = num_variants * 10  # Avoid infinite loop
+        async def _generate_one(attempt_idx: int) -> Optional[tuple[str, dict[str, Any]]]:
+            async with semaphore:
+                try:
+                    return await self.generate_variant(parent_sequence, attempt_idx)
+                except Exception as e:
+                    logger.warning(
+                        "Variant generation attempt %d failed: %s", attempt_idx, e
+                    )
+                    return None
 
-        while len(variants) < num_variants and attempts < max_attempts:
-            attempts += 1
+        # Generate max_attempts total to account for duplicates and failures
+        max_attempts = num_variants * 3
+        raw_results = await asyncio.gather(
+            *[_generate_one(i) for i in range(max_attempts)]
+        )
 
-            # generate_variant is async — must be awaited
-            variant_seq, metadata = await self.generate_variant(
-                parent_sequence, iteration=attempts
+        seen = {parent_sequence} if deduplicate else set()
+        variants: list[tuple[str, dict[str, Any]]] = []
+        for item in raw_results:
+            if item is None:
+                continue
+            seq, metadata = item
+            if deduplicate and seq in seen:
+                continue
+            seen.add(seq)
+            variants.append((seq, metadata))
+            if len(variants) >= num_variants:
+                break
+
+        if len(variants) < num_variants:
+            warnings.warn(
+                f"Only generated {len(variants)} unique variants (requested {num_variants}). "
+                "Sequence space may be too small for the requested count.",
+                UserWarning,
+                stacklevel=2,
             )
 
-            if deduplicate:
-                if variant_seq in seen_sequences:
-                    continue
-                seen_sequences.add(variant_seq)
-
-            variants.append((variant_seq, metadata))
-
-        return variants
+        return variants[:num_variants]
 
     async def iterative_refinement(
         self,
@@ -468,6 +564,13 @@ class MLMRemasker:
         Returns:
             List of (sequence, fitness, metadata) tuples for final population
         """
+        # BUG-MLM-04: validate keep_top_k < population_size before starting
+        if keep_top_k is not None and keep_top_k >= population_size:
+            raise ValueError(
+                f"keep_top_k ({keep_top_k}) must be < population_size ({population_size}). "
+                f"A keep_top_k >= population_size would immediately collapse the population to a single sequence."
+            )
+
         current_population = [(sequence, fitness_function(sequence), {})]
 
         for iteration in range(num_iterations):

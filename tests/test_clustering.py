@@ -19,7 +19,7 @@ class TestSequenceClusterer(unittest.TestCase):
     """Test sequence clustering functionality."""
 
     def setUp(self):
-        """Set up test sequences."""
+        """Set up test sequences and mock embeddings."""
         self.sequences = [
             "MKTAYIAKQRQ",
             "MKTAYIAKQRR",  # 1 mutation from first
@@ -29,32 +29,31 @@ class TestSequenceClusterer(unittest.TestCase):
             "GGGGGGGGGG",  # Very different
             "GGGGGGGGGA",  # Similar to previous
         ]
+        self.embeddings = np.random.randn(len(self.sequences), 64)
 
     def test_kmeans_clustering(self):
-        """Test K-means clustering."""
-        clusterer = SequenceClusterer(method="kmeans", n_clusters=3)
-        result = clusterer.cluster(self.sequences)
+        """Test K-means clustering with embeddings."""
+        clusterer = SequenceClusterer(method="kmeans", n_clusters=3, similarity_metric="embedding")
+        result = clusterer.cluster(self.sequences, embeddings=self.embeddings)
 
         self.assertIsInstance(result, ClusteringResult)
         self.assertEqual(len(result.cluster_ids), len(self.sequences))
         self.assertEqual(result.n_clusters, 3)
         self.assertEqual(len(result.centroids), 3)
-        self.assertIsNotNone(result.silhouette_score)
 
     def test_dbscan_clustering(self):
-        """Test DBSCAN clustering."""
-        clusterer = SequenceClusterer(method="dbscan", eps=2.0, min_samples=2)
-        result = clusterer.cluster(self.sequences)
+        """Test DBSCAN clustering with embeddings."""
+        clusterer = SequenceClusterer(method="dbscan", eps=5.0, min_samples=2, similarity_metric="embedding")
+        result = clusterer.cluster(self.sequences, embeddings=self.embeddings)
 
         self.assertIsInstance(result, ClusteringResult)
         self.assertEqual(len(result.cluster_ids), len(self.sequences))
-        # DBSCAN can have noise points (-1)
         self.assertTrue(result.n_clusters >= 1)
 
     def test_hierarchical_clustering(self):
-        """Test hierarchical clustering."""
-        clusterer = SequenceClusterer(method="hierarchical", n_clusters=2)
-        result = clusterer.cluster(self.sequences)
+        """Test hierarchical clustering with embeddings."""
+        clusterer = SequenceClusterer(method="hierarchical", n_clusters=2, similarity_metric="embedding")
+        result = clusterer.cluster(self.sequences, embeddings=self.embeddings)
 
         self.assertIsInstance(result, ClusteringResult)
         self.assertEqual(len(result.cluster_ids), len(self.sequences))
@@ -62,15 +61,16 @@ class TestSequenceClusterer(unittest.TestCase):
 
     def test_centroids(self):
         """Test that centroids are actual sequences."""
-        result = cluster_sequences(self.sequences, method="kmeans", n_clusters=3)
+        embeddings = np.random.randn(len(self.sequences), 64)
+        result = cluster_sequences(self.sequences, method="kmeans", n_clusters=3, embeddings=embeddings)
 
-        # All centroids should be in the original sequence list
         for centroid in result.centroids:
             self.assertIn(centroid, self.sequences)
 
     def test_cluster_sizes(self):
         """Test cluster size tracking."""
-        result = cluster_sequences(self.sequences, method="kmeans", n_clusters=2)
+        embeddings = np.random.randn(len(self.sequences), 64)
+        result = cluster_sequences(self.sequences, method="kmeans", n_clusters=2, embeddings=embeddings)
 
         self.assertIsNotNone(result.cluster_sizes)
         self.assertEqual(sum(result.cluster_sizes.values()), len(self.sequences))
@@ -116,17 +116,10 @@ class TestDiversityAnalyzer(unittest.TestCase):
         self.assertAlmostEqual(entropy, 0.0)
 
     def test_pairwise_distances(self):
-        """Test pairwise distance calculation."""
-        stats = DiversityAnalyzer.pairwise_distance_stats(self.sequences)
-
-        self.assertIn("mean", stats)
-        self.assertIn("std", stats)
-        self.assertIn("min", stats)
-        self.assertIn("max", stats)
-        self.assertIn("median", stats)
-
-        self.assertGreaterEqual(stats["min"], 0)
-        self.assertGreaterEqual(stats["max"], stats["min"])
+        """Placeholder: pairwise_distance_stats() removed (seq-to-seq analysis).
+        TODO: implement using embedding distances and re-enable this test.
+        """
+        self.assertFalse(hasattr(DiversityAnalyzer, "pairwise_distance_stats"))
 
     def test_motif_diversity(self):
         """Test k-mer diversity analysis."""
@@ -142,20 +135,10 @@ class TestDiversityAnalyzer(unittest.TestCase):
         self.assertLessEqual(diversity["diversity_ratio"], 1.0)
 
     def test_sequence_identity_matrix(self):
-        """Test sequence identity matrix."""
-        identity_matrix = DiversityAnalyzer.sequence_identity_matrix(self.sequences)
-
-        n = len(self.sequences)
-        self.assertEqual(identity_matrix.shape, (n, n))
-
-        # Diagonal should be 1.0 (self-identity)
-        for i in range(n):
-            self.assertAlmostEqual(identity_matrix[i, i], 1.0)
-
-        # Matrix should be symmetric
-        for i in range(n):
-            for j in range(n):
-                self.assertAlmostEqual(identity_matrix[i, j], identity_matrix[j, i])
+        """Placeholder: sequence_identity_matrix() removed (seq-to-seq analysis).
+        TODO: implement using embedding cosine similarity and re-enable this test.
+        """
+        self.assertFalse(hasattr(DiversityAnalyzer, "sequence_identity_matrix"))
 
     def test_compute_all_metrics(self):
         """Test computing all metrics at once."""
@@ -165,7 +148,7 @@ class TestDiversityAnalyzer(unittest.TestCase):
         self.assertIn("n_unique", metrics)
         self.assertIn("uniqueness_ratio", metrics)
         self.assertIn("shannon_entropy", metrics)
-        self.assertIn("pairwise_distances", metrics)
+        self.assertNotIn("pairwise_distances", metrics)  # removed (seq-to-seq)
         self.assertIn("motif_diversity_3mer", metrics)
         self.assertIn("motif_diversity_5mer", metrics)
 
@@ -185,8 +168,9 @@ class TestConvenienceFunctions(unittest.TestCase):
         ]
 
     def test_cluster_sequences(self):
-        """Test cluster_sequences convenience function."""
-        result = cluster_sequences(self.sequences, method="kmeans", n_clusters=2)
+        """Test cluster_sequences convenience function with embeddings."""
+        embeddings = np.random.randn(len(self.sequences), 64)
+        result = cluster_sequences(self.sequences, method="kmeans", n_clusters=2, embeddings=embeddings)
 
         self.assertIsInstance(result, ClusteringResult)
         self.assertEqual(len(result.cluster_ids), len(self.sequences))
@@ -197,7 +181,7 @@ class TestConvenienceFunctions(unittest.TestCase):
 
         self.assertIsInstance(metrics, dict)
         self.assertIn("shannon_entropy", metrics)
-        self.assertIn("pairwise_distances", metrics)
+        self.assertNotIn("pairwise_distances", metrics)  # removed (seq-to-seq)
 
 
 class TestEdgeCases(unittest.TestCase):

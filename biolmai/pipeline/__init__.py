@@ -31,12 +31,16 @@ from biolmai.pipeline.data import (
 )
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 from biolmai.pipeline.filters import (
+    CompositeFilter,
+    ConservedResidueFilter,
     CustomFilter,
+    DiversitySamplingFilter,
     HammingDistanceFilter,
     RankingFilter,
     SequenceLengthFilter,
     ThresholdFilter,
     ValidAminoAcidFilter,
+    combine_filters,
 )
 from biolmai.pipeline.generative import (
     DirectGenerationConfig,
@@ -91,7 +95,11 @@ __all__ = [
     "SequenceLengthFilter",
     "RankingFilter",
     "CustomFilter",
+    "CompositeFilter",
+    "combine_filters",
     "ValidAminoAcidFilter",
+    "ConservedResidueFilter",
+    "DiversitySamplingFilter",
     "ExtractionSpec",
     "EmbeddingSpec",
     "MLMRemasker",

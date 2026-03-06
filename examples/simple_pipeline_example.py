@@ -57,7 +57,7 @@ def example_2_data_pipeline():
     )
 
     pipeline.add_prediction(
-        "temberture-regression", prediction_type="tm", extractions="melting_temperature", stage_name="tm_prediction"
+        "temberture-regression", extractions="prediction", columns="tm", stage_name="tm_prediction"
     )
 
     pipeline.add_filter(ThresholdFilter("tm", min_value=50), stage_name="tm_filter")
@@ -96,7 +96,7 @@ def example_3_generative_pipeline():
     pipeline = GenerativePipeline(generation_configs=[config], deduplicate=True)
 
     # Add downstream predictions
-    pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+    pipeline.add_prediction("temberture-regression", extractions="prediction", columns="tm")
 
     # Add filtering
     pipeline.add_filter(ThresholdFilter("tm", min_value=55))
@@ -135,7 +135,7 @@ def example_4_visualization():
 
     # Create pipeline
     pipeline = DataPipeline(sequences=sequences)
-    pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
+    pipeline.add_prediction("temberture-regression", extractions="prediction", columns="tm")
 
     # Run
     results = pipeline.run()

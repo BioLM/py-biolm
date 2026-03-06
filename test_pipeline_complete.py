@@ -73,15 +73,16 @@ async def test_complete_pipeline():
         pipeline.add_prediction(
             model_name="temberture-regression",
             action="predict",
-            prediction_type="tm",
-            extractions="melting_temperature",
+            extractions="prediction",
+            columns="tm",
             stage_name="stability",
         )
 
         pipeline.add_prediction(
-            model_name="solubility",
+            model_name="soluprot",
             action="predict",
-            prediction_type="solubility",
+            extractions="soluble",
+            columns="solubility",
             stage_name="solubility_pred",
         )
 
@@ -169,8 +170,8 @@ async def test_complete_pipeline():
         )
 
         # Add same predictions
-        pipeline_2.add_prediction("temberture-regression", prediction_type="tm", extractions="melting_temperature")
-        pipeline_2.add_prediction("solubility", prediction_type="solubility")
+        pipeline_2.add_prediction("temberture-regression", extractions="prediction", columns="tm")
+        pipeline_2.add_prediction("soluprot", extractions="soluble", columns="solubility")
 
         print("\n🔧 Diff Mode Configuration:")
         print("   Generation: ESM2 150M @ T=[1.2, 1.5]")

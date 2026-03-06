@@ -7,11 +7,24 @@ Filters can be:
 """
 
 import re
+import re as _re
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
+
+_SAFE_COL_RE = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_sql_identifier(name: str) -> None:
+    """Raise ValueError if *name* is not a safe SQL identifier.
+
+    Prevents SQL injection when column names or model names are interpolated
+    into SQL strings inside ``to_sql()`` methods.
+    """
+    if not _SAFE_COL_RE.match(name):
+        raise ValueError(f"Unsafe SQL identifier: '{name}'")
 
 
 class BaseFilter(ABC):
@@ -130,23 +143,56 @@ class ThresholdFilter(BaseFilter):
 
         return df[mask].copy()
 
-    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
-        conditions = []
-        if self.min_value is not None:
-            conditions.append(f"p.value >= {self.min_value}")
-        if self.max_value is not None:
-            conditions.append(f"p.value <= {self.max_value}")
-        if not self.keep_na:
-            conditions.append("p.value IS NOT NULL")
-        if not conditions:
-            return None
-        where = " AND ".join(conditions)
+    def to_sql(self, ws_table: str = "_filter_ws", model_name: Optional[str] = None) -> Optional[str]:
+        # F03: if keep_na=True and no bounds, everyone passes — return pass-all SQL immediately.
+        if self.keep_na and self.min_value is None and self.max_value is None:
+            return f"SELECT sequence_id FROM {ws_table}"
+
+        _validate_sql_identifier(self.column)
+        if not _SAFE_COL_RE.match(ws_table):
+            raise ValueError(f"Invalid ws_table name: '{ws_table}'")
+        if model_name is not None:
+            _validate_sql_identifier(model_name.replace("-", "_"))
+
         col = self.column.replace("'", "''")
-        return (
-            f"SELECT w.sequence_id FROM {ws_table} w "
-            f"INNER JOIN predictions p ON w.sequence_id = p.sequence_id "
-            f"WHERE p.prediction_type = '{col}' AND {where}"
-        )
+        model_clause = ""
+        if model_name is not None:
+            model_clause = f" AND p.model_name = '{model_name.replace(chr(39), chr(39)*2)}'"
+
+        if self.keep_na:
+            # F01/F02/F13: LEFT JOIN so sequences with no prediction row are also included.
+            # Build value condition; NULL rows satisfy the OR p.value IS NULL clause.
+            value_conditions = []
+            if self.min_value is not None:
+                value_conditions.append(f"p.value >= {float(self.min_value)}")
+            if self.max_value is not None:
+                value_conditions.append(f"p.value <= {float(self.max_value)}")
+            value_cond = " AND ".join(value_conditions)
+            where = f"({value_cond}) OR p.value IS NULL"
+            return (
+                f"SELECT s.sequence_id FROM {ws_table} s "
+                f"LEFT JOIN predictions p ON p.sequence_id = s.sequence_id "
+                f"AND p.prediction_type = '{col}' AND p.value IS NOT NULL{model_clause} "
+                f"WHERE {where}"
+            )
+        else:
+            # INNER JOIN path (keep_na=False): dropped rows have no prediction or fail bounds.
+            conditions = []
+            if self.min_value is not None:
+                conditions.append(f"p.value >= {float(self.min_value)}")
+            if self.max_value is not None:
+                conditions.append(f"p.value <= {float(self.max_value)}")
+            conditions.append("p.value IS NOT NULL")
+            if model_name is not None:
+                conditions.append(f"p.model_name = '{model_name.replace(chr(39), chr(39)*2)}'")
+            if not conditions:
+                return None
+            where = " AND ".join(conditions)
+            return (
+                f"SELECT w.sequence_id FROM {ws_table} w "
+                f"INNER JOIN predictions p ON w.sequence_id = p.sequence_id "
+                f"WHERE p.prediction_type = '{col}' AND {where}"
+            )
 
     def to_spec(self) -> dict:
         return {
@@ -201,11 +247,13 @@ class SequenceLengthFilter(BaseFilter):
         return df[mask].copy()
 
     def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+        if not _SAFE_COL_RE.match(ws_table):
+            raise ValueError(f"Invalid ws_table name: '{ws_table}'")
         conditions = []
         if self.min_length is not None:
-            conditions.append(f"s.length >= {self.min_length}")
+            conditions.append(f"s.length >= {int(self.min_length)}")
         if self.max_length is not None:
-            conditions.append(f"s.length <= {self.max_length}")
+            conditions.append(f"s.length <= {int(self.max_length)}")
         if not conditions:
             return None
         where = " AND ".join(conditions)
@@ -260,7 +308,19 @@ class HammingDistanceFilter(BaseFilter):
 
     @staticmethod
     def hamming_distance(seq1: str, seq2: str, normalize: bool = False) -> float:
-        """Calculate Hamming distance between two sequences."""
+        """Calculate Hamming distance between two sequences.
+
+        For equal-length sequences this is the standard Hamming distance (count of
+        positions where characters differ).
+
+        For sequences of **different lengths** (F09 — edge-case note): the distance
+        is computed as the number of mismatches in the overlapping prefix PLUS the
+        absolute difference in lengths (each extra character in the longer sequence
+        counts as one mismatch).  When ``normalize=True`` the result is divided by
+        ``max(len(seq1), len(seq2))``.  This is a non-standard extension; callers
+        comparing variable-length sequences should be aware that the normalized value
+        is NOT equivalent to edit distance / Levenshtein normalized distance.
+        """
         if len(seq1) != len(seq2):
             # Handle different lengths - only compare overlapping region
             min_len = min(len(seq1), len(seq2))
@@ -410,17 +470,26 @@ class RankingFilter(BaseFilter):
             else:
                 return df_clean.nlargest(min(self.n, len(df_clean)), self.column).copy()
 
-    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+    def to_sql(self, ws_table: str = "_filter_ws", model_name: Optional[str] = None) -> Optional[str]:
+        _validate_sql_identifier(self.column)
+        if not _SAFE_COL_RE.match(ws_table):
+            raise ValueError(f"Invalid ws_table name: '{ws_table}'")
+        if model_name is not None:
+            _validate_sql_identifier(model_name.replace("-", "_"))
         if self.method == "percentile":
             return None  # percentile requires computing quantile — not trivially SQL
         col = self.column.replace("'", "''")
         order = "ASC" if (self.method == "bottom" or self.ascending) else "DESC"
+        model_clause = ""
+        if model_name is not None:
+            safe_model = model_name.replace("'", "''")
+            model_clause = f" AND p.model_name = '{safe_model}'"
         return (
-            f"SELECT p.sequence_id "
+            f"SELECT w.sequence_id "
             f"FROM {ws_table} w "
             f"INNER JOIN predictions p ON w.sequence_id = p.sequence_id "
-            f"WHERE p.prediction_type = '{col}' AND p.value IS NOT NULL "
-            f"ORDER BY p.value {order} LIMIT {self.n}"
+            f"WHERE p.prediction_type = '{col}' AND p.value IS NOT NULL{model_clause} "
+            f"ORDER BY p.value {order}, w.sequence_id ASC LIMIT {int(self.n)}"
         )
 
     def to_spec(self) -> dict:
@@ -465,7 +534,12 @@ class CustomFilter(BaseFilter):
         return self.func(df)
 
     def to_spec(self) -> dict:
-        return {"type": "CustomFilter", "name": self.name, "func": None}
+        # F14: raise NotImplementedError so pipeline serialization fails loudly
+        # rather than silently storing a null dict that cannot be restored.
+        raise NotImplementedError(
+            f"CustomFilter '{self.name}' uses a non-serializable function and cannot "
+            "be serialized for pipeline recovery. Use a BaseFilter subclass instead."
+        )
 
     def __repr__(self):
         return f"CustomFilter(name='{self.name}')"
@@ -498,7 +572,8 @@ class ConservedResidueFilter(BaseFilter):
             raise ValueError("DataFrame must have 'sequence' column")
 
         def check_conserved(seq: str) -> bool:
-            if self.reference_length and len(seq) != self.reference_length:
+            # F10: use 'is not None' so reference_length=0 is handled correctly.
+            if self.reference_length is not None and len(seq) != self.reference_length:
                 return False
 
             for pos, allowed_residues in self.conserved_positions.items():
@@ -571,7 +646,8 @@ class DiversitySamplingFilter(BaseFilter):
         # Check if already sampled (if resample=False)
         if not self.resample and self._sampled_marker_col in df.columns:
             # Return previously sampled + new ones up to n_samples
-            df_already_sampled = df[df[self._sampled_marker_col]].copy()
+            marker = df[self._sampled_marker_col].map(lambda x: bool(x) if x is not None and x == x else False)
+            df_already_sampled = df[marker].copy()
             n_already = len(df_already_sampled)
 
             if n_already >= self.n_samples:
@@ -579,7 +655,7 @@ class DiversitySamplingFilter(BaseFilter):
                 return df_already_sampled.head(self.n_samples)
             else:
                 # Need to add more from unsampled
-                df_unsampled = df[~df[self._sampled_marker_col]].copy()
+                df_unsampled = df[~marker].copy()
                 n_needed = self.n_samples - n_already
 
                 if len(df_unsampled) > 0:
@@ -590,6 +666,8 @@ class DiversitySamplingFilter(BaseFilter):
                             random_state=self.random_seed,
                         )
                     elif self.method == "top":
+                        if self.score_column is None:
+                            raise ValueError("score_column is required when method='top'")
                         df_sorted = df_unsampled.sort_values(
                             self.score_column, ascending=False
                         )
@@ -642,9 +720,11 @@ class DiversitySamplingFilter(BaseFilter):
                 ]
                 df_result = df.iloc[top_indices].copy()
             else:
-                df_result = df.sample(
-                    n=self.n_samples, random_state=self.random_seed
-                ).copy()
+                raise ValueError(
+                    f"DiversitySamplingFilter with method='spread': score_column "
+                    f"'{self.score_column}' not found in DataFrame columns: "
+                    f"{list(df.columns)}"
+                )
         else:
             df_result = df.iloc[: self.n_samples].copy()
 
@@ -707,12 +787,36 @@ class ValidAminoAcidFilter(BaseFilter):
         return df[mask].copy()
 
     def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
-        escaped = re.escape(self.alphabet)
-        col = self.column.replace('"', '""')
+        # F05: non-standard column may not exist on sequences table — fall back to
+        # DataFrame materialization so we never reference a missing column in SQL.
+        if self.column != "sequence":
+            return None
+
+        _validate_sql_identifier(self.column)
+        if not _SAFE_COL_RE.match(ws_table):
+            raise ValueError(f"Invalid ws_table name: '{ws_table}'")
+
+        # FI-02: Validate that the alphabet only contains characters safe for a
+        # DuckDB RE2 character class without escaping.  Python's re.escape() uses
+        # Python regex escaping rules which differ from RE2/POSIX — using it on
+        # the alphabet string can produce incorrect SQL regexes for non-standard
+        # characters (e.g. '*', '.', '-').  For complex alphabets we fall back to
+        # DataFrame materialization rather than risk incorrect SQL.
+        if not re.match(r'^[A-Za-z0-9\-]+$', self.alphabet):
+            return None  # Fall back to DataFrame materialization for complex alphabets
+
+        # F04: regexp_full_match() is absent in DuckDB < 0.10.0.
+        # Use length(regexp_replace(...)) = length(col) which is compatible with DuckDB 0.9+.
+        # This removes all valid chars and checks the remainder is empty.
+        # Build the character class directly — no re.escape() needed since alphabet
+        # is validated above to be alphanumeric + '-' only.
+        col = f'"{self.column}"'
         return (
             f"SELECT w.sequence_id FROM {ws_table} w "
             f"INNER JOIN sequences s ON w.sequence_id = s.sequence_id "
-            f'WHERE regexp_matches(s."{col}", \'^[{escaped}]+$\')'
+            f"WHERE length(regexp_replace(s.{col}, '[^{self.alphabet}]', '', 'g')) "
+            f"= length(s.{col}) "
+            f"AND s.{col} IS NOT NULL AND s.{col} != ''"
         )
 
     def to_spec(self) -> dict:
@@ -728,10 +832,84 @@ class ValidAminoAcidFilter(BaseFilter):
         return f"ValidAminoAcidFilter(alphabet='{self.alphabet}'{col_str})"
 
 
+class CompositeFilter(BaseFilter):
+    """
+    A serializable filter that chains sub-filters sequentially.
+
+    Unlike ``CustomFilter``, ``CompositeFilter`` is fully serializable via
+    ``to_spec()`` / ``filter_from_spec()`` as long as every sub-filter is
+    serializable.  It also supports SQL fast-path evaluation when all
+    sub-filters implement ``to_sql()`` and exactly one SQL filter is present.
+
+    Args:
+        *filters: Sub-filters applied left to right.
+
+    Example:
+        >>> combined = CompositeFilter(
+        ...     ThresholdFilter('tm', min_value=60),
+        ...     SequenceLengthFilter(min_length=100),
+        ... )
+    """
+
+    requires_complete_data: bool  # determined dynamically below
+
+    def __init__(self, *filters: BaseFilter):
+        self.filters = list(filters)
+        # requires_complete_data is True if ANY sub-filter requires complete data
+        self.requires_complete_data = any(
+            getattr(f, "requires_complete_data", False) for f in self.filters
+        )
+
+    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
+        for f in self.filters:
+            df = f(df)
+        return df
+
+    def to_sql(self, ws_table: str = "_filter_ws", **kwargs) -> Optional[str]:
+        """Return SQL only when a single sub-filter supports it.
+
+        Full CTE-chaining for multiple SQL filters is complex to implement
+        correctly (each stage's output must feed the next as a temporary
+        table).  For now we support the single-SQL-filter case and fall back
+        to DataFrame materialization for all other combinations.
+        """
+        sqls = []
+        for f in self.filters:
+            sql = (
+                f.to_sql(ws_table=ws_table, **kwargs)
+                if hasattr(f, "to_sql")
+                else None
+            )
+            if sql is None:
+                return None  # Any non-SQL filter forces materialization
+            sqls.append(sql)
+
+        if not sqls:
+            return f"SELECT sequence_id FROM {ws_table}"
+        if len(sqls) == 1:
+            return sqls[0]
+        # Multiple SQL filters: fall back to materialization (CTE chaining is complex)
+        return None
+
+    def to_spec(self) -> dict:
+        return {
+            "type": "CompositeFilter",
+            "filters": [f.to_spec() for f in self.filters],
+        }
+
+    def __repr__(self) -> str:
+        parts = ", ".join(repr(f) for f in self.filters)
+        return f"CompositeFilter({parts})"
+
+
 # Utility function to combine filters
 def combine_filters(*filters: BaseFilter) -> BaseFilter:
     """
     Combine multiple filters into a single filter (applied sequentially).
+
+    Returns a :class:`CompositeFilter` which is serializable (unlike the
+    previous ``CustomFilter``-based implementation) and supports SQL
+    fast-path evaluation when all sub-filters implement ``to_sql()``.
 
     Args:
         *filters: Variable number of filter objects
@@ -745,11 +923,4 @@ def combine_filters(*filters: BaseFilter) -> BaseFilter:
         ...     SequenceLengthFilter(min_length=100)
         ... )
     """
-
-    def combined_func(df: pd.DataFrame) -> pd.DataFrame:
-        for f in filters:
-            df = f(df)
-        return df
-
-    filter_names = ", ".join(str(f) for f in filters)
-    return CustomFilter(combined_func, name=f"Combined({filter_names})")
+    return CompositeFilter(*filters)

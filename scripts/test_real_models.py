@@ -102,7 +102,7 @@ async def test_esm2_embeddings(tmp):
 
     pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=True)
     pipeline.add_prediction(
-        "esm2-8m", action="encode", prediction_type="embedding",
+        "esm2-8m", action="encode",
         stage_name="embed_esm2",
         embedding_extractor=EmbeddingSpec(key="embeddings"),
     )
@@ -140,8 +140,9 @@ async def test_esmc_scoring(tmp):
 
     pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=True)
     pipeline.add_prediction(
-        "esmc-300m", action="score", prediction_type="log_prob",
+        "esmc-300m", action="score",
         extractions="log_prob",
+        columns="log_prob",
         stage_name="score_esmc",
     )
     # Keep top 2 by log_prob (least negative = best)
@@ -185,7 +186,7 @@ async def test_ablang2_paired(tmp):
     )
     # ablang2 expects {heavy: ..., light: ...}
     pipeline.add_prediction(
-        "ablang2", action="encode", prediction_type="embedding",
+        "ablang2", action="encode",
         stage_name="embed_ablang2",
         item_columns={"heavy": "heavy_chain", "light": "light_chain"},
         embedding_extractor=EmbeddingSpec(key="seqcoding"),
@@ -219,7 +220,7 @@ async def test_dnabert2_embeddings(tmp):
 
     pipeline = DataPipeline(sequences=DNA_SEQS, datastore=ds, verbose=True)
     pipeline.add_prediction(
-        "dnabert2", action="encode", prediction_type="embedding",
+        "dnabert2", action="encode",
         stage_name="embed_dna",
         embedding_extractor=EmbeddingSpec(key="embedding"),
     )
@@ -263,8 +264,9 @@ async def test_dsm_generation(tmp):
         verbose=True,
     )
     pipeline.add_prediction(
-        "esmc-300m", action="score", prediction_type="log_prob",
+        "esmc-300m", action="score",
         extractions="log_prob",
+        columns="log_prob",
         stage_name="score_lp",
     )
     pipeline.add_filter(
@@ -395,17 +397,21 @@ async def test_embed_plus_predict(tmp):
 
     pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=True)
     pipeline.add_prediction(
-        "esm2-8m", action="encode", prediction_type="embedding",
+        "esm2-8m", action="encode",
         stage_name="embed",
         embedding_extractor=EmbeddingSpec(key="embeddings"),
     )
     pipeline.add_prediction(
-        "temberture-regression", prediction_type="tm",
-        extractions="prediction", stage_name="predict_tm",
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="predict_tm",
     )
     pipeline.add_prediction(
-        "soluprot", prediction_type="solubility",
-        extractions="soluble", stage_name="predict_sol",
+        "soluprot",
+        extractions="soluble",
+        columns="solubility",
+        stage_name="predict_sol",
     )
     await pipeline.run_async(enable_streaming=False)
 

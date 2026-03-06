@@ -306,8 +306,8 @@ pipeline.add_prediction(
     columns="tm",                  # output column name in DataFrame
 )
 # Stage name auto-derived: "predict_tm"
-# Cache key auto-derived: "temberture-regression::predict::prediction"
-# DuckDB stores: prediction_type="tm"
+# Cache key (DuckDB prediction_type): "temberture-regression::predict::prediction"
+# Output column: "tm"
 # Filter: ThresholdFilter("tm", min_value=45)
 ```
 
@@ -538,8 +538,8 @@ Batch 1 finishes → results written to DuckDB → Batch 4 starts
 
 ```python
 pipeline.add_prediction("temberture-regression",
-    prediction_type="tm",
     extractions="prediction",
+    columns="tm",
     batch_size=64,          # Sequences per pipeline batch
     max_concurrent=8,       # Pipeline batches in flight
     max_connections=16,     # HTTP connections to the API

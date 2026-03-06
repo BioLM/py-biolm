@@ -14,6 +14,9 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import math
+import re as _re
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -21,6 +24,28 @@ from typing import TYPE_CHECKING, Any, Optional, Union
 import duckdb
 import numpy as np
 import pandas as pd
+
+_SAFE_COL_RE = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+# Module-level counter for unique temp table names (BUG-14 fix: id() can be reused by GC)
+import itertools as _itertools
+_TEMP_TABLE_COUNTER = _itertools.count()
+
+# Process-level set of DuckDB paths currently being WRITTEN TO by a running pipeline.
+# Two datastores on the same path can exist sequentially (accumulation / resume) —
+# the second one re-reads MAX(id) at init so its counter starts correctly.
+# The only dangerous case is two pipelines writing SIMULTANEOUSLY: both init their
+# counters from the same MAX(id) before either writes, causing primary-key collisions.
+# This set is checked at run_async() entry, not at DuckDBDataStore.__init__ time.
+_RUNNING_DB_PATHS: set[str] = set()
+
+
+def _validate_column_name(col: str) -> None:
+    """Raise ValueError if *col* is not a safe SQL identifier."""
+    if not _SAFE_COL_RE.match(col):
+        raise ValueError(
+            f"Invalid column name '{col}': must match ^[a-zA-Z_][a-zA-Z0-9_]*$"
+        )
 
 if TYPE_CHECKING:
     from biolmai.pipeline.base import WorkingSet
@@ -54,7 +79,7 @@ class DuckDBDataStore:
         db_path: Union[str, Path] = "pipeline.duckdb",
         data_dir: Union[str, Path] = "./pipeline_data",
     ):
-        self.db_path = Path(db_path)
+        self.db_path = Path(db_path).resolve()
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -72,8 +97,18 @@ class DuckDBDataStore:
         ]:
             d.mkdir(exist_ok=True)
 
-        # Connect to DuckDB (persistent)
-        self.conn = duckdb.connect(str(self.db_path))
+        # Connect — DuckDB holds an exclusive file lock when open in read-write mode,
+        # so a second *process* opening the same file gets a clear OS error.
+        try:
+            self.conn = duckdb.connect(str(self.db_path))
+        except Exception as exc:
+            if "Could not set lock" in str(exc) or "lock" in str(exc).lower():
+                raise RuntimeError(
+                    f"DuckDB at '{self.db_path}' is locked by another process.\n"
+                    "Only one pipeline can write to a given database at a time. "
+                    "Wait for the other process to finish, or use a different db_path."
+                ) from exc
+            raise
 
         # Initialize schema
         self._init_schema()
@@ -112,7 +147,8 @@ class DuckDBDataStore:
                 prediction_type VARCHAR,
                 value DOUBLE,
                 metadata VARCHAR,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (sequence_id, prediction_type, model_name)
             )
         """
         )
@@ -132,6 +168,7 @@ class DuckDBDataStore:
         )
 
         # Embeddings table — arrays stored inline as FLOAT[] (no per-file Parquet overhead)
+        # EMBD-01: UNIQUE(sequence_id, model_name, layer) to enable ON CONFLICT upsert
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
@@ -141,16 +178,11 @@ class DuckDBDataStore:
                 layer INTEGER,
                 values FLOAT[],
                 dimension INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (sequence_id, model_name, layer)
             )
         """
         )
-        # Migration: add values column to existing databases that have embedding_path only
-        try:
-            self.conn.execute("ALTER TABLE embeddings ADD COLUMN values FLOAT[]")
-        except Exception:
-            pass  # Column already exists
-
         # Structures table — stores inline structure content (PDB/CIF strings)
         self.conn.execute(
             """
@@ -170,12 +202,12 @@ class DuckDBDataStore:
         # Migration: add structure_str column to existing databases
         try:
             self.conn.execute("ALTER TABLE structures ADD COLUMN structure_str TEXT")
-        except Exception:
+        except duckdb.CatalogException:
             pass  # Column already exists
         # Migration: add compressed structure_data BLOB column (replaces uncompressed TEXT)
         try:
             self.conn.execute("ALTER TABLE structures ADD COLUMN structure_data BLOB")
-        except Exception:
+        except duckdb.CatalogException:
             pass  # Column already exists
 
         # Pipeline runs table
@@ -224,6 +256,7 @@ class DuckDBDataStore:
             CREATE TABLE IF NOT EXISTS generation_metadata (
                 metadata_id INTEGER PRIMARY KEY,
                 sequence_id INTEGER,
+                run_id VARCHAR NOT NULL DEFAULT '',
                 model_name VARCHAR,
                 temperature DOUBLE,
                 top_k INTEGER,
@@ -232,18 +265,37 @@ class DuckDBDataStore:
                 do_sample BOOLEAN,
                 repetition_penalty DOUBLE,
                 max_length INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                sampling_params VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (sequence_id, run_id)
             )
         """
         )
+        # GEN-04: add sampling_params column to existing DBs that pre-date this schema change
+        try:
+            self.conn.execute(
+                "ALTER TABLE generation_metadata ADD COLUMN IF NOT EXISTS sampling_params VARCHAR"
+            )
+        except Exception:
+            pass
         self.conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_gen_meta_seq
             ON generation_metadata(sequence_id)
         """
         )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_gen_meta_run
+            ON generation_metadata(run_id)
+        """
+        )
 
-        # Initialize sequence counter
+        # Initialize in-memory counters for primary key generation.
+        # Bug Q note: these Python int counters are safe under asyncio cooperative
+        # multitasking because asyncio is single-threaded — counter increments are
+        # never interleaved with another coroutine.  They are NOT safe under
+        # multi-process or multi-threaded access (use DuckDB SEQUENCE objects instead).
         result = self.conn.execute("SELECT MAX(sequence_id) FROM sequences").fetchone()
         self._sequence_counter = (result[0] or 0) + 1
 
@@ -286,6 +338,13 @@ class DuckDBDataStore:
             ON filter_results(run_id, stage_name)
         """
         )
+        # Unique constraint to prevent duplicate (run_id, stage_name, sequence_id) rows
+        self.conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_filter_results_unique
+            ON filter_results(run_id, stage_name, sequence_id)
+        """
+        )
         result = self.conn.execute(
             "SELECT MAX(filter_id) FROM filter_results"
         ).fetchone()
@@ -293,13 +352,15 @@ class DuckDBDataStore:
 
         # Sequence attributes table — stores extra per-sequence columns from
         # the input DataFrame (e.g. heavy_chain, light_chain for antibody models).
+        # REG-03: UNIQUE(sequence_id, attr_name) is enforced via PRIMARY KEY (same semantics).
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sequence_attributes (
                 sequence_id  INTEGER NOT NULL,
                 attr_name    TEXT NOT NULL,
                 attr_value   TEXT,
-                PRIMARY KEY (sequence_id, attr_name)
+                PRIMARY KEY (sequence_id, attr_name),
+                UNIQUE (sequence_id, attr_name)
             )
         """
         )
@@ -339,6 +400,7 @@ class DuckDBDataStore:
                 action VARCHAR NOT NULL,
                 definition_id VARCHAR NOT NULL,
                 stage_name VARCHAR NOT NULL,
+                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (column_name, model_name, action)
             )
         """
@@ -349,7 +411,7 @@ class DuckDBDataStore:
             self.conn.execute(
                 "ALTER TABLE pipeline_runs ADD COLUMN definition_id VARCHAR"
             )
-        except Exception:
+        except duckdb.CatalogException:
             pass  # Column already exists
 
         # Track which extra columns have been added to the sequences table
@@ -363,6 +425,14 @@ class DuckDBDataStore:
             if col_name not in base_cols:
                 self._extra_columns.add(col_name)
 
+    def _refresh_extra_columns(self) -> None:
+        """Re-read extra sequence columns from the DB (BUG-06: cross-process staleness)."""
+        cols_info = self.conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'sequences'"
+        ).fetchall()
+        base_cols = {"sequence_id", "sequence", "length", "hash", "created_at"}
+        self._extra_columns = {col_name for (col_name,) in cols_info if col_name not in base_cols}
+
     @staticmethod
     def _hash_sequence(sequence: str) -> str:
         """Create hash of sequence for deduplication."""
@@ -373,8 +443,21 @@ class DuckDBDataStore:
         """Hash multiple column values for multi-column deduplication.
 
         Columns are sorted alphabetically; values joined with ``\\x00``.
+
+        Raises:
+            ValueError: If any value is None or NaN — these cannot be hashed
+                safely for deduplication (would silently hash to "None"/"nan").
         """
-        parts = [str(values.get(c, "")) for c in sorted(values.keys())]
+        parts = []
+        for c in sorted(values.keys()):
+            val = values.get(c, "")
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                raise ValueError(
+                    f"Input column '{c}' contains None/NaN values which cannot "
+                    f"be hashed for deduplication. Fill or drop these rows "
+                    f"before adding to the pipeline."
+                )
+            parts.append(str(val))
         payload = "\x00".join(parts)
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
@@ -383,8 +466,14 @@ class DuckDBDataStore:
 
         Uses ``ALTER TABLE ADD COLUMN`` for any that don't already exist.
         This is idempotent — safe to call on every pipeline run.
+
+        Raises:
+            duckdb.CatalogException: If column creation fails for an unexpected
+                reason (e.g. type conflict). The "column already exists" case is
+                silently ignored as it is the normal idempotent path.
         """
         for col in columns:
+            _validate_column_name(col)
             if col in self._extra_columns:
                 continue
             # Don't add columns that are part of the base schema
@@ -394,8 +483,11 @@ class DuckDBDataStore:
                 self.conn.execute(
                     f'ALTER TABLE sequences ADD COLUMN "{col}" TEXT'
                 )
-            except Exception:
-                pass  # Column already exists
+            except duckdb.CatalogException as exc:
+                # Only suppress the "column already exists" case.
+                # Any other CatalogException (e.g. type conflict) propagates.
+                if "already exists" not in str(exc).lower():
+                    raise
             self._extra_columns.add(col)
 
     def add_sequences_batch(
@@ -435,6 +527,16 @@ class DuckDBDataStore:
         if input_df is not None and input_columns is not None:
             if input_df.empty:
                 return []
+
+            # Reject reserved column names that would collide with base schema columns
+            _RESERVED = {"sequence_id", "hash", "length", "created_at"}
+            reserved_clash = [c for c in input_columns if c in _RESERVED]
+            if reserved_clash:
+                raise ValueError(
+                    f"input_columns contains reserved column name(s): {reserved_clash}. "
+                    f"The names 'sequence_id', 'hash', 'length', and 'created_at' are "
+                    f"reserved by the datastore schema."
+                )
 
             # Validate input columns exist in DataFrame
             missing = [c for c in input_columns if c not in input_df.columns]
@@ -492,21 +594,36 @@ class DuckDBDataStore:
                     df_to_insert["created_at"] = datetime.now()
 
                     # Build column list for INSERT
+                    # SQL-05: second defense-in-depth _validate_column_name check
                     base_cols = ["sequence_id", "sequence", "length", "hash", "created_at"]
                     extra = [c for c in input_columns if c not in base_cols and c != "sequence"]
+                    for _c in extra:
+                        _validate_column_name(_c)
                     all_cols = base_cols + extra
                     col_list = ", ".join(f'"{c}"' for c in all_cols)
                     sel_list = ", ".join(f'"{c}"' for c in all_cols)
 
-                    self.conn.register("_seq_insert", df_to_insert)
+                    _insert_tmp = f"_seq_insert_{next(_TEMP_TABLE_COUNTER)}"
+                    self.conn.register(_insert_tmp, df_to_insert)
+                    # TXN-01: wrap INSERT + SELECT-back in an explicit transaction
                     try:
+                        self.conn.begin()
                         self.conn.execute(
-                            f"INSERT INTO sequences ({col_list}) SELECT {sel_list} FROM _seq_insert"
+                            f"INSERT INTO sequences ({col_list}) SELECT {sel_list} FROM {_insert_tmp}"
                         )
+                        self.conn.commit()
+                        # BUG-AR-09: resync counter from DB after commit to handle any gaps.
+                        # Counter represents "next available ID", so set to MAX + 1.
+                        max_id_row = self.conn.execute(
+                            "SELECT MAX(sequence_id) FROM sequences"
+                        ).fetchone()
+                        if max_id_row and max_id_row[0] is not None:
+                            self._sequence_counter = max_id_row[0] + 1
+                    except Exception:
+                        self.conn.rollback()
+                        raise
                     finally:
-                        self.conn.unregister("_seq_insert")
-
-                    self._sequence_counter += len(df_to_insert)
+                        self.conn.unregister(_insert_tmp)
 
                 df_result = self.conn.execute(
                     """
@@ -562,18 +679,30 @@ class DuckDBDataStore:
                 df_to_insert["created_at"] = datetime.now()
 
                 # Batch insert (vectorized!) - specify column order explicitly
-                self.conn.register("_seq_insert", df_to_insert)
+                _legacy_insert_tmp = f"_seq_insert_{next(_TEMP_TABLE_COUNTER)}"
+                self.conn.register(_legacy_insert_tmp, df_to_insert)
+                # TXN-01: wrap INSERT + SELECT-back in an explicit transaction
                 try:
+                    self.conn.begin()
                     self.conn.execute(
-                        """
+                        f"""
                         INSERT INTO sequences (sequence_id, sequence, length, hash, created_at)
-                        SELECT sequence_id, sequence, length, hash, created_at FROM _seq_insert
+                        SELECT sequence_id, sequence, length, hash, created_at FROM {_legacy_insert_tmp}
                     """
                     )
+                    self.conn.commit()
+                    # BUG-AR-09: resync counter from DB after commit to handle any gaps.
+                    # Counter represents "next available ID", so set to MAX + 1.
+                    max_id_row = self.conn.execute(
+                        "SELECT MAX(sequence_id) FROM sequences"
+                    ).fetchone()
+                    if max_id_row and max_id_row[0] is not None:
+                        self._sequence_counter = max_id_row[0] + 1
+                except Exception:
+                    self.conn.rollback()
+                    raise
                 finally:
-                    self.conn.unregister("_seq_insert")
-
-                self._sequence_counter += len(df_to_insert)
+                    self.conn.unregister(_legacy_insert_tmp)
 
             # Get all IDs (including existing)
             df_result = self.conn.execute(
@@ -628,18 +757,30 @@ class DuckDBDataStore:
         else:
             df["metadata"] = None
 
-        # Batch insert — register explicitly to avoid fragile DuckDB scope introspection
-        self.conn.register("_pred_batch", df)
+        # Use a monotonically-increasing counter for the temp table name so that
+        # if Python GC reuses a DataFrame's memory address (id(df)) between coroutine
+        # suspensions, we still get a unique name (BUG-14 fix).
+        _tmp = f"_pred_batch_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_tmp, df)
         try:
             self.conn.execute(
-                """
+                f"""
                 INSERT INTO predictions (prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at)
-                SELECT prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at FROM _pred_batch
+                SELECT prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at FROM {_tmp}
+                ON CONFLICT (sequence_id, prediction_type, model_name) DO UPDATE SET
+                    value = CASE WHEN excluded.value IS NOT NULL THEN excluded.value ELSE predictions.value END,
+                    metadata = CASE WHEN excluded.value IS NOT NULL THEN excluded.metadata ELSE predictions.metadata END,
+                    prediction_id = predictions.prediction_id
             """
             )
-            self._prediction_counter += len(df)
+            # TXN-02: resync counter from actual MAX so ON CONFLICT DO UPDATE (which
+            # keeps the old prediction_id) doesn't cause the in-memory counter to drift.
+            max_row = self.conn.execute(
+                "SELECT MAX(prediction_id) FROM predictions"
+            ).fetchone()
+            self._prediction_counter = (max_row[0] or 0) + 1
         finally:
-            self.conn.unregister("_pred_batch")
+            self.conn.unregister(_tmp)
 
     def add_prediction(
         self,
@@ -763,11 +904,15 @@ class DuckDBDataStore:
         embedding_id = self._embedding_counter
         self._embedding_counter += 1
 
+        # EMBD-01: ON CONFLICT DO UPDATE to handle re-insertion of the same embedding
         self.conn.execute(
             """
             INSERT INTO embeddings
             (embedding_id, sequence_id, model_name, layer, values, dimension, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (sequence_id, model_name, layer) DO UPDATE SET
+                values = excluded.values,
+                dimension = excluded.dimension
         """,
             [
                 embedding_id,
@@ -858,12 +1003,18 @@ class DuckDBDataStore:
         output_count: int,
         status: str = "completed",
     ):
-        """Mark stage as complete (or failed/skipped)."""
+        """Mark stage as complete (or failed/skipped).
+
+        BUG-13 fix: uses INSERT ... ON CONFLICT DO NOTHING so that a stage that
+        was already marked 'completed' does not get its completed_at timestamp
+        overwritten on resume.  Only truly new rows are inserted.
+        """
         self.conn.execute(
             """
-            INSERT OR REPLACE INTO stage_completions
+            INSERT INTO stage_completions
             (stage_id, run_id, stage_name, status, input_count, output_count, completed_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (stage_id) DO NOTHING
         """,
             [
                 stage_id,
@@ -887,6 +1038,17 @@ class DuckDBDataStore:
         ).fetchone()
         return result is not None and result[0] > 0
 
+    _ALLOWED_TABLES = frozenset(
+        {
+            "sequences",
+            "predictions",
+            "embeddings",
+            "structures",
+            "pipeline_runs",
+            "stage_completions",
+        }
+    )
+
     def export_to_parquet(self, table_name: str, output_path: Union[str, Path]):
         """
         Export table to Parquet file (for sharing/archiving).
@@ -898,16 +1060,20 @@ class DuckDBDataStore:
         Example:
             >>> ds.export_to_parquet('sequences', 'sequences_backup.parquet')
         """
+        if table_name not in self._ALLOWED_TABLES:
+            raise ValueError(
+                f"table_name must be one of {set(self._ALLOWED_TABLES)}, got '{table_name}'"
+            )
         self.conn.execute(
-            f"""
-            COPY {table_name} TO '{output_path}' (FORMAT PARQUET, COMPRESSION SNAPPY)
-        """
+            f"COPY (SELECT * FROM {table_name}) TO ? (FORMAT PARQUET, COMPRESSION SNAPPY)",
+            [str(output_path)],
         )
 
     def add_generation_metadata(
         self,
         sequence_id: int,
         model_name: str,
+        run_id: str = "",
         temperature: Optional[float] = None,
         top_k: Optional[int] = None,
         top_p: Optional[float] = None,
@@ -929,17 +1095,24 @@ class DuckDBDataStore:
             top_k = top_k if top_k is not None else sampling_params.get("top_k")
             top_p = top_p if top_p is not None else sampling_params.get("top_p")
 
+        # GEN-01-DS: serialize sampling_params as JSON for storage
+        sampling_params_json = json.dumps(sampling_params) if sampling_params else None
+
         metadata_id = self._generation_metadata_counter
+        # TXN-03: ON CONFLICT (sequence_id, run_id) DO NOTHING to prevent duplicate rows
         self.conn.execute(
             """
             INSERT INTO generation_metadata
-            (metadata_id, sequence_id, model_name, temperature, top_k, top_p,
-             num_return_sequences, do_sample, repetition_penalty, max_length, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
+             num_return_sequences, do_sample, repetition_penalty, max_length,
+             sampling_params, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (sequence_id, run_id) DO NOTHING
         """,
             [
                 metadata_id,
                 sequence_id,
+                run_id,
                 model_name,
                 temperature,
                 top_k,
@@ -948,11 +1121,65 @@ class DuckDBDataStore:
                 do_sample,
                 repetition_penalty,
                 max_length,
+                sampling_params_json,
                 datetime.now(),
             ],
         )
         self._generation_metadata_counter += 1
         return metadata_id
+
+    def add_generation_metadata_batch(self, rows: list[dict]) -> None:
+        """Batch-insert generation metadata — one DuckDB round-trip (BUG-10 fix).
+
+        Each dict in *rows* must have at minimum ``sequence_id`` and ``model_name``.
+        Optional fields: ``temperature``, ``top_k``, ``top_p``,
+        ``num_return_sequences``, ``do_sample``, ``repetition_penalty``,
+        ``max_length``.
+        """
+        if not rows:
+            return
+        now = datetime.now()
+        records = []
+        for row in rows:
+            metadata_id = self._generation_metadata_counter
+            self._generation_metadata_counter += 1
+            sp = row.get("sampling_params") or {}
+            # GEN-04: serialize sampling_params as JSON string for storage
+            sampling_params_json = json.dumps(sp) if sp else None
+            records.append({
+                "metadata_id": metadata_id,
+                "sequence_id": int(row["sequence_id"]),
+                "run_id": row.get("run_id", ""),
+                "model_name": row["model_name"],
+                "temperature": row.get("temperature"),
+                "top_k": row.get("top_k") if row.get("top_k") is not None else sp.get("top_k"),
+                "top_p": row.get("top_p") if row.get("top_p") is not None else sp.get("top_p"),
+                "num_return_sequences": row.get("num_return_sequences", sp.get("num_return_sequences")),
+                "do_sample": row.get("do_sample", sp.get("do_sample")),
+                "repetition_penalty": row.get("repetition_penalty", sp.get("repetition_penalty")),
+                "max_length": row.get("max_length", sp.get("max_length")),
+                "sampling_params": sampling_params_json,
+                "created_at": now,
+            })
+        df = pd.DataFrame(records)
+        _tmp = f"_gen_meta_batch_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_tmp, df)
+        try:
+            self.conn.execute(
+                f"""
+                INSERT INTO generation_metadata
+                (metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
+                 num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
+                 created_at)
+                SELECT metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
+                       num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
+                       created_at
+                FROM {_tmp}
+                ON CONFLICT DO NOTHING
+                """
+            )
+        finally:
+            self.conn.unregister(_tmp)
 
     def export_to_dataframe(
         self,
@@ -960,6 +1187,7 @@ class DuckDBDataStore:
         include_predictions: bool = True,
         include_generation_metadata: bool = False,
         prediction_types: Optional[list[str]] = None,
+        run_id: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         Export data to a flat DataFrame using a single DuckDB SQL query.
@@ -976,6 +1204,9 @@ class DuckDBDataStore:
         Returns:
             Wide-format DataFrame: one row per sequence, one column per prediction type.
         """
+        # Refresh _extra_columns from DB (guards against cross-process staleness, BUG-06)
+        self._refresh_extra_columns()
+
         # Determine which prediction types to pivot
         if include_predictions:
             if prediction_types is None:
@@ -986,9 +1217,24 @@ class DuckDBDataStore:
             else:
                 prediction_types = [pt for pt in prediction_types if pt]
 
-        # Build CASE WHEN pivot for predictions
+        # Build CASE WHEN pivot for predictions — use ranked CTE to resolve
+        # multi-model conflicts: when two models write the same prediction_type,
+        # use the most recent row (highest prediction_id) (DS-03).
         pred_cols_sql = ""
+        pred_cte_sql = ""
         if include_predictions and prediction_types:
+            # SQL-04: validate prediction_type values; skip any that fail
+            import logging as _logging
+            _valid_pts = []
+            for pt in prediction_types:
+                try:
+                    _validate_column_name(pt)
+                    _valid_pts.append(pt)
+                except ValueError:
+                    _logging.getLogger(__name__).warning(
+                        "export_to_dataframe: skipping invalid prediction_type %r", pt
+                    )
+            prediction_types = _valid_pts
             cases = [
                 "MAX(CASE WHEN p.prediction_type = '{}' THEN p.value END) AS \"{}\"".format(
                     pt.replace("'", "''"), pt.replace('"', '""')
@@ -996,41 +1242,71 @@ class DuckDBDataStore:
                 for pt in prediction_types
             ]
             pred_cols_sql = ",\n            " + ",\n            ".join(cases)
+            pred_cte_sql = """
+            _ranked_preds AS (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY sequence_id, prediction_type
+                    ORDER BY prediction_id DESC
+                ) AS _rn
+                FROM predictions
+                WHERE prediction_type IS NOT NULL
+            )"""
 
-        # Build generation metadata join
+        # Build generation metadata join.
+        # Use MAX() aggregation so multi-run sequences produce one row each (BUG-12 fix).
+        # GEN-10: scope to run_id when provided to avoid pulling metadata from prior runs.
         gen_join_sql = ""
         gen_cols_sql = ""
+        gen_join_params: list = []
         if include_generation_metadata:
-            gen_join_sql = (
-                "LEFT JOIN generation_metadata gm ON s.sequence_id = gm.sequence_id"
-            )
+            if run_id:
+                gen_join_sql = (
+                    "LEFT JOIN generation_metadata gm "
+                    "ON s.sequence_id = gm.sequence_id AND gm.run_id = ?"
+                )
+                gen_join_params = [run_id]
+            else:
+                gen_join_sql = (
+                    "LEFT JOIN generation_metadata gm ON s.sequence_id = gm.sequence_id"
+                )
             gen_cols_sql = """,
-            gm.model_name AS gen_model_name,
-            gm.temperature AS gen_temperature,
-            gm.top_k AS gen_top_k,
-            gm.top_p AS gen_top_p"""
+            MAX(gm.model_name) AS gen_model_name,
+            MAX(gm.temperature) AS gen_temperature,
+            MAX(gm.top_k) AS gen_top_k,
+            MAX(gm.top_p) AS gen_top_p,
+            MAX(gm.sampling_params) AS gen_sampling_params"""
 
         pred_join_sql = (
-            "LEFT JOIN predictions p ON s.sequence_id = p.sequence_id"
+            "LEFT JOIN _ranked_preds p ON s.sequence_id = p.sequence_id AND p._rn = 1"
             if include_predictions and prediction_types
             else ""
         )
-        group_extra = (
-            ", gm.model_name, gm.temperature, gm.top_k, gm.top_p"
-            if include_generation_metadata
-            else ""
-        )
+        # group_extra intentionally empty: generation metadata columns now use MAX()
+        # aggregation and do not require GROUP BY, preserving one-row-per-sequence
+        # guarantee even when n_runs > 1 (BUG-12 fix).
+        group_extra = ""
 
-        # Discover all columns on sequences table for SELECT
-        seq_cols = self.conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'sequences' ORDER BY ordinal_position"
-        ).fetchall()
-        seq_col_names = [r[0] for r in seq_cols if r[0] != "created_at"]
+        # Discover all columns on sequences table for SELECT — use cached set
+        # PIVOT-02: validate extra column names; skip invalid ones with a warning
+        import logging as _logging
+        base_seq_cols = ["sequence_id", "sequence", "length", "hash"]
+        _valid_extra_etdf = []
+        for _ec in sorted(self._extra_columns):
+            try:
+                _validate_column_name(_ec)
+                _valid_extra_etdf.append(_ec)
+            except ValueError:
+                _logging.getLogger(__name__).warning(
+                    "export_to_dataframe: skipping invalid extra column %r", _ec
+                )
+        extra_seq_cols = _valid_extra_etdf
+        seq_col_names = base_seq_cols + extra_seq_cols
         seq_select = ", ".join(f's."{c}"' for c in seq_col_names)
         seq_group = ", ".join(f's."{c}"' for c in seq_col_names)
 
+        cte_clause = f"WITH{pred_cte_sql}" if pred_cte_sql else ""
         query = f"""
+            {cte_clause}
             SELECT
                 {seq_select}{pred_cols_sql}{gen_cols_sql}
             FROM sequences s
@@ -1038,7 +1314,7 @@ class DuckDBDataStore:
             {gen_join_sql}
             GROUP BY {seq_group}{group_extra}
         """
-        return self.conn.execute(query).df()
+        return self.conn.execute(query, gen_join_params).df()
 
     def get_embeddings_bulk(
         self,
@@ -1060,12 +1336,14 @@ class DuckDBDataStore:
         if not sequence_ids:
             return {}
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_emb_bulk_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _emb_tmp = f"_emb_bulk_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_emb_tmp, ids_df)
         try:
-            sql = """
+            sql = f"""
                 SELECT e.sequence_id, e.values
                 FROM embeddings e
-                INNER JOIN _emb_bulk_ids b ON e.sequence_id = b.sequence_id
+                INNER JOIN {_emb_tmp} b ON e.sequence_id = b.sequence_id
             """
             params: list[Any] = []
             if model_name:
@@ -1073,13 +1351,14 @@ class DuckDBDataStore:
                 params.append(model_name)
             df = self.conn.execute(sql, params).df()
         finally:
-            self.conn.unregister("_emb_bulk_ids")
+            self.conn.unregister(_emb_tmp)
 
+        # EMBD-02: use itertuples() for faster iteration than iterrows()
         result: dict[int, np.ndarray] = {}
-        for _, row in df.iterrows():
-            vals = row.get("values")
+        for r in df.itertuples(index=False):
+            vals = r.values
             if vals is not None and not (isinstance(vals, float) and np.isnan(vals)):
-                result[int(row["sequence_id"])] = np.array(vals, dtype=np.float32)
+                result[int(r.sequence_id)] = np.array(vals, dtype=np.float32)
         return result
 
     def get_uncached_sequence_ids(
@@ -1104,22 +1383,24 @@ class DuckDBDataStore:
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_check_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _check_tmp = f"_check_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_check_tmp, ids_df)
         try:
             result = self.conn.execute(
-                """
-                SELECT c.sequence_id
-                FROM _check_ids c
+                f"""
+                SELECT DISTINCT c.sequence_id
+                FROM {_check_tmp} c
                 LEFT JOIN predictions p
                     ON c.sequence_id = p.sequence_id
                     AND p.prediction_type = ?
                     AND p.model_name = ?
-                WHERE p.prediction_id IS NULL
+                WHERE p.prediction_id IS NULL OR p.value IS NULL
             """,
                 [prediction_type, model_name],
             ).fetchall()
         finally:
-            self.conn.unregister("_check_ids")
+            self.conn.unregister(_check_tmp)
         return [r[0] for r in result]
 
     def get_predictions_bulk(
@@ -1139,19 +1420,21 @@ class DuckDBDataStore:
         if not sequence_ids:
             return pd.DataFrame(columns=["sequence_id", "value", "metadata"])
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_bulk_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _bulk_tmp = f"_bulk_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_bulk_tmp, ids_df)
         try:
             result = self.conn.execute(
-                """
+                f"""
                 SELECT p.sequence_id, p.value, p.metadata
                 FROM predictions p
-                INNER JOIN _bulk_ids b ON p.sequence_id = b.sequence_id
+                INNER JOIN {_bulk_tmp} b ON p.sequence_id = b.sequence_id
                 WHERE p.prediction_type = ? AND p.model_name = ?
             """,
                 [prediction_type, model_name],
             ).df()
         finally:
-            self.conn.unregister("_bulk_ids")
+            self.conn.unregister(_bulk_tmp)
         return result
 
     def count_matching_sequences(self, sequences: list[str]) -> int:
@@ -1164,17 +1447,19 @@ class DuckDBDataStore:
         if not sequences:
             return 0
         hashes_df = pd.DataFrame({"hash": [self._hash_sequence(s) for s in sequences]})
-        self.conn.register("_count_hashes", hashes_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _count_tmp = f"_count_hashes_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_count_tmp, hashes_df)
         try:
             result = self.conn.execute(
-                """
+                f"""
                 SELECT COUNT(*) AS cnt
                 FROM sequences s
-                INNER JOIN _count_hashes h ON s.hash = h.hash
+                INNER JOIN {_count_tmp} h ON s.hash = h.hash
             """
             ).fetchone()
         finally:
-            self.conn.unregister("_count_hashes")
+            self.conn.unregister(_count_tmp)
         return result[0] if result else 0
 
     def set_pipeline_metadata(self, key: str, value: Any):
@@ -1288,16 +1573,14 @@ class DuckDBDataStore:
         record = df.iloc[0].to_dict()
         # Decompress structure_data (new path) or fall back to structure_str (old data)
         data_blob = record.pop("structure_data", None)
-        if data_blob is not None and not (
-            isinstance(data_blob, float) and np.isnan(data_blob)
-        ):
+        if data_blob is not None:
             try:
                 blob_bytes = (
                     bytes(data_blob) if not isinstance(data_blob, bytes) else data_blob
                 )
                 record["structure_str"] = gzip.decompress(blob_bytes).decode("utf-8")
-            except Exception:
-                pass  # fall back to whatever structure_str already holds
+            except (OSError, gzip.BadGzipFile):
+                pass  # Corrupt or non-gzip blob — fall back to structure_str
         return record
 
     def get_structures_bulk(self, sequence_ids: list[int]) -> pd.DataFrame:
@@ -1324,27 +1607,29 @@ class DuckDBDataStore:
                 ]
             )
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_struct_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _struct_tmp = f"_struct_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_struct_tmp, ids_df)
         try:
             result = self.conn.execute(
-                """
+                f"""
                 SELECT s.structure_id, s.sequence_id, s.model_name,
                        s.format, s.structure_data, s.structure_str, s.plddt
                 FROM structures s
-                INNER JOIN _struct_ids b ON s.sequence_id = b.sequence_id
+                INNER JOIN {_struct_tmp} b ON s.sequence_id = b.sequence_id
             """
             ).df()
         finally:
-            self.conn.unregister("_struct_ids")
+            self.conn.unregister(_struct_tmp)
 
         def _decompress_row(row):
             blob = row.get("structure_data")
-            if blob is not None and not (isinstance(blob, float) and np.isnan(blob)):
+            if blob is not None:
                 try:
                     blob_bytes = bytes(blob) if not isinstance(blob, bytes) else blob
                     return gzip.decompress(blob_bytes).decode("utf-8")
-                except Exception:
-                    pass
+                except (OSError, gzip.BadGzipFile):
+                    pass  # Corrupt or non-gzip blob — fall back to structure_str
             return row.get("structure_str")
 
         result["structure_str"] = result.apply(_decompress_row, axis=1)
@@ -1393,6 +1678,7 @@ class DuckDBDataStore:
                 (filter_id, run_id, stage_name, sequence_id, passed, created_at)
                 SELECT filter_id, run_id, stage_name, sequence_id, passed, created_at
                 FROM _filter_batch
+                ON CONFLICT DO NOTHING
             """
             )
         finally:
@@ -1453,7 +1739,6 @@ class DuckDBDataStore:
             prediction_id of the inserted row.
         """
         seq_id = self.add_sequence(sequence)
-        pred_id = self._prediction_counter  # captured before batch increments it
         self.add_predictions_batch(
             [
                 {
@@ -1465,7 +1750,13 @@ class DuckDBDataStore:
                 }
             ]
         )
-        return pred_id  # correct: add_predictions_batch increments after insert
+        # COUNTER-01: query back actual stored prediction_id (ON CONFLICT keeps old ID)
+        actual_row = self.conn.execute(
+            "SELECT prediction_id FROM predictions "
+            "WHERE sequence_id = ? AND prediction_type = ? AND model_name = ?",
+            [seq_id, prediction_type, model_name],
+        ).fetchone()
+        return actual_row[0] if actual_row else -1
 
     def get_predictions(
         self,
@@ -1512,12 +1803,12 @@ class DuckDBDataStore:
         records = df.to_dict("records")
         for rec in records:
             blob = rec.pop("structure_data", None)
-            if blob is not None and not (isinstance(blob, float) and np.isnan(blob)):
+            if blob is not None:
                 try:
                     blob_bytes = bytes(blob) if not isinstance(blob, bytes) else blob
                     rec["structure_str"] = gzip.decompress(blob_bytes).decode("utf-8")
-                except Exception:
-                    pass
+                except (OSError, gzip.BadGzipFile):
+                    pass  # Corrupt or non-gzip blob — fall back to structure_str
         return records
 
     def get_structure_by_id(self, structure_id: int) -> Optional[dict]:
@@ -1529,12 +1820,12 @@ class DuckDBDataStore:
             return None
         record = df.iloc[0].to_dict()
         blob = record.pop("structure_data", None)
-        if blob is not None and not (isinstance(blob, float) and np.isnan(blob)):
+        if blob is not None:
             try:
                 blob_bytes = bytes(blob) if not isinstance(blob, bytes) else blob
                 record["structure_str"] = gzip.decompress(blob_bytes).decode("utf-8")
-            except Exception:
-                pass
+            except (OSError, gzip.BadGzipFile):
+                pass  # Corrupt or non-gzip blob — fall back to structure_str
         return record
 
     def get_embedding(self, embedding_id: int) -> Optional[tuple]:
@@ -1622,26 +1913,46 @@ class DuckDBDataStore:
         if not ws:
             return pd.DataFrame(columns=["sequence_id", "sequence", "length"])
 
+        # Refresh _extra_columns from DB (guards against cross-process staleness, BUG-06)
+        self._refresh_extra_columns()
+
         ids_df = pd.DataFrame({"sequence_id": list(ws.sequence_ids)})
-        self.conn.register("_ws_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _ws_tmp = f"_ws_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_ws_tmp, ids_df)
         try:
             # Determine prediction types to pivot
             if include_predictions:
                 if prediction_types is None:
                     rows = self.conn.execute(
-                        """
+                        f"""
                         SELECT DISTINCT p.prediction_type
                         FROM predictions p
-                        INNER JOIN _ws_ids w ON p.sequence_id = w.sequence_id
+                        INNER JOIN {_ws_tmp} w ON p.sequence_id = w.sequence_id
                         WHERE p.prediction_type IS NOT NULL
                     """
                     ).fetchall()
                     prediction_types = [r[0] for r in rows]
 
-            # Build CASE WHEN pivot
+            # Build CASE WHEN pivot — use ranked CTE to resolve multi-model conflicts:
+            # when two models write the same prediction_type, use the most recent row
+            # (highest prediction_id) instead of picking an arbitrary value (DS-03).
             pred_cols_sql = ""
             pred_join_sql = ""
+            pred_cte_sql = ""
             if include_predictions and prediction_types:
+                # SQL-04: validate prediction_type values; skip any that fail
+                import logging as _logging
+                _valid_pts = []
+                for pt in prediction_types:
+                    try:
+                        _validate_column_name(pt)
+                        _valid_pts.append(pt)
+                    except ValueError:
+                        _logging.getLogger(__name__).warning(
+                            "materialize_working_set: skipping invalid prediction_type %r", pt
+                        )
+                prediction_types = _valid_pts
                 cases = [
                     "MAX(CASE WHEN p.prediction_type = '{}' THEN p.value END) AS \"{}\"".format(
                         pt.replace("'", "''"), pt.replace('"', '""')
@@ -1649,30 +1960,50 @@ class DuckDBDataStore:
                     for pt in prediction_types
                 ]
                 pred_cols_sql = ",\n                " + ",\n                ".join(cases)
+                pred_cte_sql = """
+                _ranked_preds AS (
+                    SELECT *, ROW_NUMBER() OVER (
+                        PARTITION BY sequence_id, prediction_type
+                        ORDER BY prediction_id DESC
+                    ) AS _rn
+                    FROM predictions
+                    WHERE prediction_type IS NOT NULL
+                )"""
                 pred_join_sql = (
-                    "LEFT JOIN predictions p ON s.sequence_id = p.sequence_id"
+                    "LEFT JOIN _ranked_preds p ON s.sequence_id = p.sequence_id AND p._rn = 1"
                 )
 
-            # Discover all columns on sequences table for SELECT
-            seq_cols = self.conn.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'sequences' ORDER BY ordinal_position"
-            ).fetchall()
-            seq_col_names = [r[0] for r in seq_cols if r[0] != "created_at"]
+            # Discover all columns on sequences table for SELECT — use cached set
+            # PIVOT-02: validate extra column names; skip invalid ones with a warning
+            import logging as _logging
+            base_seq_cols = ["sequence_id", "sequence", "length", "hash"]
+            _valid_extra_ws = []
+            for _ec in sorted(self._extra_columns):
+                try:
+                    _validate_column_name(_ec)
+                    _valid_extra_ws.append(_ec)
+                except ValueError:
+                    _logging.getLogger(__name__).warning(
+                        "materialize_working_set: skipping invalid extra column %r", _ec
+                    )
+            extra_seq_cols = _valid_extra_ws
+            seq_col_names = base_seq_cols + extra_seq_cols
             seq_select = ", ".join(f's."{c}"' for c in seq_col_names)
             seq_group = ", ".join(f's."{c}"' for c in seq_col_names)
 
+            cte_clause = f"WITH{pred_cte_sql}" if pred_cte_sql else ""
             query = f"""
+                {cte_clause}
                 SELECT
                     {seq_select}{pred_cols_sql}
                 FROM sequences s
-                INNER JOIN _ws_ids w ON s.sequence_id = w.sequence_id
+                INNER JOIN {_ws_tmp} w ON s.sequence_id = w.sequence_id
                 {pred_join_sql}
                 GROUP BY {seq_group}
             """
             return self.conn.execute(query).df()
         finally:
-            self.conn.unregister("_ws_ids")
+            self.conn.unregister(_ws_tmp)
 
     def get_sequence_ids_with_prediction(
         self,
@@ -1693,21 +2024,24 @@ class DuckDBDataStore:
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_has_pred_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _has_pred_tmp = f"_has_pred_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_has_pred_tmp, ids_df)
         try:
             result = self.conn.execute(
-                """
+                f"""
                 SELECT DISTINCT c.sequence_id
-                FROM _has_pred_ids c
+                FROM {_has_pred_tmp} c
                 INNER JOIN predictions p
                     ON c.sequence_id = p.sequence_id
                     AND p.prediction_type = ?
                     AND p.model_name = ?
+                WHERE p.value IS NOT NULL
             """,
                 [prediction_type, model_name],
             ).fetchall()
         finally:
-            self.conn.unregister("_has_pred_ids")
+            self.conn.unregister(_has_pred_tmp)
         return [r[0] for r in result]
 
     def get_sequences_for_ids(
@@ -1728,17 +2062,20 @@ class DuckDBDataStore:
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_seq_for_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _seq_for_ids_tmp = f"_seq_for_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_seq_for_ids_tmp, ids_df)
         try:
             rows = self.conn.execute(
-                """
+                f"""
                 SELECT s.sequence_id, s.sequence
                 FROM sequences s
-                INNER JOIN _seq_for_ids w ON s.sequence_id = w.sequence_id
+                INNER JOIN {_seq_for_ids_tmp} w ON s.sequence_id = w.sequence_id
+                ORDER BY s.sequence_id
             """
             ).fetchall()
         finally:
-            self.conn.unregister("_seq_for_ids")
+            self.conn.unregister(_seq_for_ids_tmp)
         return [(r[0], r[1]) for r in rows]
 
     def execute_filter_sql(
@@ -1760,15 +2097,29 @@ class DuckDBDataStore:
 
         Returns:
             List of sequence_ids that survive the filter.
+
+        Raises:
+            ValueError: If sql_query is not a single SELECT statement.
         """
+        # SQL-01: defensive validation — only allow single SELECT statements
+        stripped = sql_query.strip()
+        if not stripped.upper().startswith("SELECT"):
+            raise ValueError("Filter SQL must be a single SELECT statement")
+        if ";" in stripped:
+            raise ValueError("Filter SQL must be a single SELECT statement")
+
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
+        _tmp_ws = f"_filter_ws_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_tmp_ws, ids_df)
+        # Also register under the canonical name that filter to_sql() uses
         self.conn.register("_filter_ws", ids_df)
         try:
             result = self.conn.execute(sql_query).fetchall()
         finally:
             self.conn.unregister("_filter_ws")
+            self.conn.unregister(_tmp_ws)
         return [r[0] for r in result]
 
     def store_sequence_attributes(
@@ -1793,16 +2144,19 @@ class DuckDBDataStore:
                 "attr_value": [str(v) if v is not None else None for v in attr_values],
             }
         )
-        self.conn.register("_attr_batch", df)
+        _attr_tmp = f"_attr_batch_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_attr_tmp, df)
         try:
+            # REG-03: use DuckDB ON CONFLICT DO UPDATE SET (INSERT OR REPLACE is SQLite syntax)
             self.conn.execute(
-                """
-                INSERT OR REPLACE INTO sequence_attributes (sequence_id, attr_name, attr_value)
-                SELECT sequence_id, attr_name, attr_value FROM _attr_batch
+                f"""
+                INSERT INTO sequence_attributes (sequence_id, attr_name, attr_value)
+                SELECT sequence_id, attr_name, attr_value FROM {_attr_tmp}
+                ON CONFLICT (sequence_id, attr_name) DO UPDATE SET attr_value = excluded.attr_value
             """
             )
         finally:
-            self.conn.unregister("_attr_batch")
+            self.conn.unregister(_attr_tmp)
 
     def get_sequence_attributes_for_ids(
         self,
@@ -1894,24 +2248,48 @@ class DuckDBDataStore:
         """
         if not sequence_ids or not columns:
             return {}
+        for col in columns:
+            _validate_column_name(col)
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_col_ids", ids_df)
+        # REG-01: unique temp name to avoid concurrent coroutine collision
+        _col_ids_tmp = f"_col_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_col_ids_tmp, ids_df)
         try:
             col_list = ", ".join(f's."{c}"' for c in columns)
             rows = self.conn.execute(
                 f"""
                 SELECT s.sequence_id, {col_list}
                 FROM sequences s
-                INNER JOIN _col_ids w ON s.sequence_id = w.sequence_id
+                INNER JOIN {_col_ids_tmp} w ON s.sequence_id = w.sequence_id
             """
             ).fetchall()
         finally:
-            self.conn.unregister("_col_ids")
+            self.conn.unregister(_col_ids_tmp)
 
         result: dict[int, dict[str, str]] = {}
         for row in rows:
             sid = int(row[0])
             result[sid] = {col: row[i + 1] for i, col in enumerate(columns)}
+
+        # BUG-MC-04: Warn if any returned rows have NULL in the requested extra columns.
+        # This can happen when sequences were originally added without those columns.
+        # We do NOT drop these rows — they may be intentionally sparse — but downstream
+        # API calls will receive empty/None fields which is almost never desired.
+        extra_cols = [c for c in columns if c not in ("sequence_id", "sequence", "length", "hash")]
+        if extra_cols and result:
+            bad_ids = [
+                sid
+                for sid, col_vals in result.items()
+                if any(col_vals.get(c) is None for c in extra_cols)
+            ]
+            if bad_ids:
+                warnings.warn(
+                    f"Sequences {bad_ids} have NULL values in input columns "
+                    f"{extra_cols}. API calls may receive empty fields.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
         return result
 
     # ------------------------------------------------------------------
@@ -1925,13 +2303,16 @@ class DuckDBDataStore:
         input_schema_json: Optional[str],
         stages_json: str,
     ):
-        """Persist a pipeline definition. Idempotent via content-hash primary key."""
+        """Persist a pipeline definition. Updates stages/schema if definition_id already exists."""
+        # SAVE-01: ON CONFLICT DO UPDATE so the most recent definition always wins
         self.conn.execute(
             """
             INSERT INTO pipeline_definitions
                 (definition_id, pipeline_type, input_schema_json, stages_json, created_at)
             VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT (definition_id) DO NOTHING
+            ON CONFLICT (definition_id) DO UPDATE SET
+                stages_json = excluded.stages_json,
+                input_schema_json = excluded.input_schema_json
         """,
             [definition_id, pipeline_type, input_schema_json, stages_json, datetime.now()],
         )
@@ -1947,7 +2328,7 @@ class DuckDBDataStore:
         else:
             row = self.conn.execute(
                 "SELECT definition_id, pipeline_type, input_schema_json, stages_json "
-                "FROM pipeline_definitions ORDER BY created_at DESC LIMIT 1"
+                "FROM pipeline_definitions ORDER BY created_at DESC, definition_id DESC LIMIT 1"
             ).fetchone()
         if row is None:
             return None
@@ -1965,6 +2346,32 @@ class DuckDBDataStore:
         ).fetchone()
         return row[0] if row else None
 
+    def get_latest_run_id(self, definition_id: Optional[str] = None) -> Optional[str]:
+        """Return the run_id of the most recent pipeline run.
+
+        BUG-3 fix: ``from_db()`` must reuse the existing run_id so that resume
+        can find already-completed stages.  A new run_id means no stages are
+        marked complete, causing everything to re-run.
+
+        Args:
+            definition_id: If provided, restrict to runs that used this definition.
+                           If None, return the most recent run across all definitions.
+
+        Returns:
+            The run_id string, or None if no runs exist.
+        """
+        if definition_id is not None:
+            row = self.conn.execute(
+                "SELECT run_id FROM pipeline_runs WHERE definition_id = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                [definition_id],
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT run_id FROM pipeline_runs ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        return row[0] if row else None
+
     def register_column(
         self,
         column_name: str,
@@ -1977,8 +2384,8 @@ class DuckDBDataStore:
         self.conn.execute(
             """
             INSERT INTO prediction_column_registry
-                (column_name, model_name, action, definition_id, stage_name)
-            VALUES (?, ?, ?, ?, ?)
+                (column_name, model_name, action, definition_id, stage_name, registered_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT (column_name, model_name, action) DO NOTHING
         """,
             [column_name, model_name, action, definition_id, stage_name],
@@ -1986,9 +2393,12 @@ class DuckDBDataStore:
 
     def get_column_registry_entry(self, column_name: str) -> Optional[dict]:
         """Return the registry entry for a column, or None if not registered."""
+        # BUG-AR-16: ORDER BY registered_at DESC so we get the most recently registered
+        # entry by insertion time, not by lexicographic sort of definition_id (a content hash).
         row = self.conn.execute(
             "SELECT model_name, action, definition_id, stage_name "
-            "FROM prediction_column_registry WHERE column_name = ?",
+            "FROM prediction_column_registry WHERE column_name = ? "
+            "ORDER BY registered_at DESC, definition_id DESC LIMIT 1",
             [column_name],
         ).fetchone()
         if row is None:
@@ -2009,8 +2419,22 @@ class DuckDBDataStore:
         return sorted(self._extra_columns)
 
     def close(self):
-        """Close database connection."""
-        self.conn.close()
+        """Close the DuckDB connection and release the file lock.
+
+        Safe to call multiple times — subsequent calls are no-ops.
+        Called automatically by ``__exit__`` and ``__del__``.
+        """
+        # BUG-CHK-04: guard against double-close and missing attribute
+        if hasattr(self, "conn") and self.conn is not None:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = None
+
+    def __del__(self):
+        """Close connection on garbage collection to prevent file-lock leaks."""
+        self.close()
 
     def __repr__(self):
         """String representation."""

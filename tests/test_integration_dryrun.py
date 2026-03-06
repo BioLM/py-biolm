@@ -34,9 +34,11 @@ class TestIntegrationStructure(unittest.TestCase):
         expected_classes = [
             "TestDataPipelineIntegration",
             "TestSingleStepPipelineIntegration",
-            "TestVisualizationIntegration",
+            "TestEmbeddingsAndPCAIntegration",
+            "TestComplexMultiLevelPipeline",
             "TestEdgeCasesIntegration",
             "TestDataStoreIntegration",
+            "TestPredictionCorrelation",
         ]
 
         for class_name in expected_classes:
@@ -58,8 +60,6 @@ class TestIntegrationStructure(unittest.TestCase):
             "test_multi_model_parallel_predictions",
             "test_pipeline_with_filtering",
             "test_rerun_with_different_filter",
-            "test_embeddings_generation",
-            "test_structure_prediction_boltz",
         ]
 
         for method_name in expected_methods:

@@ -231,23 +231,23 @@ async def step_3_score(generated_df: pd.DataFrame, tmp: Path):
     # Parallel predictions: Tm + solubility + log-prob
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm",
         extractions="prediction",
+        columns="tm",
         stage_name="predict_tm",
         depends_on=["filter_length"],
     )
     pipeline.add_prediction(
         "soluprot",
-        prediction_type="solubility",
         extractions="soluble",
+        columns="solubility",
         stage_name="predict_sol",
         depends_on=["filter_length"],
     )
     pipeline.add_prediction(
         "esmc-300m",
         action="score",
-        prediction_type="log_prob",
         extractions="log_prob",
+        columns="log_prob",
         stage_name="score_lp",
         depends_on=["filter_length"],
     )

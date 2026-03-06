@@ -120,11 +120,10 @@ async def test_1_basic_tm(tmp):
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t1_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
-    # extractions="prediction" matches the real API key
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm",
         extractions="prediction",
+        columns="tm",
         stage_name="predict_tm",
     )
     await pipeline.run_async(enable_streaming=False)
@@ -155,14 +154,14 @@ async def test_2_parallel_plus_filter(tmp):
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm",
         extractions="prediction",
+        columns="tm",
         stage_name="predict_tm",
     )
     pipeline.add_prediction(
         "soluprot",
-        prediction_type="solubility",
         extractions="soluble",
+        columns="solubility",
         stage_name="predict_sol",
     )
     # Keep top 3 by Tm
@@ -202,8 +201,8 @@ async def test_3_valid_aa(tmp):
     pipeline.add_filter(ValidAminoAcidFilter(verbose=True), stage_name="filter_valid")
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm",
         extractions="prediction",
+        columns="tm",
         stage_name="predict_tm",
         depends_on=["filter_valid"],
     )
@@ -233,7 +232,7 @@ async def test_4_cache_resume(tmp):
     # Run 1
     ds1 = DuckDBDataStore(db_path=db, data_dir=data_dir)
     p1 = DataPipeline(sequences=ALL_SINGLE[:3], datastore=ds1, run_id=run_id, verbose=True)
-    p1.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction", stage_name="predict_tm")
+    p1.add_prediction("temberture-regression", extractions="prediction", columns="tm", stage_name="predict_tm")
     t0 = time.time()
     await p1.run_async(enable_streaming=False)
     t1 = time.time() - t0
@@ -244,7 +243,7 @@ async def test_4_cache_resume(tmp):
     # Run 2 — resume
     ds2 = DuckDBDataStore(db_path=db, data_dir=data_dir)
     p2 = DataPipeline(sequences=ALL_SINGLE[:3], datastore=ds2, run_id=run_id, resume=True, verbose=True)
-    p2.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction", stage_name="predict_tm")
+    p2.add_prediction("temberture-regression", extractions="prediction", columns="tm", stage_name="predict_tm")
     t0 = time.time()
     await p2.run_async(enable_streaming=False)
     t2 = time.time() - t0
@@ -271,14 +270,14 @@ async def test_5_trickle(tmp):
     # Run 1: 3 seqs
     ds1 = DuckDBDataStore(db_path=db, data_dir=data_dir)
     p1 = DataPipeline(sequences=ALL_SINGLE[:3], datastore=ds1, run_id="tr1", verbose=True)
-    p1.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction", stage_name="predict_tm")
+    p1.add_prediction("temberture-regression", extractions="prediction", columns="tm", stage_name="predict_tm")
     await p1.run_async(enable_streaming=False)
     ds1.close()
 
     # Run 2: all 5
     ds2 = DuckDBDataStore(db_path=db, data_dir=data_dir)
     p2 = DataPipeline(sequences=ALL_SINGLE, datastore=ds2, run_id="tr2", verbose=True)
-    p2.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction", stage_name="predict_tm")
+    p2.add_prediction("temberture-regression", extractions="prediction", columns="tm", stage_name="predict_tm")
     await p2.run_async(enable_streaming=False)
 
     df = p2.get_final_data()
@@ -314,8 +313,8 @@ async def test_6_multi_col_antibody(tmp):
     # Use item_columns to send just the heavy chain for Tm prediction.
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm",
         extractions="prediction",
+        columns="tm",
         stage_name="predict_tm",
         item_columns={"sequence": "heavy_chain"},
     )
@@ -366,8 +365,11 @@ async def test_7_multi_col_dedup(tmp):
     )
     # Use item_columns to send heavy_chain as the 'sequence' to the API
     pipeline.add_prediction(
-        "temberture-regression", prediction_type="tm", extractions="prediction",
-        stage_name="predict_tm", item_columns={"sequence": "heavy_chain"},
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="predict_tm",
+        item_columns={"sequence": "heavy_chain"},
     )
     await pipeline.run_async(enable_streaming=False)
 
@@ -409,16 +411,16 @@ async def test_7b_parallel_per_chain_tm(tmp):
     # Predict Tm on heavy chain
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm_heavy",
         extractions="prediction",
+        columns="tm_heavy",
         stage_name="predict_tm_heavy",
         item_columns={"sequence": "heavy_chain"},
     )
     # Predict Tm on light chain (runs in parallel — same dependency level)
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm_light",
         extractions="prediction",
+        columns="tm_light",
         stage_name="predict_tm_light",
         item_columns={"sequence": "light_chain"},
     )
@@ -478,7 +480,13 @@ async def test_8_chained_filters(tmp):
     pipeline = DataPipeline(sequences=all_seqs, datastore=ds, verbose=True)
     pipeline.add_filter(ValidAminoAcidFilter(verbose=True), stage_name="f_valid")
     pipeline.add_filter(SequenceLengthFilter(min_length=100), stage_name="f_length", depends_on=["f_valid"])
-    pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction", stage_name="predict_tm", depends_on=["f_length"])
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="predict_tm",
+        depends_on=["f_length"],
+    )
     pipeline.add_filter(RankingFilter("tm", n=2, ascending=False), stage_name="rank_top2", depends_on=["predict_tm"])
     await pipeline.run_async(enable_streaming=False)
 
@@ -510,7 +518,12 @@ async def test_9_context(tmp):
     pipeline = DataPipeline(sequences=ALL_SINGLE[:2], datastore=ds, verbose=True)
     pipeline.context.set("experiment", "thermo_screen")
     pipeline.context.set("config", {"model": "temberture-regression"})
-    pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction", stage_name="predict_tm")
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="predict_tm",
+    )
     await pipeline.run_async(enable_streaming=False)
 
     df = pipeline.get_final_data()
@@ -538,7 +551,12 @@ async def test_10_streaming(tmp):
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t10_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
-    pipeline.add_prediction("temberture-regression", prediction_type="tm", extractions="prediction", stage_name="predict_tm")
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="predict_tm",
+    )
     pipeline.add_filter(RankingFilter("tm", n=3, ascending=False), stage_name="rank_top3", depends_on=["predict_tm"])
     await pipeline.run_async(enable_streaming=True)
 

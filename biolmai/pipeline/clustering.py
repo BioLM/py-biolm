@@ -18,7 +18,7 @@ import numpy as np
 
 try:
     from sklearn.cluster import DBSCAN, KMeans, MiniBatchKMeans  # noqa: F401
-    from sklearn.metrics import davies_bouldin_score, silhouette_score
+    from sklearn.metrics import silhouette_score
 
     SKLEARN_AVAILABLE = True
 except ImportError:
@@ -85,7 +85,7 @@ class SequenceClusterer:
         self,
         method: Literal["kmeans", "dbscan", "hierarchical"] = "kmeans",
         n_clusters: Optional[int] = None,
-        similarity_metric: Literal["hamming", "embedding"] = "hamming",
+        similarity_metric: Literal["embedding"] = "embedding",
         eps: float = 0.5,
         min_samples: int = 5,
         random_state: int = 42,
@@ -124,16 +124,15 @@ class SequenceClusterer:
         """
         n = len(sequences)
 
-        # Performance warnings
-        if self.similarity_metric == "hamming" and n > LARGE_DATASET_THRESHOLD:
-            if self.max_sample is None:
-                warnings.warn(
-                    f"Clustering {n:,} sequences with Hamming distance is O(n²). "
-                    f"Consider using max_sample={min(10000, n//2)} or similarity_metric='embedding' for better performance.",
-                    PerformanceWarning,
-                    stacklevel=2,
-                )
+        # BUG-GEN-03 fix: validate n_clusters before calling sklearn — otherwise
+        # sklearn raises a cryptic error deep inside fit_predict.
+        if self.n_clusters is not None and self.n_clusters > n:
+            raise ValueError(
+                f"n_clusters ({self.n_clusters}) must be <= number of sequences "
+                f"({n}). Either reduce n_clusters or provide more sequences."
+            )
 
+        # Performance warnings
         if (
             n > VERY_LARGE_DATASET_THRESHOLD
             and not self.mini_batch
@@ -152,7 +151,11 @@ class SequenceClusterer:
                 )
             distance_matrix = self._compute_embedding_distances(embeddings)
         else:
-            distance_matrix = self._compute_hamming_distances(sequences)
+            raise ValueError(
+                f"Unknown similarity_metric '{self.similarity_metric}'. "
+                # TODO: implement sequence-to-sequence similarity metrics (Hamming, edit distance, etc.)
+                "Only 'embedding' is currently supported."
+            )
 
         # Perform clustering
         if self.method == "kmeans":
@@ -171,18 +174,13 @@ class SequenceClusterer:
 
         # Compute metrics (skip for very large datasets to save time)
         silhouette = None
-        davies_bouldin = None
+        davies_bouldin = None  # TODO: implement using embedding feature vectors (sklearn requires feature matrix, not distance matrix)
 
         if len(set(cluster_ids)) > 1 and n < LARGE_DATASET_THRESHOLD:
             try:
                 silhouette = silhouette_score(
                     distance_matrix, cluster_ids, metric="precomputed"
                 )
-            except Exception:
-                pass
-
-            try:
-                davies_bouldin = davies_bouldin_score(distance_matrix, cluster_ids)
             except Exception:
                 pass
 
@@ -199,44 +197,8 @@ class SequenceClusterer:
             cluster_sizes=cluster_sizes,
         )
 
-    def _compute_hamming_distances(self, sequences: list[str]) -> np.ndarray:
-        """
-        Compute pairwise Hamming distances between sequences.
-
-        Optimized with vectorized numpy operations.
-        """
-        n = len(sequences)
-
-        # Apply sampling if needed
-        if self.max_sample is not None and n > self.max_sample:
-            warnings.warn(
-                f"Sampling {self.max_sample} of {n} sequences for distance computation",
-                UserWarning,
-                stacklevel=2,
-            )
-            np.random.seed(self.random_state)
-            sample_idx = np.random.choice(n, self.max_sample, replace=False)
-            sequences = [sequences[i] for i in sample_idx]
-            n = len(sequences)
-
-        if not sequences:
-            return np.zeros((0, 0), dtype=np.float64)
-
-        max_len = max(len(s) for s in sequences)
-
-        # Pad sequences to same length
-        padded = [s.ljust(max_len, "-") for s in sequences]
-
-        # Convert to numpy array (more efficient than nested loops)
-        seq_array = np.array([[ord(c) for c in s] for s in padded], dtype=np.int32)
-
-        # Vectorized distance computation
-        # Broadcasting: (n,1,m) != (1,n,m) -> (n,n,m) then sum over m
-        distances = np.sum(
-            seq_array[:, np.newaxis, :] != seq_array[np.newaxis, :, :], axis=2
-        ).astype(np.float32)
-
-        return distances
+    # TODO: implement _compute_hamming_distances() for sequence-to-sequence clustering
+    # Planned: vectorized pairwise Hamming with max_sample + sampling support
 
     def _compute_embedding_distances(self, embeddings: np.ndarray) -> np.ndarray:
         """Compute pairwise Euclidean distances between embeddings."""
@@ -277,6 +239,19 @@ class SequenceClusterer:
             eps=self.eps, min_samples=self.min_samples, metric="precomputed"
         )
         cluster_ids = dbscan.fit_predict(distance_matrix)
+
+        # BUG-GEN-04 fix: warn when all points are noise so the user knows to
+        # adjust eps or min_samples rather than silently getting an empty result.
+        unique_labels = set(cluster_ids)
+        if unique_labels == {-1}:
+            warnings.warn(
+                f"DBSCAN clustering produced 0 valid clusters — all "
+                f"{len(cluster_ids)} points are noise (label=-1). Consider "
+                f"adjusting eps or min_samples parameters.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         return cluster_ids
 
     def _cluster_hierarchical(self, distance_matrix: np.ndarray) -> np.ndarray:
@@ -397,61 +372,8 @@ class DiversityAnalyzer:
 
         return float(avg_entropy)
 
-    @staticmethod
-    def pairwise_distance_stats(
-        sequences: list[str], max_sample: Optional[int] = None
-    ) -> dict[str, float]:
-        """
-        Calculate statistics of pairwise Hamming distances.
-
-        Performance: O(n²) - use max_sample for large datasets.
-
-        Args:
-            sequences: List of protein sequences
-            max_sample: Limit pairwise comparisons (e.g., 5000 for large datasets)
-
-        Returns:
-            Dictionary with mean, std, min, max distances
-        """
-        n = len(sequences)
-
-        if n < 2:
-            return {"mean": 0, "std": 0, "min": 0, "max": 0, "median": 0}
-
-        # Sample if needed for performance
-        if max_sample is not None and n > max_sample:
-            warnings.warn(
-                f"Sampling {max_sample} of {n} sequences for pairwise distance computation",
-                PerformanceWarning,
-                stacklevel=2,
-            )
-            np.random.seed(42)
-            sample_idx = np.random.choice(n, max_sample, replace=False)
-            sequences = [sequences[i] for i in sample_idx]
-            n = len(sequences)
-
-        # Compute Hamming distances efficiently
-        max_len = max(len(s) for s in sequences)
-        seq_array = np.array([list(s.ljust(max_len, "-")) for s in sequences])
-
-        # Vectorized distance computation
-        # Only compute upper triangle (symmetric matrix)
-        distances = []
-        for i in range(n):
-            for j in range(i + 1, n):
-                dist = np.sum(seq_array[i] != seq_array[j])
-                distances.append(dist)
-
-        distances = np.array(distances)
-
-        return {
-            "mean": float(np.mean(distances)),
-            "std": float(np.std(distances)),
-            "min": float(np.min(distances)),
-            "max": float(np.max(distances)),
-            "median": float(np.median(distances)),
-            "n_comparisons": len(distances),
-        }
+    # TODO: implement pairwise_distance_stats() using embedding distances (not Hamming)
+    # Planned: accept embeddings array, compute Euclidean/cosine pairwise stats with max_sample support
 
     @staticmethod
     def motif_diversity(
@@ -485,31 +407,7 @@ class DiversityAnalyzer:
             "most_common": kmer_counts.most_common(5),
         }
 
-    @staticmethod
-    def sequence_identity_matrix(sequences: list[str]) -> np.ndarray:
-        """
-        Compute pairwise sequence identity matrix.
-
-        Args:
-            sequences: List of protein sequences
-
-        Returns:
-            Matrix of pairwise identities (0-1)
-        """
-        n = len(sequences)
-        if n == 0:
-            return np.zeros((0, 0), dtype=np.float64)
-        max_len = max(len(s) for s in sequences)
-        padded = [s.ljust(max_len, "-") for s in sequences]
-
-        identity_matrix = np.zeros((n, n))
-
-        for i in range(n):
-            for j in range(n):
-                matches = sum(c1 == c2 for c1, c2 in zip(padded[i], padded[j]))
-                identity_matrix[i, j] = matches / max_len
-
-        return identity_matrix
+    # TODO: implement sequence_identity_matrix() using embedding cosine similarity instead of character comparison
 
     @classmethod
     def compute_all_metrics(
@@ -520,7 +418,7 @@ class DiversityAnalyzer:
 
         Args:
             sequences: List of protein sequences
-            max_sample: Maximum sequences for pairwise distance computation (default: 10k)
+            max_sample: Unused, reserved for future embedding-based pairwise stats
 
         Returns:
             Dictionary with all diversity metrics
@@ -532,9 +430,7 @@ class DiversityAnalyzer:
                 len(set(sequences)) / len(sequences) if sequences else 0
             ),
             "shannon_entropy": cls.shannon_entropy(sequences),
-            "pairwise_distances": cls.pairwise_distance_stats(
-                sequences, max_sample=max_sample
-            ),
+            # TODO: add pairwise_distances using embedding distances once pairwise_distance_stats() is implemented
             "motif_diversity_3mer": cls.motif_diversity(sequences, k=3),
             "motif_diversity_5mer": cls.motif_diversity(sequences, k=5),
         }
@@ -552,34 +448,23 @@ def cluster_sequences(
     **kwargs,
 ) -> ClusteringResult:
     """
-    Convenience function for clustering sequences.
+    Convenience function for clustering sequences using embeddings.
 
     Performance Tips:
         - For >50k sequences, use mini_batch=True
-        - For Hamming distance with >10k sequences, use max_sample or embeddings
-        - Embedding-based clustering scales much better than Hamming
+        - Requires pre-computed embeddings (similarity_metric='embedding')
 
     Args:
         sequences: List of protein sequences
         method: Clustering algorithm
         n_clusters: Number of clusters
-        embeddings: Optional pre-computed embeddings
+        embeddings: Pre-computed embeddings (required)
         mini_batch: Use MiniBatchKMeans for faster (approximate) clustering
-        max_sample: Limit sequences for distance matrix computation
+        max_sample: Reserved; not yet used
         **kwargs: Additional arguments for SequenceClusterer
 
     Returns:
         ClusteringResult
-
-    Example:
-        >>> # For large datasets
-        >>> result = cluster_sequences(
-        ...     sequences,
-        ...     method='kmeans',
-        ...     n_clusters=100,
-        ...     mini_batch=True,
-        ...     max_sample=10000
-        ... )
     """
     clusterer = SequenceClusterer(
         method=method,
@@ -597,15 +482,14 @@ def analyze_diversity(sequences: list[str], max_sample: Optional[int] = 10000) -
 
     Args:
         sequences: List of protein sequences
-        max_sample: Maximum sequences for pairwise distance computation (default: 10k)
+        max_sample: Reserved for future embedding-based pairwise stats
 
     Returns:
-        Dictionary of diversity metrics
+        Dictionary of diversity metrics (shannon_entropy, motif diversity, uniqueness)
 
     Example:
-        >>> metrics = analyze_diversity(sequences, max_sample=5000)
+        >>> metrics = analyze_diversity(sequences)
         >>> print(f"Entropy: {metrics['shannon_entropy']:.2f}")
-        >>> print(f"Pairwise distances (sampled): {metrics['pairwise_distances']['mean']:.1f}")
     """
     return DiversityAnalyzer.compute_all_metrics(sequences, max_sample=max_sample)
 

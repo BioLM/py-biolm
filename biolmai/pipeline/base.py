@@ -172,7 +172,17 @@ class Stage(ABC):
         depends_on: List of stage names this stage depends on
         model_name: Model name for predictions/structures
         max_concurrent: Maximum concurrent API calls (for rate limiting)
+
+    Class Attributes:
+        merge_mode: How this stage's output is merged when it runs in parallel
+            with other stages.  ``"intersect"`` (default) = only keep sequences
+            that pass *all* parallel stages (correct for filters).
+            ``"union"`` = keep sequences that appear in *any* parallel stage
+            output (correct for independent prediction stages that may skip
+            sequences on error but should not drop others).
     """
+
+    merge_mode: str = "intersect"
 
     def __init__(
         self,
@@ -187,7 +197,6 @@ class Stage(ABC):
         self.depends_on = depends_on or []
         self.model_name = model_name
         self.max_concurrent = max_concurrent
-        self._semaphore = asyncio.Semaphore(max_concurrent)
 
     @abstractmethod
     async def process_ws(
@@ -302,7 +311,7 @@ class BasePipeline(ABC):
 
     def __init__(
         self,
-        datastore: Union[DataStore, str, Path],
+        datastore: Union[DataStore, str, Path, None] = None,
         run_id: Optional[str] = None,
         output_dir: Union[str, Path] = "pipeline_outputs",
         resume: bool = False,
@@ -312,14 +321,24 @@ class BasePipeline(ABC):
         self.run_id = run_id or self._generate_run_id()
 
         # Setup datastore
-        if isinstance(datastore, DataStore):
+        if datastore is None:
+            # Auto-create: .biolm/pipelines/<run_id>/pipeline.duckdb
+            cache_dir = _BIOLM_CACHE_ROOT / self.run_id
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            self.datastore = DataStore(str(cache_dir / "pipeline.duckdb"))
+            self._pipeline_id = self.run_id
+            self._cache_dir = cache_dir
+            self._auto_created_datastore = True
+        elif isinstance(datastore, DataStore):
             self.datastore = datastore
             self._pipeline_id = self.run_id
             self._cache_dir = Path(datastore.db_path).parent
+            self._auto_created_datastore = False
         elif isinstance(datastore, (str, Path)):
             self.datastore = DataStore(str(datastore))
             self._pipeline_id = self.run_id
             self._cache_dir = Path(datastore).parent
+            self._auto_created_datastore = False
         else:
             raise TypeError(
                 f"datastore must be a DuckDBDataStore instance or a path to a "
@@ -400,7 +419,10 @@ class BasePipeline(ABC):
 
         # Cross-pipeline column registry check: ensure no column conflicts with
         # data stored in this DuckDB from a different (model, action) pair.
-        if self.datastore and stage_columns:
+        # PD-05: skip this check when resume=True — a reconstructed pipeline is
+        # by definition consistent with the registry it wrote, so re-validating
+        # against the registry would raise false-positive errors.
+        if not getattr(self, "resume", False) and self.datastore and stage_columns:
             for r in getattr(stage, "_resolved", []):
                 existing = self.datastore.get_column_registry_entry(r.column)
                 if existing and (existing["model_name"], existing["action"]) != (
@@ -437,9 +459,26 @@ class BasePipeline(ABC):
         for s in self.stages:
             try:
                 stages_specs.append(s.to_spec())
-            except NotImplementedError:
-                # Stage doesn't support serialization — store minimal info
-                stages_specs.append({"type": s.__class__.__name__, "name": s.name})
+            except NotImplementedError as exc:
+                # BUG-6 fix: mark the spec as partially serializable so that
+                # from_db() / pipeline_from_definition() can surface a clear error
+                # rather than silently reconstructing an incomplete pipeline.
+                stages_specs.append(
+                    {
+                        "type": s.__class__.__name__,
+                        "name": s.name,
+                        "_serialization_error": True,
+                        "_serialization_error_msg": str(exc),
+                    }
+                )
+            except Exception as exc:
+                # Unexpected serialization failure — propagate so the caller knows
+                # the definition was NOT saved cleanly.
+                raise RuntimeError(
+                    f"Stage '{s.name}' ({s.__class__.__name__}) raised an unexpected "
+                    f"error during serialization: {exc}. "
+                    "Fix to_spec() or exclude this stage before saving the definition."
+                ) from exc
 
         input_cols = self.input_schema.columns if self.input_schema else None
         def_id = _pipeline_def_hash(self.pipeline_type, input_cols, stages_specs)
@@ -511,6 +550,17 @@ class BasePipeline(ABC):
         # Build dependency graph
         stage_map = {s.name: s for s in self.stages}
 
+        # BUG-DEP-01: validate all depends_on references exist before sorting.
+        # Without this check, a typo in depends_on silently drops the dependency
+        # and the stage runs in an incorrect (too-early) level.
+        for s in self.stages:
+            for dep in s.depends_on:
+                if dep not in stage_map:
+                    raise ValueError(
+                        f"Stage '{s.name}' depends on '{dep}' which does not exist. "
+                        f"Available stages: {sorted(stage_map.keys())}"
+                    )
+
         # Topological sort with level detection
         in_degree = {s.name: len(s.depends_on) for s in self.stages}
         levels = []
@@ -542,6 +592,21 @@ class BasePipeline(ABC):
                     ):
                         in_degree[other_stage.name] -= 1
 
+        # BUG-WS-02: validate that no stage in a level depends on another stage
+        # in the same level — that would create an intra-level circular dependency
+        # that is silently undetectable by the standard topological sort above.
+        for level in levels:
+            level_names = {s.name for s in level}
+            for s in level:
+                intra_deps = [dep for dep in s.depends_on if dep in level_names]
+                if intra_deps:
+                    raise ValueError(
+                        f"Stage '{s.name}' depends on {intra_deps} which are in the same "
+                        f"parallel execution level. This creates a circular dependency. "
+                        f"Ensure stages that depend on each other have explicit ordering "
+                        f"via depends_on."
+                    )
+
         return levels
 
     def _reload_stage_working_set(
@@ -551,6 +616,13 @@ class BasePipeline(ABC):
     ) -> Optional[WorkingSet]:
         """Reconstruct a stage's WorkingSet from the datastore (for resume).
 
+        BUG-9 fix: All reload paths scope to the current run by intersecting
+        with ``ws_input``.  ``ws_input`` is already run-scoped (built from
+        ``_get_initial_data()`` which only inserts/returns the current run's
+        sequences).  The FilterStage path additionally scopes by ``run_id``
+        via ``get_filter_results()``.  This prevents sequences from earlier
+        runs sharing the same DuckDB from bleeding into a resumed run.
+
         Returns the reloaded WorkingSet, or None if it cannot be reconstructed
         (caller should then re-run the stage normally).
         """
@@ -559,16 +631,48 @@ class BasePipeline(ABC):
         try:
             from biolmai.pipeline.data import (
                 ClusteringStage,
+                CofoldingPredictionStage,
                 FilterStage,
                 PredictionStage,
             )
             from biolmai.pipeline.generative import GenerationStage
 
             if isinstance(stage, PredictionStage):
-                # Encode stages store to the embeddings table, not predictions.
-                # We can't reconstruct their WS from predictions — force re-run.
                 if getattr(stage, "action", None) == "encode":
-                    return None
+                    # Encode stages write to the embeddings table, not predictions.
+                    # WS-09: scope by layer when EmbeddingSpec(layer=N) is set so
+                    # that reloading does not confuse embeddings from different layers
+                    # stored for the same model.
+                    try:
+                        from biolmai.pipeline.data import EmbeddingSpec
+
+                        emb_extractor = getattr(stage, "_embedding_extractor", None)
+                        layer = None
+                        if isinstance(emb_extractor, EmbeddingSpec):
+                            layer = emb_extractor.layer
+
+                        if layer is not None:
+                            emb_ids = set(
+                                self.datastore.conn.execute(
+                                    "SELECT DISTINCT sequence_id FROM embeddings "
+                                    "WHERE model_name = ? AND layer = ?",
+                                    [stage.model_name, layer],
+                                ).df()["sequence_id"].tolist()
+                            )
+                        else:
+                            emb_ids = set(
+                                self.datastore.conn.execute(
+                                    "SELECT DISTINCT sequence_id FROM embeddings "
+                                    "WHERE model_name = ? AND layer IS NULL",
+                                    [stage.model_name],
+                                ).df()["sequence_id"].tolist()
+                            )
+                        candidate_ids = ws_input.sequence_ids & emb_ids
+                        if not candidate_ids:
+                            return None
+                        return WorkingSet.from_ids(candidate_ids)
+                    except Exception:
+                        return None
 
                 # For predict/score: IDs that have ALL resolved columns in DuckDB.
                 resolved = getattr(stage, "_resolved", [])
@@ -581,36 +685,76 @@ class BasePipeline(ABC):
                         r.column,
                         stage.model_name,
                     )
-                    candidate_ids &= set(ids_with_col)
+                    # Exclude NULL-valued predictions (failed batches stored with
+                    # skip_on_error=True — these must be retried, not treated as cached)
+                    if ids_with_col:
+                        ids_with_valid = set(
+                            self.datastore.conn.execute(
+                                "SELECT DISTINCT sequence_id FROM predictions "
+                                "WHERE sequence_id IN ({}) AND prediction_type = ? "
+                                "AND model_name = ? AND value IS NOT NULL".format(
+                                    ",".join(str(i) for i in ids_with_col)
+                                ),
+                                [r.column, stage.model_name],
+                            ).df()["sequence_id"].tolist()
+                        )
+                        candidate_ids &= ids_with_valid
+                    else:
+                        candidate_ids = frozenset()
                     if not candidate_ids:
                         return None
                 return WorkingSet.from_ids(candidate_ids)
 
             elif isinstance(stage, FilterStage):
+                # BUG-9: get_filter_results is already scoped by run_id.
+                # Intersect with ws_input to guard against stale IDs if the
+                # input set has shrunk since the filter originally ran.
                 passed_ids = self.datastore.get_filter_results(self.run_id, stage.name)
                 if not passed_ids:
                     return None
-                return WorkingSet.from_ids(passed_ids)
+                candidate_ids = ws_input.sequence_ids & set(passed_ids)
+                if not candidate_ids:
+                    return None
+                return WorkingSet.from_ids(candidate_ids)
 
             elif isinstance(stage, ClusteringStage):
-                # Clustering doesn't filter — return same set
+                # BUG-4 fix: ClusteringStage doesn't filter — it annotates
+                # sequences with cluster assignments stored in pipeline_metadata.
+                # On resume, verify the assignments key exists (proving this
+                # stage completed), then return ws_input unchanged so the
+                # pipeline continues without re-clustering.
+                # ws_input is already run-scoped (from _get_initial_data), so
+                # no extra intersection needed here.
                 assignments = self.datastore.get_pipeline_metadata(
                     f"clustering_{stage.name}_assignments"
                 )
                 if assignments is None:
                     return None
-                return ws_input  # same IDs, clustering adds columns at materialize time
+                # ClusteringStage survives all input sequences; return ws_input
+                # as the output WorkingSet (cluster columns added at materialize).
+                return ws_input
+
+            elif isinstance(stage, CofoldingPredictionStage):
+                # Co-folding results are stored in the structures table (BUG-06 fix).
+                try:
+                    struct_ids = set(
+                        self.datastore.conn.execute(
+                            "SELECT DISTINCT sequence_id FROM structures WHERE model_name = ?",
+                            [stage.model_name],
+                        ).df()["sequence_id"].tolist()
+                    )
+                    candidate_ids = ws_input.sequence_ids & struct_ids
+                    if not candidate_ids:
+                        return None
+                    return WorkingSet.from_ids(candidate_ids)
+                except Exception:
+                    return None
 
             elif isinstance(stage, GenerationStage):
-                # Generation creates new sequences — get all from datastore
-                df = self.datastore.export_to_dataframe(
-                    include_sequences=True,
-                    include_predictions=False,
-                    include_generation_metadata=True,
-                )
-                if df.empty or "sequence_id" not in df.columns:
-                    return None
-                return WorkingSet.from_ids(df["sequence_id"].tolist())
+                # Generation is stochastic — always re-run to produce fresh
+                # sequences. Downstream prediction/filter stages will still use
+                # their caches for any sequences they've already processed.
+                return None
 
         except Exception as exc:
             _logger.warning(
@@ -639,6 +783,33 @@ class BasePipeline(ABC):
     ) -> tuple[WorkingSet, StageResult]:
         """Execute a single stage using WorkingSet transport."""
         start_time = time.time()
+
+        # DS-06 fix: skip the stage immediately when the incoming WorkingSet is
+        # empty.  Stages that receive zero sequences may raise errors (e.g. when
+        # materializing an empty set), so short-circuit here with a warning.
+        if not ws_input:
+            _logger.warning(
+                "Stage '%s' received empty WorkingSet — skipping", stage.name
+            )
+            # WS-03: mark the stage complete even when skipped so that resume
+            # logic correctly identifies it as already processed on future runs.
+            _empty_stage_id = f"{self.run_id}_{stage.name}"
+            if self.datastore:
+                self.datastore.mark_stage_complete(
+                    stage_id=_empty_stage_id,
+                    run_id=self.run_id,
+                    stage_name=stage.name,
+                    input_count=0,
+                    output_count=0,
+                    status="completed",
+                )
+            return WorkingSet(frozenset()), StageResult(
+                stage_name=stage.name,
+                input_count=0,
+                output_count=0,
+                elapsed_time=0.0,
+                metadata={"skipped": "empty_input"},
+            )
 
         # Check if stage is already complete (resumability)
         stage_id = f"{self.run_id}_{stage.name}"
@@ -672,9 +843,15 @@ class BasePipeline(ABC):
             if stage.depends_on:
                 print(f"Depends on: {', '.join(stage.depends_on)}")
 
-        # Execute stage — all stages implement process_ws()
+        # Execute stage — all stages implement process_ws().
+        # BUG-16 note: run_id, context, and verbose are passed as explicit keyword
+        # arguments so stages can declare them in their process_ws() signature
+        # rather than relying on **kwargs swallowing them silently.  All stage
+        # implementations should declare: process_ws(self, ws, datastore, *,
+        # run_id="", context=None, verbose=False, **kwargs).
         ws_out, result = await stage.process_ws(
-            ws_input, self.datastore, run_id=self.run_id, context=self.context
+            ws_input, self.datastore, run_id=self.run_id, context=self.context,
+            verbose=self.verbose,
         )
 
         result.elapsed_time = time.time() - start_time
@@ -709,8 +886,37 @@ class BasePipeline(ABC):
         Returns:
             Dict mapping stage names to StageResults
         """
-        self.start_time = time.time()
+        # Reset per-run state so a second run() call starts clean
+        self.stage_results = {}
+        self._working_sets = {}
+        self._stage_data = {}
         self.status = "running"
+        self.start_time = time.time()
+        # BUG-2 fix: reset end_time so a re-run after failure doesn't retain
+        # the previous run's end timestamp.
+        self.end_time = None
+        # WS-11: clear the filter-WS cache that is monkey-patched onto the
+        # datastore by execute_filter_sql().  Without this, a second run()
+        # call on the same pipeline object reuses stale cached filter results
+        # from the previous run.
+        if hasattr(self.datastore, "_filter_ws_cache"):
+            self.datastore._filter_ws_cache = {}
+
+        # Guard: prevent two pipelines from writing to the same DuckDB simultaneously.
+        # Sequential use of the same DB (accumulation, resume) is fine — the second
+        # pipeline re-reads MAX(id) at init so counters don't collide.
+        # The only unsafe case is two run_async() calls active at the same time.
+        from biolmai.pipeline.datastore_duckdb import _RUNNING_DB_PATHS
+        _db_path_key = str(self.datastore.db_path) if self.datastore else None
+        if _db_path_key and _db_path_key in _RUNNING_DB_PATHS:
+            raise RuntimeError(
+                f"Another pipeline is already running on '{_db_path_key}'.\n"
+                "Two pipelines cannot write to the same DuckDB simultaneously — "
+                "primary-key counters would collide. Wait for the first run to "
+                "finish, or use a different db_path."
+            )
+        if _db_path_key:
+            _RUNNING_DB_PATHS.add(_db_path_key)
 
         # Create pipeline run record
         config = self._get_config()
@@ -775,14 +981,24 @@ class BasePipeline(ABC):
                         df_out = await self._execute_stage_streaming(
                             stage, next_stage, df_current
                         )
+                        # BUG-09 fix: prediction stage WS = all inputs (pre-filter);
+                        # filter stage WS = survivors (post-filter).  Using the same
+                        # post-filter WS for both caused incorrect resume cache keys.
+                        ws_pred = (
+                            WorkingSet.from_ids(df_current["sequence_id"].tolist())
+                            if "sequence_id" in df_current.columns
+                            else ws_current
+                        )
+                        ws_filter = (
+                            WorkingSet.from_ids(df_out["sequence_id"].tolist())
+                            if "sequence_id" in df_out.columns
+                            else WorkingSet(frozenset())
+                        )
                         self._stage_data[stage.name] = df_out
                         self._stage_data[next_stage.name] = df_out
-                        if "sequence_id" in df_out.columns:
-                            ws_current = WorkingSet.from_ids(
-                                df_out["sequence_id"].tolist()
-                            )
-                        self._working_sets[stage.name] = ws_current
-                        self._working_sets[next_stage.name] = ws_current
+                        self._working_sets[stage.name] = ws_pred
+                        self._working_sets[next_stage.name] = ws_filter
+                        ws_current = ws_filter
                         processed_stages.add(stage.name)
                         processed_stages.add(next_stage.name)
                     else:
@@ -796,6 +1012,24 @@ class BasePipeline(ABC):
                         processed_stages.add(stage.name)
                 else:
                     # Multiple stages in level - execute in parallel
+
+                    # WS-02: mixed merge modes within a single level have undefined
+                    # semantics — a prediction stage outputs a (possibly larger) union
+                    # while a filter stage outputs a (possibly smaller) intersection.
+                    # Applying both simultaneously makes the final merged set ambiguous.
+                    # Raise early so the user can fix their pipeline topology.
+                    level_merge_modes = {
+                        getattr(s, "merge_mode", "intersect") for s in level_stages
+                    }
+                    if "union" in level_merge_modes and "intersect" in level_merge_modes:
+                        raise ValueError(
+                            f"Level {level_idx} mixes 'union' (prediction) and "
+                            f"'intersect' (filter) stages: "
+                            f"{[s.name for s in level_stages]}. "
+                            "This has undefined semantics — separate them with "
+                            "explicit depends_on."
+                        )
+
                     if self.verbose:
                         print(f"\nExecuting {len(level_stages)} stages in parallel...")
 
@@ -803,7 +1037,16 @@ class BasePipeline(ABC):
                         self._execute_stage_ws(stage, ws_current)
                         for stage in level_stages
                     ]
-                    results = await asyncio.gather(*tasks)
+                    # BUG-CHK-06 fix: use return_exceptions=True so that a failure
+                    # in one parallel stage does not cancel all other in-flight stages
+                    # via asyncio.gather()'s default cancellation behaviour.
+                    # After gathering, we check for exceptions and re-raise the first.
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # Check for exceptions before processing results
+                    exceptions = [r for r in results if isinstance(r, Exception)]
+                    if exceptions:
+                        raise exceptions[0]
 
                     # Parallel merge = set intersection (was: DataFrame merge)
                     all_working_sets = []
@@ -812,18 +1055,47 @@ class BasePipeline(ABC):
                         self._working_sets[stage.name] = ws_out
                         all_working_sets.append(ws_out)
 
-                    # Intersection of all parallel stage outputs
+                    # Parallel merge: union prediction outputs, intersect filter outputs.
+                    # PredictionStage/CofoldingPredictionStage use merge_mode="union"
+                    # so sequences processed by any prediction stage survive (independent
+                    # predictions should not cancel each other out).
+                    # FilterStage and ClusteringStage use merge_mode="intersect" (default)
+                    # so a sequence must pass *all* parallel filters.
                     if all_working_sets:
-                        ws_merged = all_working_sets[0]
-                        for ws in all_working_sets[1:]:
-                            ws_merged = ws_merged.intersect(ws)
+                        union_pairs = [
+                            ws for s, ws in zip(level_stages, all_working_sets)
+                            if getattr(s, "merge_mode", "intersect") == "union"
+                        ]
+                        intersect_pairs = [
+                            ws for s, ws in zip(level_stages, all_working_sets)
+                            if getattr(s, "merge_mode", "intersect") == "intersect"
+                        ]
+
+                        # Start from the union of all prediction-stage outputs
+                        if union_pairs:
+                            ws_merged = union_pairs[0]
+                            for ws in union_pairs[1:]:
+                                ws_merged = WorkingSet(ws_merged.sequence_ids | ws.sequence_ids)
+                            # Then restrict to sequences that passed every filter
+                            for ws in intersect_pairs:
+                                ws_merged = ws_merged.intersect(ws)
+                        elif intersect_pairs:
+                            ws_merged = intersect_pairs[0]
+                            for ws in intersect_pairs[1:]:
+                                ws_merged = ws_merged.intersect(ws)
+                        else:
+                            ws_merged = ws_current  # level had no stages (shouldn't happen)
+
                         ws_current = ws_merged
                     else:
                         ws_current = WorkingSet(frozenset())
 
-                    # Update the last stage's working set to the merged result
-                    if level_stages:
-                        self._working_sets[level_stages[-1].name] = ws_current
+                    # Parallel-merge fix: update ALL parallel stages' working sets
+                    # to the merged result, not just the last one.  This ensures
+                    # downstream stages that use depends_on referencing any of the
+                    # parallel stages all see the correctly merged WorkingSet.
+                    for s in level_stages:
+                        self._working_sets[s.name] = ws_current
 
             self.status = "completed"
             self.end_time = time.time()
@@ -843,6 +1115,21 @@ class BasePipeline(ABC):
             self.end_time = time.time()
             self.datastore.update_pipeline_run_status(self.run_id, "failed")
             raise
+
+        finally:
+            # Always release the running-path lock so the next sequential run can proceed.
+            if _db_path_key:
+                _RUNNING_DB_PATHS.discard(_db_path_key)
+            # BUG-CHK-03 fix: close the DuckDB connection when we auto-created the
+            # datastore.  On Windows, an unclosed connection holds a file lock that
+            # prevents re-running the pipeline.  On all platforms, it leaks a
+            # file descriptor.  User-provided datastores are NOT closed here — the
+            # caller owns them and may reuse them after the pipeline finishes.
+            if getattr(self, "_auto_created_datastore", False) and self.datastore:
+                try:
+                    self.datastore.close()
+                except Exception:
+                    pass  # Ignore errors during cleanup
 
     async def _get_initial_data_ws(self, **kwargs) -> WorkingSet:
         """Get initial WorkingSet for the pipeline.
@@ -868,18 +1155,18 @@ class BasePipeline(ABC):
         return None  # Can't stream to multiple parallel stages
 
     def _can_stream_to_next(self, current_stage: Stage, next_stage: Stage) -> bool:
-        """Check if current stage can stream to next stage."""
+        """Check if current stage can stream to next stage.
+
+        Only FilterStage is supported as a streaming target.  Streaming to a
+        PredictionStage is intentionally disabled: _execute_stage_streaming()
+        only handles FilterStage, and allowing PredictionStage here would cause
+        chunks to be silently dropped (BUG-04 fix).
+        """
         from biolmai.pipeline.data import FilterStage
 
-        # Can stream if next stage is a filter that doesn't require complete data
+        # Can stream only to a filter that doesn't require complete data
         if isinstance(next_stage, FilterStage):
             return not next_stage.requires_complete_data
-
-        # Can also stream to another prediction stage
-        from biolmai.pipeline.data import PredictionStage
-
-        if isinstance(next_stage, PredictionStage):
-            return True
 
         return False
 
@@ -906,6 +1193,17 @@ class BasePipeline(ABC):
         async for chunk_df in stage.process_streaming(df, self.datastore):
             # Pass chunk through next stage immediately
             if isinstance(next_stage, FilterStage):
+                # Guard: filters that need all data cannot run in streaming mode
+                if getattr(
+                    getattr(next_stage, "filter_func", None),
+                    "requires_complete_data",
+                    False,
+                ):
+                    raise RuntimeError(
+                        f"Filter '{next_stage.filter_func}' requires complete data and "
+                        "cannot be used in streaming mode. Remove enable_streaming=True "
+                        "or use a per-sequence filter."
+                    )
                 # Filter the chunk
                 start_chunk_count = len(chunk_df)
                 filtered_chunk = next_stage.filter_func(chunk_df)
@@ -982,8 +1280,40 @@ class BasePipeline(ABC):
         """
         Run the pipeline synchronously.
 
-        This is a convenience wrapper around run_async().
+        This is a convenience wrapper around run_async(). Works in both
+        script/notebook environments (detects running event loops).
         """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            # Already inside a running event loop (e.g. Jupyter).
+            # Return a coroutine that the caller can await.
+            import warnings
+            warnings.warn(
+                "pipeline.run() called from inside a running event loop (e.g. Jupyter). "
+                "Use 'await pipeline.run_async()' instead for proper async execution. "
+                "Attempting synchronous execution via nest_asyncio if available.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            try:
+                import nest_asyncio
+                nest_asyncio.apply()
+            except ImportError:
+                # WS-16: if nest_asyncio is not installed and we are inside a
+                # running event loop, loop.run_until_complete() will deadlock.
+                # Raise a clear, actionable error rather than hanging silently.
+                if loop.is_running():
+                    raise RuntimeError(
+                        "nest_asyncio is required to run pipelines inside Jupyter. "
+                        "Install it with: pip install nest_asyncio"
+                    )
+            return loop.run_until_complete(
+                self.run_async(enable_streaming=enable_streaming, **kwargs)
+            )
         return asyncio.run(self.run_async(enable_streaming=enable_streaming, **kwargs))
 
     @abstractmethod
@@ -1020,14 +1350,20 @@ class BasePipeline(ABC):
         if not self._working_sets and not self._stage_data:
             raise RuntimeError("Pipeline has not been run yet")
 
+        # WS-07: guard against IndexError when no stages are defined.
+        if not self.stages:
+            raise RuntimeError("No stages defined in this pipeline.")
+
         last_stage_name = self.stages[-1].name
 
-        # Primary path: materialize from WorkingSet
+        # Primary path: materialize from WorkingSet.
+        # Always re-materialize via DuckDB pivot — never return _stage_data directly
+        # even when set by the streaming path.  _stage_data holds the raw streaming
+        # output which lacks prediction columns from earlier non-streamed stages;
+        # materialize_working_set() always returns the full, correctly-joined view
+        # (BUG-03 fix).
         if last_stage_name in self._working_sets:
             ws = self._working_sets[last_stage_name]
-            # Check if we already have a cached df (from legacy stage)
-            if last_stage_name in self._stage_data:
-                return self._stage_data[last_stage_name]
             return self.datastore.materialize_working_set(ws)
 
         # Legacy fallback

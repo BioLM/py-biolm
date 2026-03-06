@@ -121,11 +121,11 @@ class TestMLMRemasker(unittest.TestCase):
 
     def test_predict_masked_positions_mock(self):
         """Test mock prediction (no API)."""
-        masked_seq = "MKTAY<mask>AKQRQ"
-        positions = [5]
+        original_seq = "MKTAYIAKQRQ"
+        positions = [5]  # position 5 is 'I' in the original
 
         predicted, confidences = asyncio.run(
-            self.remasker.predict_masked_positions(masked_seq, positions)
+            self.remasker.predict_masked_positions(original_seq, positions)
         )
 
         # Should return a sequence

@@ -104,14 +104,15 @@ def build_pipeline_batch2(db_path: Path, data_dir: Path, run_id: str):
     )
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm",
-        extractions="melting_temperature",
+        extractions="prediction",
+        columns="tm",
         stage_name="predict_tm",
         depends_on=["prefilter_length"],
     )
     pipeline.add_prediction(
         "soluprot",
-        prediction_type="solubility",
+        extractions="soluble",
+        columns="solubility",
         stage_name="predict_sol",
         depends_on=["prefilter_length"],
     )
@@ -147,8 +148,8 @@ def build_pipeline(db_path: Path, data_dir: Path, run_id: str, resume: bool = Fa
     # Stage 1: melting temperature via TemBERTure regression model
     pipeline.add_prediction(
         "temberture-regression",
-        prediction_type="tm",
-        extractions="melting_temperature",
+        extractions="prediction",
+        columns="tm",
         stage_name="predict_tm",
         depends_on=["prefilter_length"],
     )
@@ -156,7 +157,8 @@ def build_pipeline(db_path: Path, data_dir: Path, run_id: str, resume: bool = Fa
     # Stage 2: solubility via SoluProt (runs in parallel with Tm)
     pipeline.add_prediction(
         "soluprot",
-        prediction_type="solubility",
+        extractions="soluble",
+        columns="solubility",
         stage_name="predict_sol",
         depends_on=["prefilter_length"],
     )
@@ -317,7 +319,7 @@ async def main():
 
         # Verify cache worked: predictions table should have grown by at most len(NEW_SEQUENCES)
         total_preds = ds4.conn.execute(
-            "SELECT COUNT(DISTINCT sequence_id) FROM predictions WHERE prediction_type='tm'"
+            "SELECT COUNT(DISTINCT sequence_id) FROM predictions WHERE prediction_type='temberture-regression::predict::prediction'"
         ).fetchone()[0]
         assert total_preds >= len(SEQUENCES), "Should retain all original predictions"
         ds4.close()

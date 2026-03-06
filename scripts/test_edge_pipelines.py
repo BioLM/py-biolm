@@ -235,14 +235,14 @@ async def pipeline_1_antibody_multi_column(tmp_path):
         # Parallel predictions on antibody pairs
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
         )
         pipeline.add_prediction(
             "soluprot",
-            prediction_type="solubility",
             extractions="melting_temperature",  # mock returns this key
+            columns="solubility",
             stage_name="predict_sol",
         )
 
@@ -441,8 +441,8 @@ async def pipeline_4_chained_filters(tmp_path):
         # 3. Predict Tm
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
             depends_on=["filter_length"],
         )
@@ -526,8 +526,8 @@ async def pipeline_5_generative_pipeline(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
         )
         pipeline.add_filter(
@@ -591,8 +591,8 @@ async def pipeline_6_context_usage(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
         )
 
@@ -653,8 +653,8 @@ async def pipeline_7_non_sql_filters(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
         )
         # Custom filter: sequences starting with 'M'
@@ -723,8 +723,8 @@ async def pipeline_8_resume_and_cache(tmp_path):
         )
         pipeline1.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
         )
         pipeline1.add_filter(
@@ -753,8 +753,8 @@ async def pipeline_8_resume_and_cache(tmp_path):
         )
         pipeline2.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
         )
         pipeline2.add_filter(
@@ -806,8 +806,8 @@ async def pipeline_9_export_dataframe_extra_cols(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
         )
         await pipeline.run_async(enable_streaming=False)
@@ -862,8 +862,8 @@ async def pipeline_10_backward_compat(tmp_path):
         )
         pipeline.add_prediction(
             "temberture-regression",
-            prediction_type="tm",
             extractions="melting_temperature",
+            columns="tm",
             stage_name="predict_tm",
             depends_on=["filter_length"],
         )

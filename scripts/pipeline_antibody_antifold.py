@@ -44,6 +44,7 @@ from biolmai.pipeline import (
     GenerativePipeline,
     RankingFilter,
 )
+from biolmai.pipeline.data import EmbeddingSpec
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -137,7 +138,7 @@ async def main() -> None:
     pipeline.add_prediction(
         model_name="igbert-paired",
         action="encode",
-        prediction_type="igbert_emb",
+        embedding_extractor=EmbeddingSpec(key="embedding"),
         stage_name="igbert",
         depends_on=["filter_top10"],
         batch_size=16,
@@ -156,7 +157,8 @@ async def main() -> None:
     pipeline.add_prediction(
         model_name="abodybuilder3-plddt",
         action="predict",
-        prediction_type="abb3_plddt",
+        extractions="plddt",
+        columns="abb3_plddt",
         stage_name="abodybuilder3",
         depends_on=["filter_top10"],
         batch_size=1,

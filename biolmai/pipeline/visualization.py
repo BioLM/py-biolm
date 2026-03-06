@@ -12,13 +12,8 @@ Provides plotting functions for:
 from pathlib import Path
 from typing import Any, Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-
-# Set style
-sns.set_style("whitegrid")
 
 
 def plot_pipeline_funnel(
@@ -37,11 +32,21 @@ def plot_pipeline_funnel(
     Example:
         >>> plot_pipeline_funnel(pipeline.stage_results)
     """
+    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "matplotlib is required for visualization. "
+            "Install it with: pip install matplotlib"
+        ) from None
+
     fig, ax = plt.subplots(figsize=figsize)
 
     stages = list(stage_results.keys())
-    input_counts = [result.input_count for result in stage_results.values()]
-    output_counts = [result.output_count for result in stage_results.values()]
+    # BUG-GEN-02: Defensive access — StageResult may be missing input_count/output_count
+    input_counts = [getattr(r, 'input_count', None) or 0 for r in stage_results.values()]
+    output_counts = [getattr(r, 'output_count', None) or 0 for r in stage_results.values()]
 
     x = np.arange(len(stages))
     width = 0.35
@@ -88,9 +93,25 @@ def plot_distribution(
     Example:
         >>> plot_distribution(df, 'tm', title='Tm Distribution')
     """
+    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "matplotlib is required for visualization. "
+            "Install it with: pip install matplotlib"
+        ) from None
+
     fig, ax = plt.subplots(figsize=figsize)
 
     data = df[column].dropna()
+
+    # BUG-VIZ-01: Guard against all-NaN column producing a silent empty plot
+    if data.empty:
+        raise ValueError(
+            f"No valid (non-NaN) data in column '{column}'. "
+            f"Cannot plot distribution."
+        )
 
     ax.hist(data, bins=bins, alpha=0.7, edgecolor="black")
     ax.set_xlabel(xlabel or column)
@@ -140,6 +161,15 @@ def plot_scatter(
     Example:
         >>> plot_scatter(df, 'tm', 'plddt', color_col='temperature')
     """
+    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "matplotlib is required for visualization. "
+            "Install it with: pip install matplotlib"
+        ) from None
+
     fig, ax = plt.subplots(figsize=figsize)
 
     if color_col and color_col in df.columns:
@@ -180,6 +210,16 @@ def plot_correlation_matrix(
     Example:
         >>> plot_correlation_matrix(df, columns=['tm', 'plddt', 'solubility'])
     """
+    # BUG-GEN-01: matplotlib/seaborn imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+    except ImportError as e:
+        raise ImportError(
+            "matplotlib and seaborn are required for visualization. "
+            "Install them with: pip install matplotlib seaborn"
+        ) from e
+
     if columns is None:
         columns = df.select_dtypes(include=[np.number]).columns.tolist()
 
@@ -217,6 +257,23 @@ def plot_temperature_scan(
     Example:
         >>> plot_temperature_scan(df, 'tm', temperature_col='temperature')
     """
+    # BUG-GEN-01: matplotlib/seaborn imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+    except ImportError as e:
+        raise ImportError(
+            "matplotlib and seaborn are required for visualization. "
+            "Install them with: pip install matplotlib seaborn"
+        ) from e
+
+    # BUG-VIZ-02: Guard against missing temperature column before accessing it
+    if temperature_col not in df.columns:
+        raise ValueError(
+            f"Column '{temperature_col}' not found in DataFrame. "
+            f"Available columns: {list(df.columns)}"
+        )
+
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
 
     # Box plot
@@ -265,6 +322,15 @@ def plot_embedding_pca(
         >>> embeddings = np.array([...])  # Load from datastore
         >>> plot_embedding_pca(embeddings, labels=df['temperature'])
     """
+    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "matplotlib is required for visualization. "
+            "Install it with: pip install matplotlib"
+        ) from None
+
     from sklearn.decomposition import PCA
 
     # Perform PCA
@@ -352,6 +418,15 @@ def plot_embedding_umap(
         >>> embeddings = np.array([...])  # Load from datastore
         >>> plot_embedding_umap(embeddings, labels=df['temperature'])
     """
+    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "matplotlib is required for visualization. "
+            "Install it with: pip install matplotlib"
+        ) from None
+
     try:
         import umap
     except ImportError:
@@ -408,6 +483,15 @@ def plot_sequence_diversity(
     Example:
         >>> plot_sequence_diversity(df, reference_sequence='MKTAYIAKQRQ')
     """
+    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            "matplotlib is required for visualization. "
+            "Install it with: pip install matplotlib"
+        ) from None
+
     fig, axes = plt.subplots(1, 2, figsize=figsize)
 
     # Length distribution

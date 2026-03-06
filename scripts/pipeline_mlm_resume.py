@@ -125,8 +125,8 @@ def _add_downstream_stages(
     pipeline.add_prediction(
         model_name=LP_MODEL,
         action="score",
-        prediction_type=LP_PRED_TYPE,
         extractions="log_prob",
+        columns=LP_PRED_TYPE,
         stage_name="lp_scoring",
         depends_on=["seq_validation"],
         batch_size=64,
@@ -145,7 +145,8 @@ def _add_downstream_stages(
     pipeline.add_prediction(
         model_name="esmfold",
         action="predict",
-        extractions={"mean_plddt": "plddt"},
+        extractions="mean_plddt",
+        columns="plddt",
         stage_name="esmfold",
         depends_on=["lp_filter"],
         batch_size=4,
@@ -307,7 +308,8 @@ async def run3(datastore: DuckDBDataStore) -> None:
             name="esmfold",
             model_name="esmfold",
             action="predict",
-            prediction_type="plddt",
+            extractions="mean_plddt",
+            columns="plddt",
             batch_size=4,
             max_concurrent=2,
             skip_on_error=True,  # don't abort on per-batch timeouts
@@ -351,11 +353,12 @@ async def main() -> None:
 
     total_seq = conn.execute("SELECT COUNT(*) FROM sequences").fetchone()[0]
     total_folded = conn.execute(
-        "SELECT COUNT(*) FROM predictions WHERE prediction_type='plddt'"
+        "SELECT COUNT(*) FROM predictions WHERE prediction_type='esmfold::predict::mean_plddt'"
     ).fetchone()[0]
+    lp_cache_key = f"{LP_MODEL}::score::log_prob"
     total_lp = conn.execute(
         "SELECT COUNT(*) FROM predictions WHERE prediction_type=?",
-        [LP_PRED_TYPE],
+        [lp_cache_key],
     ).fetchone()[0]
     print(f"  Total sequences in DB  : {total_seq}")
     print(f"  Sequences with LP score: {total_lp}")

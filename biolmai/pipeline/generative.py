@@ -9,11 +9,18 @@ Supports:
 """
 
 import asyncio
+import itertools as _itertools
+import logging
 import random
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
+
+logger = logging.getLogger(__name__)
+
+# Module-level counter for unique temporary DuckDB table names
+_GENERATIVE_TEMP_COUNTER = _itertools.count()
 
 import pandas as pd
 
@@ -146,9 +153,20 @@ class SequenceSourceConfig:
     def to_spec(self) -> dict:
         """Serialize for pipeline definition persistence.
 
-        Live DataFrames / arbitrary paths are not serializable — on reconstruct
-        we fall back to ``from_db=True`` so the existing DB sequences are reused.
+        Live DataFrames are not serializable — on reconstruct we fall back to
+        ``from_db=True`` so the existing DB sequences are reused.  Plain
+        ``list[str]`` sequences are included directly so from_db() reconstruction
+        can replay the same input without requiring an existing DB (GEN-09 fix).
         """
+        # GEN-09: include list[str] sequences when serializable
+        if isinstance(self.sequences, list):
+            return {
+                "type": "SequenceSourceConfig",
+                "sequences": self.sequences,
+                "column": self.column,
+                "from_db": False,
+            }
+        # DataFrames, Path objects, and None all fall back to from_db=True
         return {
             "type": "SequenceSourceConfig",
             "from_db": True,
@@ -320,10 +338,27 @@ class GenerationStage(Stage):
                                     "perplexity": sub.get("perplexity"),
                                 }
                             )
+                        else:
+                            # BUG-GEN-06 fix: log when a DSM sub-item has no sequence
+                            logger.warning(
+                                "Skipping generation result item with missing or empty "
+                                "'sequence': %s",
+                                str(sub)[:200],
+                            )
             elif isinstance(item, dict):
-                if "sequences" in item and isinstance(item["sequences"], list):
+                sequences_list = item.get("sequences", [])
+                # GEN2-03: narrow AntiFold detection — require the first element
+                # to be a dict with 'heavy' or 'light' key so that any other model
+                # using a "sequences" key is not accidentally routed here.
+                is_antifold = (
+                    isinstance(sequences_list, list)
+                    and len(sequences_list) > 0
+                    and isinstance(sequences_list[0], dict)
+                    and ("heavy" in sequences_list[0] or "light" in sequences_list[0])
+                )
+                if is_antifold:
                     # AntiFold-style: each item has a 'sequences' list of samples
-                    for sample in item["sequences"]:
+                    for sample in sequences_list:
                         if isinstance(sample, dict):
                             heavy = sample.get("heavy")
                             light = sample.get("light")
@@ -344,11 +379,25 @@ class GenerationStage(Stage):
                                         "seq_recovery": sample.get("seq_recovery"),
                                     }
                                 )
+                            else:
+                                # BUG-GEN-06 fix: log when an AntiFold sample has no sequence
+                                logger.warning(
+                                    "Skipping generation result item with missing or empty "
+                                    "'sequence': %s",
+                                    str(sample)[:200],
+                                )
                 else:
                     # MPNN / flat dict
                     seq = item.get("sequence", "")
                     if seq:
                         sequences.append({"sequence": seq})
+                    else:
+                        # BUG-GEN-06 fix: log when a flat-dict item has no sequence
+                        logger.warning(
+                            "Skipping generation result item with missing or empty "
+                            "'sequence': %s",
+                            str(item)[:200],
+                        )
         return sequences
 
     @staticmethod
@@ -429,17 +478,67 @@ class GenerationStage(Stage):
         datastore: DataStore,
         df_input: pd.DataFrame,
         context=None,
+        ws_ids: Optional[list[int]] = None,
     ) -> list[dict]:
         """Run generation using DirectGenerationConfig.
 
         The caller is responsible for setting the correct ``item_field`` and
         ``params`` for the target model.  No auto-detection is performed.
+
+        Args:
+            ws_ids: Optional list of sequence IDs from the current working set.
+                When provided, structure lookups are scoped to only these IDs to
+                prevent cross-run contamination (GEN-05 fix).
         """
         # ---- Resolve input values ----------------------------------------
+        # BUG-GEN-08 fix: warn clearly when structure_from_stage is set without
+        # structure_from_model so the user knows all structures will be used.
+        if config.structure_from_stage and not config.structure_from_model:
+            warnings.warn(
+                f"DirectGenerationConfig has 'structure_from_stage' set but "
+                f"'structure_from_model' is not set. All structures from all upstream "
+                f"models will be used, which may cause incorrect protein designs if "
+                f"multiple structure-prediction stages have run. Set "
+                f"structure_from_model='esmfold' (or your model name) to select the "
+                f"correct structures.",
+                UserWarning,
+                stacklevel=3,
+            )
+
         if config.structure_from_stage or config.structure_from_model:
+            # GEN-05 fix: scope structure lookup to current working set sequence_ids.
+            # Collect candidate IDs: prefer ws_ids, fall back to df_input sequence_ids,
+            # then fall back to all sequences (unscoped).
+            if ws_ids is not None:
+                candidate_ws_ids = ws_ids
+            elif not df_input.empty and "sequence_id" in df_input.columns:
+                candidate_ws_ids = df_input["sequence_id"].tolist()
+            else:
+                candidate_ws_ids = None  # no scope available — use unscoped query
+
             # Read structures from DuckDB (set by an upstream prediction stage)
             model_filter = config.structure_from_model
-            if model_filter:
+            if candidate_ws_ids is not None:
+                # Scoped query: only structures for sequences in the current WS
+                ws_ids_df = pd.DataFrame({"sequence_id": candidate_ws_ids})
+                _tmp_ws = f"_direct_gen_ws_{next(_GENERATIVE_TEMP_COUNTER)}"
+                datastore.conn.register(_tmp_ws, ws_ids_df)
+                try:
+                    if model_filter:
+                        seq_ids_rows = datastore.conn.execute(
+                            f"SELECT st.sequence_id FROM structures st "
+                            f"INNER JOIN {_tmp_ws} w ON st.sequence_id = w.sequence_id "
+                            f"WHERE st.model_name = ?",
+                            [model_filter],
+                        ).fetchall()
+                    else:
+                        seq_ids_rows = datastore.conn.execute(
+                            f"SELECT st.sequence_id FROM structures st "
+                            f"INNER JOIN {_tmp_ws} w ON st.sequence_id = w.sequence_id"
+                        ).fetchall()
+                finally:
+                    datastore.conn.unregister(_tmp_ws)
+            elif model_filter:
                 seq_ids_rows = datastore.conn.execute(
                     "SELECT sequence_id FROM structures WHERE model_name = ?",
                     [model_filter],
@@ -515,13 +614,32 @@ class GenerationStage(Stage):
                 items = [{config.item_field: input_value}]
 
                 # Run generation n_runs times in parallel
-                async def _single_run():
-                    return await api.generate(items=items, params=params)
-
+                # GEN2-02: each concurrent run gets its own client to avoid
+                # sharing a single api instance across concurrent coroutines.
                 if n_runs > 1:
-                    raw_list = await asyncio.gather(
-                        *[_single_run() for _ in range(n_runs)]
+                    _model_name = config.model_name
+
+                    async def _single_run(items=items, params=params):
+                        _api = BioLMApiClient(_model_name)
+                        try:
+                            return await _api.generate(items=items, params=params)
+                        finally:
+                            await _api.shutdown()
+
+                    _all_results = await asyncio.gather(
+                        *[_single_run() for _ in range(n_runs)],
+                        return_exceptions=True,
                     )
+                    # BUG-GEN-07 fix: filter out exceptions so one failed run does
+                    # not cancel all parallel runs.
+                    raw_list = []
+                    for _i, _r in enumerate(_all_results):
+                        if isinstance(_r, Exception):
+                            logger.warning(
+                                "Generation run %d/%d failed: %s", _i + 1, n_runs, _r
+                            )
+                        else:
+                            raw_list.append(_r)
                 else:
                     raw_list = [await api.generate(items=items, params=params)]
 
@@ -530,7 +648,12 @@ class GenerationStage(Stage):
                         raise ValueError(
                             f"API error from {config.model_name}: {raw.get('error')}"
                         )
-                    for seq_data in self._extract_sequences(raw):
+                    extracted = self._extract_sequences(raw)
+                    # GEN2-09: if extraction yielded nothing but raw is non-empty,
+                    # check whether the first element is an error dict.
+                    if not extracted and isinstance(raw, list) and raw and isinstance(raw[0], dict) and "error" in raw[0]:
+                        raise ValueError(f"API returned error: {raw[0]}")
+                    for seq_data in extracted:
                         results.append(
                             {
                                 "model_name": config.model_name,
@@ -648,24 +771,19 @@ class GenerationStage(Stage):
                             f"API error from {config.model_name}: {result.get('error')}"
                         )
 
-                    # Extract sequences
-                    if isinstance(result, list):
-                        for item in result:
-                            if isinstance(item, dict):
-                                seq = item.get("sequence", str(item))
-                            else:
-                                seq = str(item)
-
-                            results.append(
-                                {
-                                    "sequence": seq,
-                                    "model_name": config.model_name,
-                                    "temperature": temp,
-                                    "sampling_params": config.sampling_params,
-                                    "generation_method": "generate",
-                                    "parent_sequence": config.parent_sequence,
-                                }
-                            )
+                    # Extract sequences using the same format-aware extractor
+                    # that handles flat/MPNN, AntiFold-nested, and DSM double-nested.
+                    for extracted in GenerationStage._extract_sequences(result):
+                        results.append(
+                            {
+                                **extracted,
+                                "model_name": config.model_name,
+                                "temperature": temp,
+                                "sampling_params": config.sampling_params,
+                                "generation_method": "generate",
+                                "parent_sequence": config.parent_sequence,
+                            }
+                        )
 
             finally:
                 if api:
@@ -675,17 +793,52 @@ class GenerationStage(Stage):
 
     @staticmethod
     async def _run_sequence_source(
-        config: SequenceSourceConfig, datastore: DataStore
+        config: SequenceSourceConfig,
+        datastore: DataStore,
+        run_id: Optional[str] = None,
     ) -> list[dict]:
         """Load sequences from an existing source without calling any API.
 
         Handles list[str], pd.DataFrame, CSV/FASTA paths, and DB reload.
+
+        When ``config.from_db=True`` and a ``run_id`` is provided, the query is
+        scoped to sequences that have a ``generation_metadata`` row for that run
+        (i.e. sequences generated in that run), preventing cross-run contamination
+        on resume.  If no such rows exist (e.g. sequences were added via
+        ``DataPipeline`` rather than generated), all DB sequences are returned.
         """
         sequences: list[str] = []
 
         if config.from_db or config.sequences is None:
-            df_db = datastore.get_all_sequences()
-            sequences = df_db["sequence"].dropna().tolist() if not df_db.empty else []
+            # GEN-02: scope to current run_id when resuming a GenerativePipeline run.
+            # Only scope when this run has generation_metadata rows (i.e. sequences
+            # were generated in this run).  Otherwise return all DB sequences to
+            # preserve the use case of reloading externally-added sequences (e.g. from
+            # a prior DataPipeline run loaded via use_sequences(from_db=True)).
+            scoped = False
+            if run_id:
+                try:
+                    count_row = datastore.conn.execute(
+                        "SELECT COUNT(*) FROM generation_metadata WHERE run_id = ?",
+                        [run_id],
+                    ).fetchone()
+                    if count_row and count_row[0] > 0:
+                        rows = datastore.conn.execute(
+                            """
+                            SELECT s.sequence
+                            FROM sequences s
+                            INNER JOIN generation_metadata gm ON s.sequence_id = gm.sequence_id
+                            WHERE gm.run_id = ?
+                            """,
+                            [run_id],
+                        ).fetchall()
+                        sequences = [r[0] for r in rows if r[0]]
+                        scoped = True
+                except Exception:
+                    pass
+            if not scoped:
+                df_db = datastore.get_all_sequences()
+                sequences = df_db["sequence"].dropna().tolist() if not df_db.empty else []
 
         elif isinstance(config.sequences, list):
             sequences = [str(s) for s in config.sequences if s]
@@ -752,21 +905,32 @@ class GenerationStage(Stage):
         datastore: DataStore,
         df_input: pd.DataFrame,
         context=None,
+        run_id: Optional[str] = None,
+        ws_ids: Optional[list[int]] = None,
     ) -> list[dict]:
         """Dispatch a single config to the appropriate generation method."""
         if isinstance(cfg, SequenceSourceConfig):
-            return await self._run_sequence_source(cfg, datastore)
+            return await self._run_sequence_source(cfg, datastore, run_id=run_id)
         elif isinstance(cfg, RemaskingConfig):
-            parent = getattr(cfg, "parent_sequence", None)
-            num = getattr(cfg, "num_variants", 100)
+            # RemaskingConfig takes one parent → N variants.  The parent_sequence must
+            # be supplied by the caller (set as a dynamic attribute on the config), because
+            # accepting multiple parents from df_input would explode into ambiguous provenance:
+            # which variant came from which parent?  Use one RemaskingConfig per parent.
+            num = cfg.num_variants
+            parent = cfg.parent_sequence
             if parent is None:
-                raise ValueError("RemaskingConfig requires a parent_sequence attribute")
-            return await self._run_remasking(
-                cfg, parent_sequence=parent, num_variants=num
-            )
+                raise ValueError(
+                    "RemaskingConfig requires a parent_sequence. Set it before dispatch:\n"
+                    "    config = RemaskingConfig(...)\n"
+                    "    config.parent_sequence = 'MKTAYIAKQRQ'\n"
+                    "    config.num_variants = 50\n"
+                    "Or use GenerationConfig(remasking_config=..., parent_sequence=...) "
+                    "for the legacy API."
+                )
+            return await self._run_remasking(cfg, parent_sequence=parent, num_variants=num)
         elif isinstance(cfg, DirectGenerationConfig):
             return await self._run_direct_generation(
-                cfg, datastore, df_input, context=context
+                cfg, datastore, df_input, context=context, ws_ids=ws_ids
             )
         elif isinstance(cfg, GenerationConfig):
             return await self._generate_with_config(cfg, datastore)
@@ -778,16 +942,26 @@ class GenerationStage(Stage):
     ) -> tuple[pd.DataFrame, StageResult]:
         """Generate sequences using configured models."""
         context = kwargs.get("context")
+        run_id = kwargs.get("run_id")
+        # GEN-05: extract WS IDs from df_input for structure scoping
+        ws_ids: Optional[list[int]] = (
+            df["sequence_id"].tolist()
+            if not df.empty and "sequence_id" in df.columns
+            else None
+        )
 
         print(f"  Generating with {len(self.configs)} model configuration(s)...")
 
         if len(self.configs) == 1:
             results = await self._dispatch_config(
-                self.configs[0], datastore, df, context=context
+                self.configs[0], datastore, df, context=context, run_id=run_id,
+                ws_ids=ws_ids,
             )
         else:
             tasks = [
-                self._dispatch_config(cfg, datastore, df, context=context)
+                self._dispatch_config(
+                    cfg, datastore, df, context=context, run_id=run_id, ws_ids=ws_ids,
+                )
                 for cfg in self.configs
             ]
             results_list = await asyncio.gather(*tasks)
@@ -809,7 +983,20 @@ class GenerationStage(Stage):
         )
         initial_count = len(df_generated)
 
+        # BUG-GEN-05 fix: warn when generation produces 0 sequences so the user
+        # gets an actionable message rather than silently passing nothing downstream.
+        if df_generated.empty:
+            warnings.warn(
+                f"GenerationStage '{self.name}' produced 0 sequences. "
+                "Check API response and generation config.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         if self.deduplicate and initial_count > 0:
+            # GEN2-06: normalize to uppercase before dedup so case variants
+            # (e.g. 'mktay' vs 'MKTAY') are treated as identical.
+            df_generated["sequence"] = df_generated["sequence"].str.upper()
             df_generated = df_generated.drop_duplicates(
                 subset=["sequence"]
             ).reset_index(drop=True)
@@ -826,22 +1013,19 @@ class GenerationStage(Stage):
             seq_ids = datastore.add_sequences_batch(df_generated["sequence"].tolist())
             df_generated["sequence_id"] = seq_ids
 
-            # Store generation metadata per sequence
-            for _row_idx, (seq_id, row) in enumerate(
-                zip(seq_ids, df_generated.itertuples(index=False))
-            ):
+            # Store generation metadata in one batched INSERT (BUG-10 fix: replaces N+1 loop)
+            run_id = kwargs.get("run_id", "")
+            meta_rows = []
+            for seq_id, row in zip(seq_ids, df_generated.itertuples(index=False)):
                 sampling_params = getattr(row, "sampling_params", None) or {}
-                datastore.add_generation_metadata(
-                    seq_id,
-                    model_name=row.model_name,
-                    temperature=getattr(row, "temperature", None),
-                    top_k=sampling_params.get("top_k"),
-                    top_p=sampling_params.get("top_p"),
-                    num_return_sequences=sampling_params.get("num_return_sequences"),
-                    do_sample=sampling_params.get("do_sample"),
-                    repetition_penalty=sampling_params.get("repetition_penalty"),
-                    max_length=sampling_params.get("max_length"),
-                )
+                meta_rows.append({
+                    "sequence_id": seq_id,
+                    "run_id": run_id,
+                    "model_name": row.model_name,
+                    "temperature": getattr(row, "temperature", None),
+                    "sampling_params": sampling_params,
+                })
+            datastore.add_generation_metadata_batch(meta_rows)
 
         return df_generated, StageResult(
             stage_name=self.name,
@@ -1094,6 +1278,7 @@ class GenerativePipeline(BasePipeline):
         """
         slot = self._generation_slot()
         if slot is not None:
+            slot.configs = list(slot.configs)
             slot.configs.append(config)
         else:
             self._set_generation_slot(
@@ -1115,7 +1300,7 @@ class GenerativePipeline(BasePipeline):
         ``_generated_ws`` is populated by ``run_async()`` after all
         GenerationStages have run; it is the union of every generated sequence ID.
         """
-        if getattr(self, "_generated_ws", None) is not None:
+        if self._generated_ws is not None:
             return self._generated_ws
         return WorkingSet(frozenset())
 
@@ -1141,6 +1326,9 @@ class GenerativePipeline(BasePipeline):
             else:
                 stage_name = f"{model_name}_{action}"
 
+        if depends_on is None:
+            depends_on = [self.stages[-1].name] if self.stages else []
+
         stage = PredictionStage(
             name=stage_name,
             model_name=model_name,
@@ -1148,7 +1336,7 @@ class GenerativePipeline(BasePipeline):
             extractions=extractions,
             columns=columns,
             params=params,
-            depends_on=depends_on or [],
+            depends_on=depends_on,
             **kwargs,
         )
 
@@ -1208,10 +1396,13 @@ class GenerativePipeline(BasePipeline):
 
         stage_name = stage_name or f"filter_{len(self.stages)}"
 
+        if depends_on is None:
+            depends_on = [self.stages[-1].name] if self.stages else []
+
         stage = FilterStage(
             name=stage_name,
             filter_func=filter_func,
-            depends_on=depends_on or [],
+            depends_on=depends_on,
             **kwargs,
         )
 
@@ -1299,8 +1490,22 @@ class GenerativePipeline(BasePipeline):
         """
         import copy as _copy
 
+        # Reset generated_ws at start so previous run's data doesn't bleed through
+        self._generated_ws = None
+
         # Save original stages so the pipeline is idempotent (can be called again)
         original_stages = self.stages
+
+        # BUG-07 fix: create the pipeline_runs record BEFORE any generation stage runs,
+        # so that mark_stage_complete() never writes orphan stage_completions rows.
+        # create_pipeline_run() is idempotent (ON CONFLICT DO UPDATE), so the later
+        # call inside super().run_async() is harmless.
+        self.datastore.create_pipeline_run(
+            run_id=self.run_id,
+            pipeline_type=self.pipeline_type,
+            config=self._get_config(),
+            status="running",
+        )
 
         try:
             # Separate generation stages from processing stages (order-independent)
@@ -1317,8 +1522,11 @@ class GenerativePipeline(BasePipeline):
                     print(f"Configs: {len(gen_stage.configs)}")
                     print(f"{'='*60}")
 
+                # BUG-03 fix: pass run_id and context so generation stages have
+                # access to PipelineContext and resume bookkeeping.
                 df_generated, result = await gen_stage.process(
-                    pd.DataFrame(), self.datastore
+                    pd.DataFrame(), self.datastore,
+                    run_id=self.run_id, context=self.context,
                 )
                 self.stage_results[gen_stage.name] = result
                 self._stage_data[gen_stage.name] = df_generated
@@ -1329,24 +1537,127 @@ class GenerativePipeline(BasePipeline):
                     self._working_sets[gen_stage.name] = ws
                     all_gen_ids |= set(ids)
 
+                # Mark the generation stage complete so resume logic works
+                if self.datastore:
+                    self.datastore.mark_stage_complete(
+                        run_id=self.run_id,
+                        stage_name=gen_stage.name,
+                        stage_id=f"{self.run_id}_{gen_stage.name}",
+                        input_count=0,
+                        output_count=len(df_generated),
+                        status="completed",
+                    )
+
                 if self.verbose:
                     print(f"\n{result}")
                     print(f"{'='*60}")
 
+            # BUG-02 fix: warn when generation produced no sequences so the user
+            # gets an actionable message rather than silently processing 0 inputs.
+            if not all_gen_ids:
+                import warnings
+                warnings.warn(
+                    "GenerativePipeline: no sequences were produced by any generation "
+                    "stage. Downstream prediction/filter stages will receive 0 inputs. "
+                    "Check your generation configs, API key, and model availability.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+
             # Union of all generated IDs becomes the initial WS for downstream stages
             self._generated_ws = WorkingSet.from_ids(list(all_gen_ids)) if all_gen_ids else None
 
+            # BUG-GEN-09 fix: capture what THIS run generated before super().run_async()
+            # resets internal dicts.  We restore it afterward so a second call to run()
+            # always uses the fresh generation result, not a stale backup.
+            _fresh_gen_ws = self._generated_ws
+
+            # BUG-01 fix: save the full pipeline definition (including GenerationStage)
+            # BEFORE stripping gen stages from self.stages.  super().run_async() will
+            # call _save_definition_and_register_columns() again with remaining_stages
+            # only — we capture the full definition_id here and restore it afterward
+            # so that pipeline_runs.definition_id points to the complete definition.
+            self._save_definition_and_register_columns()
+            from biolmai.pipeline.pipeline_def import _pipeline_def_hash
+            import json as _json
+            _full_stages_specs = []
+            for s in self.stages:
+                try:
+                    _full_stages_specs.append(s.to_spec())
+                except NotImplementedError:
+                    _full_stages_specs.append({"type": s.__class__.__name__, "name": s.name})
+            _input_cols = self.input_schema.columns if self.input_schema else None
+            _full_def_id = _pipeline_def_hash(self.pipeline_type, _input_cols, _full_stages_specs)
+
+            # GEN2-01 fix: capture full_config_dict BEFORE the stage swap so
+            # self._get_config() sees all stages (including generation stages).
+            # This eliminates the concurrency hazard from the previous approach
+            # of temporarily restoring original_stages inside the UPDATE block.
+            full_config_dict = self._get_config()
+
             # Build the execution plan without the generation stages.
             # Strip gen stage names from depends_on so dependency resolution works.
+            # BUG-13 fix: use deepcopy so _api_client and other mutable attrs are
+            # not shared between the copy and the original across repeated run() calls.
             remaining_stages = []
             for s in non_gen_stages:
-                s_copy = _copy.copy(s)
+                s_copy = _copy.deepcopy(s)
                 s_copy.depends_on = [d for d in s.depends_on if d not in gen_names]
                 remaining_stages.append(s_copy)
             self.stages = remaining_stages
 
+            # GEN-01 fix: backup gen stage dicts before super().run_async() wipes them.
+            # BasePipeline.run_async() resets stage_results, _working_sets, _stage_data
+            # at the top; we restore the generation stage entries afterward so callers
+            # can inspect both generation and downstream results via stage_results.
+            _gen_ws_backup = {
+                s.name: self._working_sets[s.name]
+                for s in gen_stages
+                if s.name in self._working_sets
+            }
+            _gen_stage_backup = {
+                s.name: self._stage_data[s.name]
+                for s in gen_stages
+                if s.name in self._stage_data
+            }
+            _gen_results_backup = {
+                s.name: self.stage_results[s.name]
+                for s in gen_stages
+                if s.name in self.stage_results
+            }
+
             # Run remaining stages using base class (starts from _generated_ws)
-            return await super().run_async(**kwargs)
+            run_result = await super().run_async(**kwargs)
+
+            # BUG-GEN-09 fix: restore this run's fresh generation WS.
+            # super().run_async() resets _generated_ws to None at the top of every
+            # call, so on a second run() the old backup would overwrite the new
+            # generation result.  Always prefer what this run actually generated.
+            if _fresh_gen_ws is not None:
+                self._generated_ws = _fresh_gen_ws
+
+            # Restore generation stage entries wiped by super().run_async() reset
+            for name, ws in _gen_ws_backup.items():
+                if name not in self._working_sets:
+                    self._working_sets[name] = ws
+            for name, df_s in _gen_stage_backup.items():
+                if name not in self._stage_data:
+                    self._stage_data[name] = df_s
+            for name, res in _gen_results_backup.items():
+                if name not in self.stage_results:
+                    self.stage_results[name] = res
+
+            # Restore pipeline_runs.definition_id to the full definition (BUG-01 fix)
+            # and update .config to include generation stages (GEN2-01 fix).
+            if self.datastore:
+                # GEN2-01: full_config was captured BEFORE the stage swap (see above),
+                # so we use it directly here instead of doing a fragile stages swap.
+                self.datastore.conn.execute(
+                    "UPDATE pipeline_runs SET definition_id = ?, config = ? WHERE run_id = ?",
+                    [_full_def_id, _json.dumps(full_config_dict), self.run_id],
+                )
+
+            return run_result
         finally:
             # Always restore original stages so the pipeline remains idempotent
             self.stages = original_stages
@@ -1366,23 +1677,45 @@ def Generate(
     Args:
         model_name: BioLM model name
         num_sequences: Number of sequences to generate
-        temperature: Temperature or list of temperatures
-        parent_sequence: Optional parent sequence
-        **kwargs: Additional arguments
+        temperature: Temperature (float) or list of temperatures for a temperature scan.
+            When a list is given, one DirectGenerationConfig is created per temperature.
+        parent_sequence: Optional parent sequence for sequence-conditioned models
+        **kwargs: Additional arguments forwarded to GenerativePipeline
 
     Returns:
         DataFrame with generated sequences
 
     Example:
-        >>> df = Generate('proteinmpnn', num_sequences=100, temperature=[0.5, 1.0])
+        >>> df = Generate('dsm-150m-base', num_sequences=100, parent_sequence='MKTAY')
     """
-    config = GenerationConfig(
-        model_name=model_name,
-        num_sequences=num_sequences,
-        temperature=temperature,
-        parent_sequence=parent_sequence,
-    )
+    # GEN2-07: validate that at least one of parent_sequence or structure_path is given
+    if parent_sequence is None and "structure_path" not in kwargs:
+        raise ValueError(
+            "Generate() requires either parent_sequence= or structure_path= to be provided"
+        )
 
-    pipeline = GenerativePipeline(generation_configs=[config], **kwargs)
-    pipeline.run()
-    return pipeline.get_final_data()
+    # BUG-API-04: support list of temperatures — create one config per temperature
+    temps = temperature if isinstance(temperature, list) else [float(temperature)]
+    item_field = "sequence" if parent_sequence is not None else "pdb"
+    configs = [
+        DirectGenerationConfig(
+            model_name=model_name,
+            sequence=parent_sequence,
+            item_field=item_field,
+            num_sequences=num_sequences,
+            temperature=float(t),
+        )
+        for t in temps
+    ]
+
+    pipeline = GenerativePipeline(generation_configs=configs, **kwargs)
+    # BUG-API-03: ensure DuckDB connection is closed even if run() raises
+    try:
+        pipeline.run()
+        return pipeline.get_final_data()
+    finally:
+        if getattr(pipeline, "_auto_created_datastore", False):
+            try:
+                pipeline.datastore.close()
+            except Exception:
+                pass

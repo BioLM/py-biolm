@@ -33,11 +33,11 @@ pipeline = DataPipeline(sequences=[
     "MSHHWGYGKHNGPEHWHKDFPIAKGERQSPVDIDTHTAKYDPSLKPLSVSY",
 ])
 
-# Predict Tm — extractions tells the stage which response key to read
+# Predict Tm — extractions= is the response key, columns= is the output column name
 pipeline.add_prediction(
     "temberture-regression",
-    prediction_type="tm",
     extractions="prediction",        # API returns {"prediction": 48.6}
+    columns="tm",                    # output column name in DataFrame
 )
 
 # Filter: keep Tm > 48
@@ -62,14 +62,14 @@ pipeline = DataPipeline(sequences=my_sequences)
 # These run in parallel (no dependencies between them)
 pipeline.add_prediction(
     "temberture-regression",
-    prediction_type="tm",
     extractions="prediction",
+    columns="tm",
     stage_name="predict_tm",
 )
 pipeline.add_prediction(
     "soluprot",
-    prediction_type="solubility",
     extractions="soluble",           # API returns {"soluble": 0.37}
+    columns="solubility",
     stage_name="predict_sol",
 )
 
@@ -100,8 +100,8 @@ config = DirectGenerationConfig(
 pipeline = GenerativePipeline(generation_configs=[config])
 pipeline.add_prediction(
     "temberture-regression",
-    prediction_type="tm",
     extractions="prediction",
+    columns="tm",
 )
 pipeline.add_filter(
     RankingFilter("tm", n=20, ascending=False),
@@ -120,23 +120,23 @@ Every prediction and embedding stage requires explicit extraction — the stage 
 ### Prediction Extraction (`extractions=`)
 
 ```python
-# Simple: single response key
+# Simple: single response key → single column
 pipeline.add_prediction("temberture-regression",
-    prediction_type="tm",
     extractions="prediction",          # Response: {"prediction": 48.6}
+    columns="tm",                      # Output column name (defaults to response key)
 )
 
 # Multiple values from one response
 pipeline.add_prediction("esmfold",
-    prediction_type="plddt",
-    extractions={"mean_plddt": "plddt", "ptm": "ptm"},
+    extractions=["mean_plddt", "ptm"],          # Read both keys
+    columns={"mean_plddt": "plddt"},            # Rename mean_plddt → plddt; ptm stays "ptm"
 )
 
 # With array reduction (per-residue → scalar)
 from biolmai.pipeline.data import ExtractionSpec
 pipeline.add_prediction("esmfold",
-    prediction_type="plddt",
-    extractions=[ExtractionSpec("plddt", "plddt", reduction="mean")],
+    extractions=[ExtractionSpec("mean_plddt", reduction="mean")],
+    columns="plddt",
 )
 ```
 
@@ -200,16 +200,16 @@ pipeline = DataPipeline(
 
 # Predict Tm on heavy chain only
 pipeline.add_prediction("temberture-regression",
-    prediction_type="tm_heavy",
     extractions="prediction",
+    columns="tm_heavy",
     item_columns={"sequence": "heavy_chain"},   # Send heavy_chain as "sequence"
     stage_name="predict_tm_heavy",
 )
 
 # Predict Tm on light chain (runs in parallel)
 pipeline.add_prediction("temberture-regression",
-    prediction_type="tm_light",
     extractions="prediction",
+    columns="tm_light",
     item_columns={"sequence": "light_chain"},
     stage_name="predict_tm_light",
 )
@@ -389,6 +389,26 @@ pipeline = DataPipeline(
 # Old sequences hit cache; only new ones call the API
 ```
 
+### GenerativePipeline resume behaviour
+
+`GenerativePipeline` (which runs a generation stage before downstream
+prediction/filter stages) **always re-runs the generation stage** when resumed.
+Generation is stochastic — re-running produces a fresh set of sequences each
+time, which is the expected behaviour.
+
+Downstream prediction and filter stages still benefit fully from the prediction
+cache: any sequence that was already scored in a previous run will not be sent
+to the API again.
+
+```python
+# First run — generates 100 sequences, runs Tm prediction
+gen_pipeline.run()
+
+# Resume — generates another 100 sequences (fresh), Tm hits cache for any
+# sequences already scored in the first run
+gen_pipeline.run(resume=True)
+```
+
 ---
 
 ## DuckDB DataStore
@@ -469,11 +489,11 @@ pipeline = DataPipeline(sequences=[LCC] + generated["sequence"].tolist())
 pipeline.add_filter(ValidAminoAcidFilter())
 pipeline.add_filter(SequenceLengthFilter(min_length=100, max_length=500),
                     depends_on=["filter_0"])
-pipeline.add_prediction("temberture-regression", prediction_type="tm",
-                        extractions="prediction", depends_on=["filter_1"])
-pipeline.add_prediction("soluprot", prediction_type="solubility",
-                        extractions="soluble", depends_on=["filter_1"])
-pipeline.add_prediction("esmc-300m", action="score", prediction_type="log_prob",
+pipeline.add_prediction("temberture-regression",
+                        extractions="prediction", columns="tm", depends_on=["filter_1"])
+pipeline.add_prediction("soluprot",
+                        extractions="soluble", columns="solubility", depends_on=["filter_1"])
+pipeline.add_prediction("esmc-300m", action="score",
                         extractions="log_prob", depends_on=["filter_1"])
 pipeline.add_filter(ThresholdFilter("tm", min_value=45),
                     depends_on=["predict_tm"])

@@ -131,8 +131,8 @@ async def main() -> None:
     pipeline.add_prediction(
         model_name="temberture-regression",
         action="predict",
-        prediction_type="tm",
-        extractions="melting_temperature",
+        extractions="prediction",
+        columns="tm",
         stage_name="temberture",
         depends_on=["generation"],
         batch_size=32,
@@ -146,7 +146,8 @@ async def main() -> None:
     pipeline.add_prediction(
         model_name="soluprot",
         action="predict",
-        prediction_type="solubility",
+        extractions="soluble",
+        columns="solubility",
         stage_name="soluprot",
         depends_on=["generation"],
         batch_size=32,

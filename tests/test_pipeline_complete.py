@@ -107,6 +107,64 @@ def test_filter_stage_actually_filters_in_batch_mode(tmp_path):
     assert all(df["tm"] >= 60.0), "All remaining sequences should have tm >= 60"
 
 
+def test_filter_auto_depends_on_previous_stage(tmp_path):
+    """add_filter() without explicit depends_on must auto-depend on the last stage.
+
+    Regression: previously add_filter() used depends_on=[], placing the filter
+    in the same topological level as the prediction stage.  asyncio.gather() ran
+    them in parallel, so the filter always saw an empty predictions table.
+    """
+    api_values = [80.0, 40.0, 90.0, 30.0]
+
+    with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
+        MockCls.return_value = make_api_mock(values=api_values)
+        pipeline = _make_pipeline(tmp_path, sequences=SEQS[:4])
+        pipeline.add_prediction(
+            "temberture-regression", extractions="melting_temperature", columns="tm"
+        )
+        # No depends_on — auto-dependency should be set
+        pipeline.add_filter(ThresholdFilter("tm", min_value=60.0))
+        pipeline.run()
+
+    # Verify auto-dependency was set correctly
+    filter_stage = pipeline.stages[1]
+    assert filter_stage.depends_on == ["predict_tm"], (
+        f"Filter stage should auto-depend on prediction stage, got {filter_stage.depends_on}"
+    )
+
+    df = pipeline.get_final_data()
+    assert len(df) == 2, f"Expected 2 sequences (tm>=60), got {len(df)}: {df['tm'].tolist()}"
+    assert all(df["tm"] >= 60.0), "All remaining sequences should pass the threshold filter"
+
+
+def test_add_predictions_parallel_same_deps(tmp_path):
+    """add_predictions() stages must share the same upstream dep (run in parallel).
+
+    Regression: if add_prediction() auto-deps without special handling in
+    add_predictions(), the second model would chain onto the first model
+    instead of running in parallel.
+    """
+    pipeline = _make_pipeline(tmp_path)
+    pipeline.add_predictions([
+        {"model_name": "temberture-regression", "extractions": "prediction", "columns": "tm"},
+        {"model_name": "soluprot", "extractions": "soluble"},
+    ])
+    predict_tm = pipeline.stages[0]
+    predict_soluble = pipeline.stages[1]
+    # Both should have the same deps (both empty since they're the first stages)
+    assert predict_tm.depends_on == predict_soluble.depends_on, (
+        f"Parallel stages should share deps: "
+        f"predict_tm={predict_tm.depends_on}, predict_soluble={predict_soluble.depends_on}"
+    )
+    # Filter after add_predictions depends on the last prediction stage name
+    pipeline.add_filter(ThresholdFilter("tm", min_value=40.0))
+    filter_stage = pipeline.stages[2]
+    # Filter must come AFTER both predictions — it depends on the last-added prediction
+    assert len(filter_stage.depends_on) == 1, (
+        f"Filter should depend on one stage, got {filter_stage.depends_on}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test 2: mark_stage_complete() does not crash (Bug 1 regression)
 # ---------------------------------------------------------------------------
@@ -1266,6 +1324,8 @@ def test_multi_column_full_pipeline_with_prediction(tmp_path):
             "temberture-regression",
             extractions="melting_temperature",
             columns="tm",
+            # Use item_columns to map the correct column for multi-column input
+            item_columns={"heavy_chain": "heavy_chain"},
         )
         pipeline.add_filter(
             ThresholdFilter("tm", min_value=60.0),
@@ -1763,17 +1823,28 @@ def test_use_sequences_from_db(tmp_path):
 
 
 def test_sequence_source_config_to_spec_roundtrip():
-    """SequenceSourceConfig.to_spec() serializes cleanly; from_db=True on reconstruct."""
+    """SequenceSourceConfig.to_spec() serializes list[str] directly (GEN-09 fix).
+
+    When sequences is a list[str], to_spec() includes the list so that
+    pipeline from_db() reconstruction can replay the same input without
+    requiring an existing DB.  DataFrames / paths still fall back to from_db=True.
+    """
+    # list[str] — sequences should be serialized directly
     cfg = SequenceSourceConfig(sequences=["MKTAY"], column="sequence")
     spec = cfg.to_spec()
     assert spec["type"] == "SequenceSourceConfig"
-    assert spec["from_db"] is True
+    assert spec["from_db"] is False  # list[str] is serializable — no from_db fallback
+    assert spec["sequences"] == ["MKTAY"]
     assert spec["column"] == "sequence"
 
     from biolmai.pipeline.pipeline_def import _config_from_spec
     cfg2 = _config_from_spec(spec)
     assert isinstance(cfg2, SequenceSourceConfig)
-    assert cfg2.from_db is True
+
+    # None / from_db=True — should still fall back to from_db=True
+    cfg_db = SequenceSourceConfig(sequences=None, column="sequence")
+    spec_db = cfg_db.to_spec()
+    assert spec_db["from_db"] is True
 
 
 def test_set_generation_multi_model_reruns(tmp_path):
