@@ -1,11 +1,12 @@
 """References to API endpoints."""
+
 import warnings
 
 warnings.warn(
     "The biolmai.core.legacy.api module is deprecated. "
     "Please use biolmai.models.Model instead.",
     DeprecationWarning,
-    stacklevel=2
+    stacklevel=2,
 )
 
 import datetime
@@ -23,11 +24,15 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
+from biolmai.biolmai import log
 from biolmai.core import auth
 from biolmai.core.asynch import async_api_call_wrapper
-from biolmai.biolmai import log
 from biolmai.core.const import MULTIPROCESS_THREADS
-from biolmai.core.payloads import INST_DAT_TXT, PARAMS_ITEMS, predict_resp_many_in_one_to_many_singles
+from biolmai.core.payloads import (
+    INST_DAT_TXT,
+    PARAMS_ITEMS,
+    predict_resp_many_in_one_to_many_singles,
+)
 
 
 @lru_cache(maxsize=64)
@@ -46,6 +51,7 @@ def text_validator(text, c):
         c(text)
     except Exception as e:
         return str(e)
+
 
 def combine_validation(x, y):
     if x is None and y is None:
@@ -72,7 +78,9 @@ def validate_action(action):
 
             # Is the function we decorated a class method?
             if is_method:
-                name = f"{f.__module__}.{class_obj_self.__class__.__name__}.{f.__name__}"
+                name = (
+                    f"{f.__module__}.{class_obj_self.__class__.__name__}.{f.__name__}"
+                )
             else:
                 name = f"{f.__module__}.{f.__name__}"
 
@@ -105,7 +113,9 @@ def validate_action(action):
                     input_data["validation"] = validation
                 else:
                     # masking and loc may be more performant option
-                    input_data["validation"] = input_data["validation"].combine(validation, combine_validation)
+                    input_data["validation"] = input_data["validation"].combine(
+                        validation, combine_validation
+                    )
 
             # Mark your batches, excluding invalid rows
             valid_dat = input_data.loc[input_data.validation.isnull(), :].copy()
@@ -122,7 +132,9 @@ def validate_action(action):
             return res
 
         return wrapper
+
     return validate
+
 
 def convert_input(f):
     def wrapper(*args, **kwargs):
@@ -152,7 +164,7 @@ def convert_input(f):
 
 
 class APIEndpoint:
-     # Overwrite in parent classes as needed
+    # Overwrite in parent classes as needed
     batch_size = 3
     params = None
     action_classes = ()
@@ -167,7 +179,9 @@ class APIEndpoint:
     generate_input_classes = ()
     transform_input_classes = ()
 
-    def __init__(self, multiprocess_threads=None, compress_requests=True, compress_threshold=256):
+    def __init__(
+        self, multiprocess_threads=None, compress_requests=True, compress_threshold=256
+    ):
         # Check for instance-specific threads, otherwise read from env var
         if multiprocess_threads is not None:
             self.multiprocess_threads = multiprocess_threads
@@ -181,7 +195,9 @@ class APIEndpoint:
         self.compress_requests = compress_requests
         self.compress_threshold = compress_threshold
 
-    def post_batches(self, dat, slug, action, payload_maker, resp_key, key="sequence", params=None):
+    def post_batches(
+        self, dat, slug, action, payload_maker, resp_key, key="sequence", params=None
+    ):
         keep_batches = dat.loc[~dat.batch.isnull(), ["text", "batch"]]
         if keep_batches.shape[0] == 0:
             pass  # Do nothing - we made nice JSON errors to return in the DF
@@ -189,7 +205,16 @@ class APIEndpoint:
             # raise AssertionError(err)
         if keep_batches.shape[0] > 0:
             api_resps = async_api_call_wrapper(
-                keep_batches, slug, action, payload_maker, resp_key, api_version=self.api_version, key=key, params=params, compress_requests=self.compress_requests, compress_threshold=self.compress_threshold,
+                keep_batches,
+                slug,
+                action,
+                payload_maker,
+                resp_key,
+                api_version=self.api_version,
+                key=key,
+                params=params,
+                compress_requests=self.compress_requests,
+                compress_threshold=self.compress_threshold,
             )
             if isinstance(api_resps, pd.DataFrame):
                 batch_res = api_resps.explode("api_resp")  # Should be lists of results
@@ -220,7 +245,9 @@ class APIEndpoint:
         dat.loc[dat.api_resp.isnull(), "api_resp"] = (
             dat.loc[~dat.validation.isnull(), "validation"]
             .apply(
-                predict_resp_many_in_one_to_many_singles, args=(None, None, True, None), response_key=response_key
+                predict_resp_many_in_one_to_many_singles,
+                args=(None, None, True, None),
+                response_key=response_key,
             )
             .explode()
         )
@@ -231,11 +258,21 @@ class APIEndpoint:
     @validate_action("predict")
     def predict(self, dat, params=None):
         if self.api_version == 1:
-            dat = self.post_batches(dat, self.slug, "predict", INST_DAT_TXT, "predictions")
+            dat = self.post_batches(
+                dat, self.slug, "predict", INST_DAT_TXT, "predictions"
+            )
             dat = self.unpack_local_validations(dat, "predictions")
         else:
-            dat = self.post_batches(dat, self.slug, "predict", PARAMS_ITEMS, "results", key=self.predict_input_key, params=params)
-            dat = self.unpack_local_validations(dat,"results")
+            dat = self.post_batches(
+                dat,
+                self.slug,
+                "predict",
+                PARAMS_ITEMS,
+                "results",
+                key=self.predict_input_key,
+                params=params,
+            )
+            dat = self.unpack_local_validations(dat, "results")
         return dat.api_resp.replace(np.nan, None).tolist()
 
     def infer(self, dat, params=None):
@@ -247,14 +284,21 @@ class APIEndpoint:
         dat = self.post_batches(
             dat, self.slug, "transform", INST_DAT_TXT, "predictions"
         )
-        dat = self.unpack_local_validations(dat,"predictions")
+        dat = self.unpack_local_validations(dat, "predictions")
         return dat.api_resp.replace(np.nan, None).tolist()
 
     @convert_input
     @validate_action("encode")
     def encode(self, dat, params=None):
-
-        dat = self.post_batches(dat, self.slug, "encode", PARAMS_ITEMS, "results", key=self.encode_input_key, params=params)
+        dat = self.post_batches(
+            dat,
+            self.slug,
+            "encode",
+            PARAMS_ITEMS,
+            "results",
+            key=self.encode_input_key,
+            params=params,
+        )
         dat = self.unpack_local_validations(dat, "results")
         return dat.api_resp.replace(np.nan, None).tolist()
 
@@ -262,10 +306,20 @@ class APIEndpoint:
     @validate_action("generate")
     def generate(self, dat, params=None):
         if self.api_version == 1:
-            dat = self.post_batches(dat, self.slug, "generate", INST_DAT_TXT, "generated")
+            dat = self.post_batches(
+                dat, self.slug, "generate", INST_DAT_TXT, "generated"
+            )
             dat = self.unpack_local_validations(dat, "predictions")
         else:
-            dat = self.post_batches(dat, self.slug, "generate", PARAMS_ITEMS, "results", key=self.generate_input_key, params=params)
+            dat = self.post_batches(
+                dat,
+                self.slug,
+                "generate",
+                PARAMS_ITEMS,
+                "results",
+                key=self.generate_input_key,
+                params=params,
+            )
             dat = self.unpack_local_validations(dat, "results")
 
         return dat.api_resp.replace(np.nan, None).tolist()
@@ -344,8 +398,8 @@ class TransformAction:
 
 
 class EncodeAction:
-     def __str__(self):
-         return "EncodeAction"
+    def __str__(self):
+        return "EncodeAction"
 
 
 class ExplainAction:

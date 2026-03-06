@@ -20,13 +20,16 @@ async def test_retry_error_batches_live_partial_batch():
         else:
             assert "embeddings" in r
 
+
 @pytest.mark.asyncio
 async def test_retry_error_batches_live_stop_on_error():
     # 8 items, item 2 is invalid, should stop after first error batch
     items = [{"sequence": "MSILVTRPSPAGEEL"} for _ in range(8)]
     items[2]["sequence"] = "BAD::BAD"
     client = BioLMApiClient("esm2-8m", retry_error_batches=True, raise_httpx=False)
-    results = await client._batch_call_autoschema_or_manual("encode", items, stop_on_error=True)
+    results = await client._batch_call_autoschema_or_manual(
+        "encode", items, stop_on_error=True
+    )
     # Should return only up to the batch containing the error
     assert isinstance(results, list)
     # The batch size for esm2-8m is 8, so all results should be returned
@@ -35,6 +38,7 @@ async def test_retry_error_batches_live_stop_on_error():
     assert any("error" in r for r in results)
     assert any("embeddings" in r for r in results)
 
+
 @pytest.mark.asyncio
 async def test_retry_error_batches_live_disk(tmp_path):
     # 8 items, item 5 is invalid
@@ -42,7 +46,9 @@ async def test_retry_error_batches_live_disk(tmp_path):
     items[5]["sequence"] = "BAD::BAD"
     client = BioLMApiClient("esm2-8m", retry_error_batches=True, raise_httpx=False)
     file_path = tmp_path / "out.jsonl"
-    await client._batch_call_autoschema_or_manual("encode", items, output="disk", file_path=str(file_path))
+    await client._batch_call_autoschema_or_manual(
+        "encode", items, output="disk", file_path=str(file_path)
+    )
     assert file_path.exists()
     lines = file_path.read_text().splitlines()
     assert len(lines) == 8
@@ -52,6 +58,7 @@ async def test_retry_error_batches_live_disk(tmp_path):
             assert "error" in rec
         else:
             assert "embeddings" in rec
+
 
 @pytest.mark.asyncio
 async def test_retry_error_batches_live_batch_of_batches():
@@ -68,6 +75,7 @@ async def test_retry_error_batches_live_batch_of_batches():
     assert "embeddings" in results[3]
     assert "embeddings" in results[0]
     assert "embeddings" in results[1]
+
 
 @pytest.mark.asyncio
 async def test_retry_error_batches_live_all_good():

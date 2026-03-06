@@ -1,4 +1,5 @@
 """CSV format input/output utilities."""
+
 import csv
 from pathlib import Path
 from typing import IO, Any, Dict, List, Optional, Union
@@ -35,21 +36,21 @@ def load_csv(
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"CSV file not found: {file_path}")
-        file_obj = open(file_path, "r", encoding="utf-8", newline="")
+        file_obj = open(file_path, encoding="utf-8", newline="")
         should_close = True
     else:
         file_obj = file_path
         should_close = False
-    
+
     try:
         # Detect if file is empty
         first_char = file_obj.read(1)
         if not first_char:
             raise ValueError("CSV file is empty")
         file_obj.seek(0)
-        
+
         reader = csv.DictReader(file_obj)
-        
+
         # Check for sequence_key if specified
         if sequence_key:
             if sequence_key not in reader.fieldnames:
@@ -57,12 +58,12 @@ def load_csv(
                     f"CSV file missing required column '{sequence_key}'. "
                     f"Available columns: {reader.fieldnames or 'none'}"
                 )
-        
+
         rows = list(reader)
-        
+
         if not rows:
             raise ValueError("CSV file contains no data rows")
-        
+
         # Ensure all values are strings (CSV reader may return empty strings)
         # and handle None values
         result = []
@@ -72,9 +73,9 @@ def load_csv(
                 # Keep as string, empty string if None
                 cleaned_row[key] = value if value is not None else ""
             result.append(cleaned_row)
-        
+
         return result
-        
+
     finally:
         if should_close:
             file_obj.close()
@@ -103,7 +104,7 @@ def to_csv(
     """
     if not data:
         raise ValueError("Cannot write empty data to CSV file")
-    
+
     # Handle file path vs file-like object
     if isinstance(file_path, (str, Path)):
         file_path = Path(file_path)
@@ -112,7 +113,7 @@ def to_csv(
     else:
         file_obj = file_path
         should_close = False
-    
+
     try:
         # Determine fieldnames
         if fieldnames is None:
@@ -120,7 +121,7 @@ def to_csv(
             if not data:
                 raise ValueError("Cannot infer fieldnames from empty data")
             fieldnames = list(data[0].keys())
-        
+
         # Remove duplicates while preserving order
         seen = set()
         unique_fieldnames = []
@@ -129,10 +130,10 @@ def to_csv(
                 seen.add(field)
                 unique_fieldnames.append(field)
         fieldnames = unique_fieldnames
-        
+
         writer = csv.DictWriter(file_obj, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
-        
+
         for item in data:
             # Convert all values to strings, handle missing keys
             row = {}
@@ -143,10 +144,9 @@ def to_csv(
                     row[field] = str(value) if value is not None else ""
                 else:
                     row[field] = ""
-            
+
             writer.writerow(row)
-            
+
     finally:
         if should_close:
             file_obj.close()
-

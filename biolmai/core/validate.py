@@ -78,6 +78,7 @@ def dna_unambiguous_validator(text: str) -> str:
         )
     return text
 
+
 def pdb_validator(text: str) -> str:
     if "ATOM" not in text:
         raise ValueError("PDB string does not appear to be a valid PDB")
@@ -87,21 +88,27 @@ def pdb_validator(text: str) -> str:
 class PDB:
     def __call__(self, value):
         _ = pdb_validator(value)
+
+
 class AAUnambiguous:
     def __call__(self, value):
         _ = aa_unambiguous_validator(value)
+
 
 class AAExtended:
     def __call__(self, value):
         _ = aa_extended_validator(value)
 
+
 class DNAUnambiguous:
     def __call__(self, value):
         _ = dna_unambiguous_validator(value)
 
+
 class AAUnambiguousEmpty:
     def __call__(self, value):
         _ = empty_or_aa_unambiguous_validator(value)
+
 
 class AAUnambiguousPlusExtra:
     def __init__(self, extra: List[str]):
