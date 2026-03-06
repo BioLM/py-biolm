@@ -7,7 +7,6 @@ Comprehensive test suite for the BioLM Pipeline system.
 ### Run All Unit Tests
 
 ```bash
-cd /home/c/py-biolm
 python tests/run_tests.py
 # Or with make:
 make test
@@ -55,7 +54,7 @@ Integration tests make real API calls and test end-to-end functionality.
 
 **Set API key first:**
 ```bash
-export BIOLM_API_KEY='your-key-here'
+export BIOLMAI_TOKEN='your-key-here'
 ```
 
 **Run all integration tests:**
@@ -195,15 +194,12 @@ Integration tests with real API calls:
 
 ## Test Statistics
 
-**Total Test Files**: 7 (6 unit + 1 integration)  
-**Total Unit Test Methods**: 118  
-**Total Integration Test Methods**: 15+  
-**Coverage**: ~95% of core functionality
+Run the full suite with `pytest tests/ -q` to see current counts and results.
 
 ## What's Tested
 
 ### Core Components
-- ✅ DataStore (SQLite storage)
+- ✅ DataStore (DuckDB storage)
 - ✅ Filters (6 types + custom)
 - ✅ Pipeline base classes
 - ✅ MLM remasking
@@ -253,7 +249,7 @@ Integration tests make real API calls and test end-to-end functionality:
 - ✅ Complete pipeline flows
 - ✅ Edge cases with real API responses
 
-**Run**: `export BIOLM_API_KEY='...' && python -m unittest tests.test_integration -v`
+**Run**: `export BIOLMAI_TOKEN='...' && python -m unittest tests.test_integration -v`
 
 **Note**: Integration tests use small sequences to minimize API costs.
 
@@ -393,5 +389,3 @@ When adding new features:
 
 See:
 - `PIPELINE_QUICKSTART.md` - User guide
-- `PIPELINE_IMPLEMENTATION_SUMMARY.md` - Implementation details
-- `PIPELINE_DEVELOPMENT_PLAN.md` - Architecture and design

@@ -100,7 +100,7 @@ source ~/.bashrc
 
 Navigate to the project directory:
 ```bash
-cd /home/c/py-biolm
+cd py-biolm
 ```
 
 #### Option A: Full Installation (Recommended for Development)
@@ -161,16 +161,7 @@ python -c "from biolmai.pipeline import DataPipeline; print('Pipeline OK')"
 make test
 ```
 
-Expected output:
-```
-Test Summary
-============================================================
-Tests run: 105
-Successes: 105
-Failures: 0
-Errors: 0
-============================================================
-```
+Expected output: all tests passing with no failures or errors.
 
 ---
 
@@ -205,7 +196,7 @@ py-biolm/
 │   │   ├── mlm_remasking.py
 │   │   └── ...
 │   └── ...
-├── tests/                  # Test suite (105 tests)
+├── tests/                  # Test suite
 │   ├── test_datastore.py
 │   ├── test_pipeline.py
 │   └── ...
@@ -283,7 +274,9 @@ from biolmai.pipeline import DataPipeline, RankingFilter
 pipeline = DataPipeline(sequences='sequences.csv')
 
 # Parallel predictions
-pipeline.add_predictions(['esmfold', 'temberture-regression', 'proteinmpnn'])
+pipeline.add_prediction('esmfold')
+pipeline.add_prediction('temberture-regression')
+pipeline.add_prediction('proteinmpnn')
 
 # Ranking filter
 pipeline.add_filter(RankingFilter('tm', n=100, ascending=False))
@@ -296,9 +289,10 @@ df = pipeline.get_final_data()
 ### Example 3: MLM Remasking
 
 ```python
-from biolmai.pipeline import MLMRemasker, MODERATE_CONFIG
+from biolmai.pipeline import MLMRemasker, RemaskingConfig
 
-remasker = MLMRemasker(MODERATE_CONFIG)
+config = RemaskingConfig(mask_fraction=0.15, num_iterations=3)
+remasker = MLMRemasker(config)
 variants = remasker.generate_variants('MKTAYIAKQRQ', num_variants=100)
 
 for seq, metadata in variants:
@@ -373,17 +367,19 @@ make test
 
 ## Environment Variables
 
-### BioLM API Key (Optional)
+### BioLM API Token (Required for API calls)
 
-Set your API key in `~/.bashrc` or `~/.zshrc`:
+Set your token in `~/.bashrc` or `~/.zshrc`:
 ```bash
-export BIOLM_API_KEY="your-api-key-here"
+export BIOLMAI_TOKEN="your-token-here"
 ```
 
 Or create a `.env` file (not tracked by git):
 ```bash
-echo 'BIOLM_API_KEY=your-api-key-here' > .env
+echo 'BIOLMAI_TOKEN=your-token-here' > .env
 ```
+
+Get a token at: https://biolm.ai/ui/accounts/user-api-tokens/
 
 ---
 
@@ -443,7 +439,6 @@ make install-all  # Everything automated!
 
 ### Documentation
 - `README.rst` - Project overview
-- `FINAL_SUMMARY.md` - Implementation details
 - `PIPELINE_QUICKSTART.md` - Pipeline usage guide
 - `tests/README.md` - Testing guide
 
