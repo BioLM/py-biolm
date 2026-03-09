@@ -385,10 +385,8 @@ def test_remasking_stage_generates_variants(tmp_path):
     ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "remask_data")
 
     # Patch MLMRemasker where it is used (generative.py imports it directly)
-    with (
-        patch("biolmai.pipeline.generative.MLMRemasker") as MockRemasker,
-        patch("biolmai.pipeline.generative.BioLMApiClient") as MockCls,
-    ):
+    with patch("biolmai.pipeline.generative.MLMRemasker") as MockRemasker, \
+            patch("biolmai.pipeline.generative.BioLMApiClient") as MockCls:
         instance = MagicMock()
         instance.generate_variants = AsyncMock(return_value=fake_variants)
         MockRemasker.return_value = instance
@@ -426,10 +424,8 @@ def test_multi_stage_pipeline_generation_prediction_filter(tmp_path):
         num_sequences=4,
     )
 
-    with (
-        patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls,
-        patch("biolmai.pipeline.data.BioLMApiClient") as PredCls,
-    ):
+    with patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls, \
+            patch("biolmai.pipeline.data.BioLMApiClient") as PredCls:
         gen_api = make_api_mock(generate_seqs=gen_seqs)
         GenCls.return_value = gen_api
 
@@ -1898,10 +1894,8 @@ def test_from_db_set_generation_rerun(tmp_path):
     ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "data")
 
     # Run 1: generate + predict
-    with (
-        patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls,
-        patch("biolmai.pipeline.data.BioLMApiClient") as PredCls,
-    ):
+    with patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls, \
+            patch("biolmai.pipeline.data.BioLMApiClient") as PredCls:
         gen_api = make_api_mock(generate_seqs=seqs)
         GenCls.return_value = gen_api
         PredCls.return_value = make_api_mock(values=pred_values)
@@ -1920,10 +1914,8 @@ def test_from_db_set_generation_rerun(tmp_path):
 
     # Run 2: from_db() → set new generation → run() — prediction stage should hit cache
     new_seqs = ["NEWSEQ001", "NEWSEQ002"]
-    with (
-        patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls2,
-        patch("biolmai.pipeline.data.BioLMApiClient") as PredCls2,
-    ):
+    with patch("biolmai.pipeline.generative.BioLMApiClient") as GenCls2, \
+            patch("biolmai.pipeline.data.BioLMApiClient") as PredCls2:
         gen_api2 = make_api_mock(generate_seqs=new_seqs)
         GenCls2.return_value = gen_api2
         pred_call_count = {"n": 0}
