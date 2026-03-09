@@ -1,5 +1,16 @@
 .PHONY: install install-dev install-all clean clean-build clean-pyc clean-test coverage dist docs docs-iframe help lint lint/flake8 style check format mypy test test-pipeline test-unit
 
+define BROWSER_PYSCRIPT
+import os, webbrowser, sys
+
+from urllib.request import pathname2url
+
+webbrowser.open("file://" + pathname2url(os.path.abspath(sys.argv[1])))
+endef
+export BROWSER_PYSCRIPT
+
+BROWSER := python -c "$$BROWSER_PYSCRIPT"
+
 .DEFAULT_GOAL := help
 
 # Install core dependencies using uv
