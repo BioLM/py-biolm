@@ -6,6 +6,7 @@ aiodns
 synchronicity>=0.5.0
 pytest>=3
 pytest-asyncio
+pytest-cov>=4.1.0
 pytest-xdist
 pytest-randomly
 anyio==4.2.0; python_version >= "3.8"

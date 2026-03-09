@@ -11,6 +11,8 @@ Tests cover:
 - DirectGenerationConfig with mocked API
 - Streaming trickles results
 """
+import pytest
+pytest.importorskip("duckdb")
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch

@@ -1,6 +1,8 @@
 """
 Unit tests for pipeline functionality.
 """
+import pytest
+pytest.importorskip("duckdb")
 
 import asyncio
 import shutil

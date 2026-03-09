@@ -1,6 +1,8 @@
 """
 Unit tests for filters.
 """
+import pytest
+pytest.importorskip("duckdb")
 
 import unittest
 

@@ -1,6 +1,8 @@
 """
 Tests for sequence clustering and diversity analysis.
 """
+import pytest
+pytest.importorskip("duckdb")
 
 import unittest
 

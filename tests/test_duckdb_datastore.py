@@ -1,6 +1,8 @@
 """
 Test DuckDB datastore performance and correctness.
 """
+import pytest
+pytest.importorskip("duckdb")
 
 import time
 

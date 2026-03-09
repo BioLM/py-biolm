@@ -1,6 +1,8 @@
 """
 Unit tests for DataStore (DuckDBDataStore).
 """
+import pytest
+pytest.importorskip("duckdb")
 
 import shutil
 import tempfile
