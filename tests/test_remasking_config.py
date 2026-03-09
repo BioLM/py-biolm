@@ -1,6 +1,8 @@
 """
 Unit tests for RemaskingConfig with model_name parameter.
 """
+import pytest
+pytest.importorskip("pandas")
 
 import pytest
 

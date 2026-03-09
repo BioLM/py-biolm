@@ -1,6 +1,8 @@
 """
 Unit tests for RankingFilter.
 """
+import pytest
+pytest.importorskip("pandas")
 
 import unittest
 

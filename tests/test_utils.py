@@ -1,6 +1,8 @@
 """
 Unit tests for utility functions.
 """
+import pytest
+pytest.importorskip("pandas")
 
 import shutil
 import tempfile

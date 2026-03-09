@@ -193,6 +193,7 @@ omit = [
     ".direnv/*",
     ".venv/*",
     "pipeline_ex/*",
+    "biolmai/pipeline/*",
 ]
 
 [tool.coverage.report]

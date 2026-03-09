@@ -1,6 +1,8 @@
 """
 Advanced pipeline feature tests: resumability, streaming behavior, error handling.
 """
+import pytest
+pytest.importorskip("pandas")
 
 import asyncio
 import time

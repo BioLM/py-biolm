@@ -1,6 +1,8 @@
 """
 Unit tests for MLM remasking functionality.
 """
+import pytest
+pytest.importorskip("pandas")
 
 import asyncio
 import unittest
