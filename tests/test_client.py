@@ -122,6 +122,7 @@ def test_stop_on_error_with_previous_success(model):
     assert "pdb" in result[1]
     assert "error" in result[2]
 
+@pytest.mark.xfail(strict=False, reason="requires live API key")
 def test_raise_httpx():
     model = BioLMApi("esmfold", raise_httpx=True)
     items = [{"sequence": "MENDELSEMYEFFFEEFMLYRRTELSYYYUPPPPPU::"}]
