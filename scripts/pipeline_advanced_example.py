@@ -39,17 +39,8 @@ def example_1_parallel_predictions():
     # Add multiple predictions at once - they run in parallel!
     pipeline.add_predictions(
         [
-            "temberture-regression",  # Tm prediction
-            "proteinmpnn",  # MPNN prediction
-            "esm2",  # ESM2 prediction
-        ]
-    )
-
-    # Or with more control:
-    pipeline.add_predictions(
-        [
-            {"model_name": "esmfold", "prediction_type": "structure"},
-            {"model_name": "alphafold2", "prediction_type": "structure_af2"},
+            {"model_name": "temberture-regression", "extractions": "prediction", "columns": "tm"},
+            {"model_name": "pro4s", "extractions": "soluble_prob", "columns": "solubility"},
         ]
     )
 
@@ -98,11 +89,11 @@ def example_2_flattened_sampling_params():
     print(df.columns.tolist())
 
     print("\nGeneration metadata (flattened):")
-    print(df[["sequence", "gen_model", "temperature", "top_k", "top_p"]].head())
+    print(df[["sequence", "gen_model_name", "gen_temperature", "gen_top_k", "gen_top_p"]].head())
 
     # Can easily filter by any sampling parameter!
-    df_high_temp = df[df["temperature"] > 0.8]
-    df_topk_50 = df[df["top_k"] == 50]
+    df_high_temp = df[df["gen_temperature"] > 0.8]
+    df_topk_50 = df[df["gen_top_k"] == 50]
 
     print(f"\nSequences with temperature > 0.8: {len(df_high_temp)}")
     print(f"Sequences with top_k=50: {len(df_topk_50)}")
@@ -215,20 +206,13 @@ def example_4_resample_flag():
     print("  Old samples are kept, new ones added to fill up to n_samples")
 
 
-def example_5_mlm_remasking():
-    """Example 5: MLM remasking for variant generation."""
-    print("\n" + "=" * 60)
-    print("Example 5: MLM Remasking")
-    print("=" * 60)
-
+async def _example_5_mlm_remasking_async():
     parent_sequence = "MKTAYIAKQRQGHQAMAEIKQ"
 
     # Conservative remasking (10% masked)
     print("\nConservative remasking (10% masked, low temp):")
     remasker_conservative = MLMRemasker(CONSERVATIVE_CONFIG)
-
-    variants = remasker_conservative.generate_variants(parent_sequence, num_variants=5)
-
+    variants = await remasker_conservative.generate_variants(parent_sequence, num_variants=5)
     for i, (var_seq, metadata) in enumerate(variants):
         print(
             f"  Variant {i+1}: {metadata['num_mutations']} mutations ({metadata['mutation_rate']:.1%})"
@@ -237,9 +221,7 @@ def example_5_mlm_remasking():
     # Moderate remasking (15% masked)
     print("\nModerate remasking (15% masked, medium temp):")
     remasker_moderate = MLMRemasker(MODERATE_CONFIG)
-
-    variants = remasker_moderate.generate_variants(parent_sequence, num_variants=5)
-
+    variants = await remasker_moderate.generate_variants(parent_sequence, num_variants=5)
     for i, (var_seq, metadata) in enumerate(variants):
         print(
             f"  Variant {i+1}: {metadata['num_mutations']} mutations ({metadata['mutation_rate']:.1%})"
@@ -254,15 +236,22 @@ def example_5_mlm_remasking():
         mask_strategy="blocks",  # Mask in blocks
         block_size=3,
     )
-
     remasker_custom = MLMRemasker(custom_config)
-    variants = remasker_custom.generate_variants(parent_sequence, num_variants=3)
-
+    variants = await remasker_custom.generate_variants(parent_sequence, num_variants=3)
     print(f"\nGenerated {len(variants)} variants with conserved positions")
     for i, (var_seq, metadata) in enumerate(variants):
-        # Check first 3 positions are preserved
         preserved = var_seq[:3] == parent_sequence[:3]
         print(f"  Variant {i+1}: First 3 positions preserved: {preserved}")
+
+
+def example_5_mlm_remasking():
+    """Example 5: MLM remasking for variant generation."""
+    import asyncio
+
+    print("\n" + "=" * 60)
+    print("Example 5: MLM Remasking")
+    print("=" * 60)
+    asyncio.run(_example_5_mlm_remasking_async())
 
 
 def example_6_full_pipeline_with_new_features():
@@ -279,7 +268,10 @@ def example_6_full_pipeline_with_new_features():
 
     # Stage 1: Multiple predictions in parallel
     print("\n1. Adding parallel predictions...")
-    pipeline.add_predictions(["temberture-regression", "proteinmpnn", "esm2"])
+    pipeline.add_predictions([
+        {"model_name": "temberture-regression", "extractions": "prediction", "columns": "tm"},
+        {"model_name": "pro4s", "extractions": "soluble_prob", "columns": "solubility"},
+    ])
 
     # Stage 2: Rank and select top 10 by Tm (depends on predictions)
     print("2. Adding ranking filter...")

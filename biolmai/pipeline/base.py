@@ -1101,6 +1101,16 @@ class BasePipeline(ABC):
             self.end_time = time.time()
             self.datastore.update_pipeline_run_status(self.run_id, "completed")
 
+            # Materialize the final DataFrame now while the connection is still open,
+            # so get_final_data() works even after the auto-created datastore is closed.
+            if self.stages and ws_current is not None:
+                last_name = self.stages[-1].name
+                try:
+                    self._final_df = self.datastore.materialize_working_set(ws_current)
+                    self._stage_data[last_name] = self._final_df
+                except Exception:
+                    pass
+
             if self.verbose:
                 total_time = self.end_time - self.start_time
                 print(f"\n{'#'*60}")
@@ -1356,17 +1366,20 @@ class BasePipeline(ABC):
 
         last_stage_name = self.stages[-1].name
 
-        # Primary path: materialize from WorkingSet.
-        # Always re-materialize via DuckDB pivot — never return _stage_data directly
-        # even when set by the streaming path.  _stage_data holds the raw streaming
-        # output which lacks prediction columns from earlier non-streamed stages;
-        # materialize_working_set() always returns the full, correctly-joined view
-        # (BUG-03 fix).
-        if last_stage_name in self._working_sets:
+        # Primary path: materialize from WorkingSet via DuckDB.
+        # If the datastore connection has been closed (auto-created datastores are
+        # closed after run() completes), fall through to the cached _stage_data which
+        # was populated before closure.
+        datastore_alive = (
+            self.datastore is not None
+            and getattr(self.datastore, "conn", None) is not None
+        )
+        if last_stage_name in self._working_sets and datastore_alive:
             ws = self._working_sets[last_stage_name]
             return self.datastore.materialize_working_set(ws)
 
-        # Legacy fallback
+        # Fallback: cached DataFrame saved before datastore was closed, or legacy
+        # _stage_data populated by the streaming path.
         return self._stage_data.get(last_stage_name, pd.DataFrame())
 
     def export_to_csv(self, output_path: Optional[Union[str, Path]] = None):

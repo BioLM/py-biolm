@@ -440,7 +440,7 @@ class PredictionStage(Stage):
             _stream_semaphore = asyncio.Semaphore(self._max_connections)
             self._api_client = BioLMApiClient(
                 self.model_name, semaphore=_stream_semaphore, retry_error_batches=True,
-                action=self.action,
+                
             )
         api = self._api_client
 
@@ -705,7 +705,7 @@ class PredictionStage(Stage):
             if self._api_client is None:
                 self._api_client = BioLMApiClient(
                     self.model_name, semaphore=self._connection_semaphore, retry_error_batches=True,
-                    action=self.action,
+                    
                 )
             api = self._api_client
 
@@ -1031,7 +1031,7 @@ class PredictionStage(Stage):
             connection_semaphore = asyncio.Semaphore(self._max_connections)
             api = BioLMApiClient(
                 self.model_name, semaphore=connection_semaphore, retry_error_batches=True,
-                action=self.action,
+                
             )
 
             # Fetch (id, sequence) pairs — lightweight, no full DataFrame
@@ -1656,7 +1656,7 @@ class CofoldingPredictionStage(Stage):
             api = BioLMApiClient(
                 self.model_name,
                 semaphore=asyncio.Semaphore(self.batch_size),
-                action=self.action,
+                
             )
 
             for i in range(0, len(df), self.batch_size):
@@ -1741,7 +1741,7 @@ class CofoldingPredictionStage(Stage):
             api = BioLMApiClient(
                 self.model_name,
                 semaphore=asyncio.Semaphore(self.batch_size),
-                action=self.action,
+                
             )
 
             for i in range(0, len(id_seq_pairs), self.batch_size):

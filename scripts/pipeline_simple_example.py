@@ -30,7 +30,7 @@ def example_1_quick_prediction():
     ]
 
     # Quick prediction (returns DataFrame)
-    df = Predict("temberture-regression", sequences=sequences, verbose=False)
+    df = Predict("temberture-regression", sequences=sequences, extractions="prediction", columns="tm", verbose=False)
     print(df)
 
 
@@ -178,10 +178,10 @@ def example_5_datastore_usage():
     store.add_prediction(id1, "stability", "ddg_predictor", 2.5)
     store.add_prediction(id2, "stability", "ddg_predictor", 3.1)
 
-    # Query
-    preds = store.get_predictions(prediction_type="stability")
-    print("\nPredictions:")
-    print(preds)
+    # Query per-sequence
+    preds1 = store.get_predictions(id1, prediction_type="stability")
+    print("\nPredictions for seq1:")
+    print(preds1)
 
     # Export
     df = store.export_to_dataframe()
