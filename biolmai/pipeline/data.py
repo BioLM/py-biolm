@@ -593,8 +593,16 @@ class PredictionStage(Stage):
                 if isinstance(val, np.ndarray):
                     arr = [float(x) for x in val.flat if isinstance(x, (int, float, np.integer, np.floating))]
                 else:
-                    arr = [float(x) for x in val if isinstance(x, (int, float))]
-            except (TypeError, ValueError):
+                    # Flatten nested lists (e.g. plddt: [[0.95, 0.92, ...]])
+                    flat = []
+                    for x in val:
+                        if isinstance(x, (list, tuple)):
+                            flat.extend(x)
+                        else:
+                            flat.append(x)
+                    arr = [float(x) for x in flat if isinstance(x, (int, float))]
+            except (TypeError, ValueError) as exc:
+                logger.debug("_extract_with_spec failed for key '%s': %s", spec.response_key, exc)
                 return None
             if not arr:
                 return None
@@ -1322,9 +1330,7 @@ class PredictionStage(Stage):
                     .df()["sequence_id"]
                     .tolist()
                 )
-            ws_out = WorkingSet(
-                frozenset(sid for sid in ws.sequence_ids if sid in emb_ids)
-            )
+            ws_out = WorkingSet.from_ids(set(input_ids) & emb_ids)
         else:
             ws_out = ws
 

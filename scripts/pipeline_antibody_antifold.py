@@ -44,7 +44,7 @@ from biolmai.pipeline import (
     GenerativePipeline,
     RankingFilter,
 )
-from biolmai.pipeline.data import EmbeddingSpec
+from biolmai.pipeline.data import ExtractionSpec
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -54,7 +54,11 @@ if not TOKEN:
     raise RuntimeError("Set BIOLMAI_TOKEN env var before running")
 
 # Path to an antibody PDB containing heavy (H) and light (L) chains.
-STRUCTURE_PATH = os.environ.get("ANTIBODY_STRUCTURE_PATH", "examples/antibody.pdb")
+_HERE = Path(__file__).parent.parent
+STRUCTURE_PATH = os.environ.get(
+    "ANTIBODY_STRUCTURE_PATH",
+    str(_HERE / "tests/fixtures/antibody_HL.pdb"),
+)
 
 OUTPUT_DIR = Path("outputs/antibody_antifold")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -101,98 +105,100 @@ async def main() -> None:
     db_path = OUTPUT_DIR / "pipeline.duckdb"
     datastore = DuckDBDataStore(db_path)
 
-    pipeline = GenerativePipeline(
-        generation_configs=[
-            make_antifold_cfg(0.2),  # conservative — close to wild-type
-            make_antifold_cfg(0.5),  # moderate diversity
-            make_antifold_cfg(1.0),  # high diversity
-        ],
-        deduplicate=True,
-        datastore=datastore,
-        run_id="antibody_antifold_v1",
-        output_dir=str(OUTPUT_DIR),
-        verbose=True,
-    )
+    try:
+        pipeline = GenerativePipeline(
+            generation_configs=[
+                make_antifold_cfg(0.2),  # conservative — close to wild-type
+                make_antifold_cfg(0.5),  # moderate diversity
+                make_antifold_cfg(1.0),  # high diversity
+            ],
+            deduplicate=True,
+            datastore=datastore,
+            run_id="antibody_antifold_v1",
+            output_dir=str(OUTPUT_DIR),
+            verbose=True,
+        )
 
-    # ------------------------------------------------------------------
-    # Stage 1: Keep top N by AntiFold global_score
-    #   global_score is a sequence-recovery / log-probability metric
-    #   returned by AntiFold for each generated design.
-    # ------------------------------------------------------------------
-    pipeline.add_filter(
-        filter_func=RankingFilter(
-            column="global_score",
-            n=TOP_N,
-            ascending=True,  # AntiFold global_score: lower = better recovery
-        ),
-        stage_name="filter_top10",
-        depends_on=["generation"],
-    )
+        # ------------------------------------------------------------------
+        # Stage 1: Keep top N by AntiFold global_score
+        #   global_score is a sequence-recovery / log-probability metric
+        #   returned by AntiFold for each generated design.
+        # ------------------------------------------------------------------
+        pipeline.add_filter(
+            filter_func=RankingFilter(
+                column="global_score",
+                n=TOP_N,
+                ascending=True,  # AntiFold global_score: lower = better recovery
+            ),
+            stage_name="filter_top10",
+            depends_on=["generation"],
+        )
 
-    # ------------------------------------------------------------------
-    # Stage 2: IgBERT paired embeddings
-    #   igbert accepts {'heavy': h_seq, 'light': l_seq} items for paired mode.
-    #   AntiFold stores individual chains in 'heavy_chain' / 'light_chain'
-    #   columns, so we map those to the 'heavy' / 'light' API fields.
-    # ------------------------------------------------------------------
-    pipeline.add_prediction(
-        model_name="igbert-paired",
-        action="encode",
-        embedding_extractor=EmbeddingSpec(key="embedding"),
-        stage_name="igbert",
-        depends_on=["filter_top10"],
-        batch_size=16,
-        max_concurrent=4,
-        item_columns={"heavy": "heavy_chain", "light": "light_chain"},
-    )
+        # ------------------------------------------------------------------
+        # Stage 2: IgBERT paired embeddings
+        #   igbert accepts {'heavy': h_seq, 'light': l_seq} items for paired mode.
+        #   AntiFold stores individual chains in 'heavy_chain' / 'light_chain'
+        #   columns, so we map those to the 'heavy' / 'light' API fields.
+        # ------------------------------------------------------------------
+        pipeline.add_prediction(
+            model_name="igbert-paired",
+            action="predict",
+            extractions="log_prob",
+            columns="igbert_log_prob",
+            stage_name="igbert",
+            depends_on=["filter_top10"],
+            batch_size=8,
+            max_concurrent=4,
+            item_columns={"heavy": "heavy_chain", "light": "light_chain"},
+        )
 
-    # ------------------------------------------------------------------
-    # Stage 3: ABodyBuilder3-pLDDT — 3-D structure + per-residue pLDDT
-    #   Runs in parallel with IgBERT (both depend on filter_top10 only).
-    #   abodybuilder3-plddt takes {'H': heavy_seq, 'L': light_seq} per item
-    #   and accepts exactly 1 item per API call (batch_size=1 is enforced
-    #   server-side).  AntiFold populates 'heavy_chain' and 'light_chain'
-    #   columns that we map to the 'H' and 'L' API fields via item_columns.
-    # ------------------------------------------------------------------
-    pipeline.add_prediction(
-        model_name="abodybuilder3-plddt",
-        action="predict",
-        extractions="plddt",
-        columns="abb3_plddt",
-        stage_name="abodybuilder3",
-        depends_on=["filter_top10"],
-        batch_size=1,
-        max_concurrent=2,
-        item_columns={"H": "heavy_chain", "L": "light_chain"},
-        params={"plddt": True},  # Request per-residue pLDDT in response
-    )
+        # ------------------------------------------------------------------
+        # Stage 3: ABodyBuilder3-pLDDT — 3-D structure + per-residue pLDDT
+        #   Runs in parallel with IgBERT (both depend on filter_top10 only).
+        #   abodybuilder3-plddt takes {'H': heavy_seq, 'L': light_seq} per item
+        #   and accepts exactly 1 item per API call (batch_size=1 is enforced
+        #   server-side).  AntiFold populates 'heavy_chain' and 'light_chain'
+        #   columns that we map to the 'H' and 'L' API fields via item_columns.
+        # ------------------------------------------------------------------
+        pipeline.add_prediction(
+            model_name="abodybuilder3-plddt",
+            action="predict",
+            extractions=[ExtractionSpec("plddt", reduction="mean")],
+            columns={"plddt": "abb3_plddt"},
+            stage_name="abodybuilder3",
+            depends_on=["filter_top10"],
+            batch_size=1,
+            max_concurrent=2,
+            item_columns={"H": "heavy_chain", "L": "light_chain"},
+            params={"plddt": True},  # Request per-residue pLDDT in response
+        )
 
-    # ------------------------------------------------------------------
-    # Run
-    # ------------------------------------------------------------------
-    print("\n=== Antibody AntiFold Pipeline ===")
-    print(f"  Structure      : {STRUCTURE_PATH}")
-    print(f"  Heavy/Light    : chains {HEAVY_CHAIN}/{LIGHT_CHAIN}")
-    print(f"  Generated      : {3 * N_PER_TEMP} max (3 temps × {N_PER_TEMP})")
-    print(f"  Final cut      : top {TOP_N} by AntiFold global_score")
-    print()
+        # ------------------------------------------------------------------
+        # Run
+        # ------------------------------------------------------------------
+        print("\n=== Antibody AntiFold Pipeline ===")
+        print(f"  Structure      : {STRUCTURE_PATH}")
+        print(f"  Heavy/Light    : chains {HEAVY_CHAIN}/{LIGHT_CHAIN}")
+        print(f"  Generated      : {3 * N_PER_TEMP} max (3 temps × {N_PER_TEMP})")
+        print(f"  Final cut      : top {TOP_N} by AntiFold global_score")
+        print()
 
-    stage_results = await pipeline.run_async()
+        stage_results = await pipeline.run_async()
 
-    # ------------------------------------------------------------------
-    # Summary
-    # ------------------------------------------------------------------
-    print("\n=== Stage Summary ===")
-    for _name, result in stage_results.items():
-        print(f"  {result}")
+        # ------------------------------------------------------------------
+        # Summary
+        # ------------------------------------------------------------------
+        print("\n=== Stage Summary ===")
+        for _name, result in stage_results.items():
+            print(f"  {result}")
 
-    df_final = pipeline.get_final_data()
+        df_final = pipeline.get_final_data()
 
-    out_csv = OUTPUT_DIR / "antibody_designs.csv"
-    df_final.to_csv(out_csv, index=False)
-    print(f"\nSaved {len(df_final)} final designs → {out_csv}")
-
-    datastore.close()
+        out_csv = OUTPUT_DIR / "antibody_designs.csv"
+        df_final.to_csv(out_csv, index=False)
+        print(f"\nSaved {len(df_final)} final designs → {out_csv}")
+    finally:
+        datastore.close()
 
 
 if __name__ == "__main__":

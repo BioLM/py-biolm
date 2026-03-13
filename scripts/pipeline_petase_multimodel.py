@@ -79,9 +79,11 @@ async def step_1_fold_lcc():
     result = await api.predict(items=[{"sequence": LCC_SEQUENCE}])
     await api.shutdown()
 
-    pdb_str = result[0]["pdb"]
-    plddt = result[0]["mean_plddt"]
-    ptm = result[0]["ptm"]
+    # BioLMApiClient with single item may return a dict (unwrap_single)
+    r = result[0] if isinstance(result, list) else result
+    pdb_str = r["pdb"]
+    plddt = r["mean_plddt"]
+    ptm = r["ptm"]
     print(f"  pLDDT: {plddt:.1f}  pTM: {ptm:.3f}  PDB: {len(pdb_str)} chars")
     return pdb_str
 

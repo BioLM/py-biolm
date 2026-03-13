@@ -64,41 +64,42 @@ def example_2_flattened_sampling_params():
 
     store = DataStore("example_sampling.db", "example_sampling_data")
 
-    # Add sequence with generation metadata
-    seq_id = store.add_sequence("MKTAYIAKQRQ")
+    try:
+        # Add sequence with generation metadata
+        seq_id = store.add_sequence("MKTAYIAKQRQ")
 
-    # All sampling params are flattened columns (not nested JSON!)
-    store.add_generation_metadata(
-        seq_id,
-        model_name="proteinmpnn",
-        temperature=1.0,
-        top_k=50,
-        top_p=0.9,
-        num_return_sequences=10,
-        do_sample=True,
-        repetition_penalty=1.2,
-        max_length=500,
-    )
+        # All sampling params are flattened columns (not nested JSON!)
+        store.add_generation_metadata(
+            seq_id,
+            model_name="proteinmpnn",
+            temperature=1.0,
+            top_k=50,
+            top_p=0.9,
+            num_return_sequences=10,
+            do_sample=True,
+            repetition_penalty=1.2,
+            max_length=500,
+        )
 
-    # Export - all params are separate columns
-    df = store.export_to_dataframe(
-        include_sequences=True, include_generation_metadata=True
-    )
+        # Export - all params are separate columns
+        df = store.export_to_dataframe(
+            include_sequences=True, include_generation_metadata=True
+        )
 
-    print("\nColumns in exported DataFrame:")
-    print(df.columns.tolist())
+        print("\nColumns in exported DataFrame:")
+        print(df.columns.tolist())
 
-    print("\nGeneration metadata (flattened):")
-    print(df[["sequence", "gen_model_name", "gen_temperature", "gen_top_k", "gen_top_p"]].head())
+        print("\nGeneration metadata (flattened):")
+        print(df[["sequence", "gen_model_name", "gen_temperature", "gen_top_k", "gen_top_p"]].head())
 
-    # Can easily filter by any sampling parameter!
-    df_high_temp = df[df["gen_temperature"] > 0.8]
-    df_topk_50 = df[df["gen_top_k"] == 50]
+        # Can easily filter by any sampling parameter!
+        df_high_temp = df[df["gen_temperature"] > 0.8]
+        df_topk_50 = df[df["gen_top_k"] == 50]
 
-    print(f"\nSequences with temperature > 0.8: {len(df_high_temp)}")
-    print(f"Sequences with top_k=50: {len(df_topk_50)}")
-
-    store.close()
+        print(f"\nSequences with temperature > 0.8: {len(df_high_temp)}")
+        print(f"Sequences with top_k=50: {len(df_topk_50)}")
+    finally:
+        store.close()
 
 
 def example_3_ranking_filter():

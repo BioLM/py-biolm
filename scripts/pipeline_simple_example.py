@@ -2,219 +2,209 @@
 Simple Pipeline Example
 
 This example demonstrates basic usage of the pipeline system.
+All examples make live API calls — requires BIOLMAI_TOKEN in environment.
 """
 
-import sys
+import traceback
 
+import os
+from pathlib import Path
 
-
-from biolmai.pipeline import DataPipeline, GenerationConfig, GenerativePipeline, Predict
+from biolmai.pipeline import (
+    DataPipeline,
+    DirectGenerationConfig,
+    GenerativePipeline,
+    Predict,
+)
 from biolmai.pipeline.filters import (
     DiversitySamplingFilter,
+    RankingFilter,
     SequenceLengthFilter,
     ThresholdFilter,
 )
 from biolmai.pipeline.visualization import PipelinePlotter
 
+# PDB fixtures bundled with the SDK
+_HERE = Path(__file__).parent.parent
+SAMPLE_PDB = str(_HERE / "tests/fixtures/sample.pdb")        # single chain
+ANTIBODY_PDB = str(_HERE / "tests/fixtures/multi_model.pdb") # H + L chains
+
+SEQUENCES = [
+    "MKTAYIAKQRQGHQAMAEIKQ",
+    "MKLAVIDSAQRQGHQAMAEIKQ",
+    "MKTAYIDSAQRQGHQAMAEIKQ",
+    "MKTAYIAKQRQGHQAMAEI",
+    "MKTAYIAKQRQGHQAMAEIKQGHQAMAEIKQ",
+    "MSILVTRPSPAGEELVSRLR",
+    "MENDELMENDELMENDEL",
+    "ACDEFGHIKLMNPQRSTVWY",
+    "MKTAYIAKQRQGHQAMAEIKQLVSRLR",
+    "MSILVTRPSPAGEEL",
+    "MKLAVIDSAQRQGHQAMAEIKQLVSR",
+    "MKTAYIDSAQRQGHQAMAEIKQVSRL",
+    "ACDEFGHIKLMNPQRSTVWYACDE",
+    "MSILVTRPSPAGEELVSRLRTLGQ",
+    "MENDELMENDELMENDELMEND",
+]
+
 
 def example_1_quick_prediction():
-    """Example 1: Quick single-step prediction."""
+    """Example 1: Quick single-step prediction — top 10 by Tm."""
     print("=" * 60)
-    print("Example 1: Quick Prediction")
+    print("Example 1: Quick Prediction (top 10 by Tm)")
     print("=" * 60)
 
-    sequences = [
-        "MKTAYIAKQRQGHQAMAEIKQ",
-        "MKLAVIDSAQRQGHQAMAEIKQ",
-        "MKTAYIDSAQRQGHQAMAEIKQ",
-    ]
-
-    # Quick prediction (returns DataFrame)
-    df = Predict("temberture-regression", sequences=sequences, extractions="prediction", columns="tm", verbose=False)
-    print(df)
+    df = Predict(
+        "temberture-regression",
+        sequences=SEQUENCES,
+        extractions="prediction",
+        columns="tm",
+        verbose=False,
+    )
+    df_sorted = df.sort_values("tm", ascending=False).reset_index(drop=True)
+    print(f"\n{len(df)} sequences predicted. Top 10 by Tm:")
+    print(df_sorted[["sequence", "tm"]].head(10).to_string(index=True))
 
 
 def example_2_data_pipeline():
-    """Example 2: Data pipeline with multiple stages."""
+    """Example 2: Data pipeline with length filter → Tm prediction → Tm filter."""
     print("\n" + "=" * 60)
-    print("Example 2: Data Pipeline")
+    print("Example 2: Data Pipeline (length filter → Tm → threshold)")
     print("=" * 60)
 
-    sequences = [
-        "MKTAYIAKQRQGHQAMAEIKQ",
-        "MKLAVIDSAQRQGHQAMAEIKQ",
-        "MKTAYIDSAQRQGHQAMAEIKQ",
-        "MKTAYIAKQRQGHQAMAEI",  # Shorter
-        "MKTAYIAKQRQGHQAMAEIKQGHQAMAEIKQ",  # Longer
-    ]
-
-    # Create pipeline
-    pipeline = DataPipeline(sequences=sequences)
-
-    # Add stages
+    pipeline = DataPipeline(sequences=SEQUENCES)
     pipeline.add_filter(
         SequenceLengthFilter(min_length=20, max_length=30), stage_name="length_filter"
     )
-
     pipeline.add_prediction(
-        "temberture-regression", extractions="prediction", columns="tm", stage_name="tm_prediction"
+        "temberture-regression",
+        extractions="prediction",
+        columns="tm",
+        stage_name="tm_prediction",
     )
+    pipeline.add_filter(ThresholdFilter("tm", min_value=49), stage_name="tm_filter")
 
-    pipeline.add_filter(ThresholdFilter("tm", min_value=50), stage_name="tm_filter")
-
-    # Run pipeline
     print("\nRunning pipeline...")
-    results = pipeline.run()
+    pipeline.run()
 
-    # Get results
     df = pipeline.get_final_data()
-    print("\nFinal results:")
-    print(df[["sequence", "tm"]])
+    df_sorted = df.sort_values("tm", ascending=False).reset_index(drop=True)
+    print(f"\nSurvivors ({len(df)} sequences), sorted by Tm:")
+    print(df_sorted[["sequence", "tm"]].head(10).to_string(index=True))
 
-    # Summary
     print("\nPipeline summary:")
     print(pipeline.summary())
 
 
 def example_3_generative_pipeline():
-    """Example 3: Generative pipeline with temperature scanning."""
+    """Example 3: Sequence-conditioned generation — progen2-oas → Tm → top 10.
+
+    progen2-oas generates antibody sequences from a seed context string.
+    For PDB-input models (protein-mpnn, antifold, ligand-mpnn) see:
+      scripts/pipeline_antibody_antifold.py  — antifold H+L chain design
+      scripts/pipeline_mpnn_multi.py         — protein-mpnn multi-temperature scan
+    Those use DirectGenerationConfig(structure_path=..., item_field='pdb').
+    """
     print("\n" + "=" * 60)
-    print("Example 3: Generative Pipeline")
+    print("Example 3: Generative Pipeline (progen2-oas → Tm → top 10)")
     print("=" * 60)
 
-    parent_sequence = "MKTAYIAKQRQGHQAMAEIKQ"
-
-    # Configure generation
-    config = GenerationConfig(
-        model_name="proteinmpnn",
-        num_sequences=50,
-        temperature=[0.5, 1.0],  # Temperature scanning
-        parent_sequence=parent_sequence,
+    config = DirectGenerationConfig(
+        model_name="progen2-oas",
+        sequence="M",           # seed context — progen2-oas extends from here
+        item_field="context",
+        params={"temperature": 0.7, "top_p": 0.9, "num_samples": 3, "max_length": 50},
     )
 
-    # Create pipeline
     pipeline = GenerativePipeline(generation_configs=[config], deduplicate=True)
-
-    # Add downstream predictions
-    pipeline.add_prediction("temberture-regression", extractions="prediction", columns="tm")
-
-    # Add filtering
-    pipeline.add_filter(ThresholdFilter("tm", min_value=55))
-
-    # Add diversity sampling
+    pipeline.add_prediction(
+        "temberture-regression", extractions="prediction", columns="tm"
+    )
     pipeline.add_filter(
-        DiversitySamplingFilter(n_samples=10, method="top", score_column="tm")
+        RankingFilter("tm", n=10, ascending=False), stage_name="top10_by_tm"
     )
 
-    # Run pipeline
     print("\nRunning generative pipeline...")
-    results = pipeline.run()
+    pipeline.run()
 
-    # Get results
     df = pipeline.get_final_data()
-    print("\nTop 10 sequences by Tm:")
-    print(df[["sequence", "tm", "temperature"]].head(10))
+    df_sorted = df.sort_values("tm", ascending=False).reset_index(drop=True)
+    cols = [c for c in ["sequence", "tm"] if c in df_sorted.columns]
+    print(f"\nTop 10 generated sequences by Tm (from {len(df)} survivors):")
+    print(df_sorted[cols].head(10).to_string(index=True))
 
-    # Summary
     print("\nPipeline summary:")
     print(pipeline.summary())
 
 
 def example_4_visualization():
-    """Example 4: Pipeline visualization."""
+    """Example 4: Pipeline visualization — Tm funnel + distribution plots."""
     print("\n" + "=" * 60)
-    print("Example 4: Visualization")
+    print("Example 4: Visualization (Tm funnel + distribution)")
     print("=" * 60)
 
-    sequences = [
-        "MKTAYIAKQRQGHQAMAEIKQ",
-        "MKLAVIDSAQRQGHQAMAEIKQ",
-        "MKTAYIDSAQRQGHQAMAEIKQ",
-        "MKTAYIAKQRQGHQAMAEIKQGHQ",
-    ]
+    pipeline = DataPipeline(sequences=SEQUENCES)
+    pipeline.add_prediction(
+        "temberture-regression", extractions="prediction", columns="tm"
+    )
+    pipeline.add_filter(ThresholdFilter("tm", min_value=49), stage_name="tm_filter")
 
-    # Create pipeline
-    pipeline = DataPipeline(sequences=sequences)
-    pipeline.add_prediction("temberture-regression", extractions="prediction", columns="tm")
+    pipeline.run()
 
-    # Run
-    results = pipeline.run()
+    df = pipeline.get_final_data()
+    print(f"\nAll {len(df)} sequences with Tm ≥ 49:")
+    print(df[["sequence", "tm"]].sort_values("tm", ascending=False).head(10).to_string(index=True))
 
-    # Visualize
     print("\nGenerating visualizations...")
-
     plotter = PipelinePlotter(pipeline)
-
-    # Funnel plot
     plotter.plot_funnel(save_path="pipeline_funnel.png")
-
-    # Distribution
     plotter.plot_distribution("tm", save_path="tm_distribution.png")
-
-    print("Visualizations saved to pipeline_funnel.png and tm_distribution.png")
+    print("Saved: pipeline_funnel.png, tm_distribution.png")
 
 
 def example_5_datastore_usage():
     """Example 5: Direct DataStore usage."""
     print("\n" + "=" * 60)
-    print("Example 5: DataStore")
+    print("Example 5: DataStore (direct usage)")
     print("=" * 60)
 
     from biolmai.pipeline import DataStore
 
-    # Create datastore
     store = DataStore("example.db", "example_data")
 
-    # Add sequences
-    seq1 = "MKTAYIAKQRQ"
-    seq2 = "MKLAVIDSAQRQ"
+    try:
+        seqs = SEQUENCES[:5]
+        ids = [store.add_sequence(s) for s in seqs]
+        print(f"Added {len(ids)} sequences (ids {ids[0]}–{ids[-1]})")
 
-    id1 = store.add_sequence(seq1)
-    id2 = store.add_sequence(seq2)
+        fake_tm = [48.5, 50.6, 47.2, 49.8, 51.3]
+        for sid, tm in zip(ids, fake_tm):
+            store.add_prediction(sid, "melting_temperature", "temberture-regression", tm)
 
-    print(f"Added sequences: {id1}, {id2}")
+        df = store.export_to_dataframe()
+        print(f"\nExported DataFrame ({len(df)} rows):")
+        print(df[["sequence", "melting_temperature"]].sort_values("melting_temperature", ascending=False).head(10).to_string(index=True))
 
-    # Add predictions
-    store.add_prediction(id1, "stability", "ddg_predictor", 2.5)
-    store.add_prediction(id2, "stability", "ddg_predictor", 3.1)
-
-    # Query per-sequence
-    preds1 = store.get_predictions(id1, prediction_type="stability")
-    print("\nPredictions for seq1:")
-    print(preds1)
-
-    # Export
-    df = store.export_to_dataframe()
-    print("\nExported DataFrame:")
-    print(df)
-
-    # Stats
-    print("\nDataStore stats:")
-    print(store.get_stats())
+        print("\nDataStore stats:")
+        print(store.get_stats())
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":
     print("BioLM Pipeline Examples\n")
 
-    # Run examples
-    try:
-        example_1_quick_prediction()
-    except Exception as e:
-        print(f"Example 1 failed: {e}")
-
-    try:
-        example_2_data_pipeline()
-    except Exception as e:
-        print(f"Example 2 failed: {e}")
-
-    try:
-        example_5_datastore_usage()
-    except Exception as e:
-        print(f"Example 5 failed: {e}")
-
-    # Note: Examples 3 and 4 require actual API access
-    print("\n" + "=" * 60)
-    print("Note: Examples 3 and 4 require BioLM API access")
-    print("=" * 60)
+    for label, fn in [
+        ("Example 1", example_1_quick_prediction),
+        ("Example 2", example_2_data_pipeline),
+        ("Example 3", example_3_generative_pipeline),
+        ("Example 4", example_4_visualization),
+        ("Example 5", example_5_datastore_usage),
+    ]:
+        try:
+            fn()
+        except Exception as e:
+            print(f"\n{label} failed: {e}")
+            traceback.print_exc()
 
     print("\nAll examples completed!")

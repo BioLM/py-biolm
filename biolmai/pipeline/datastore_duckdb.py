@@ -1361,6 +1361,43 @@ class DuckDBDataStore:
                 result[int(r.sequence_id)] = np.array(vals, dtype=np.float32)
         return result
 
+    def get_embeddings_concat(
+        self,
+        sequence_ids: list[int],
+        model_names: list[str],
+    ) -> dict[int, np.ndarray]:
+        """Fetch and concatenate embeddings from multiple models per sequence.
+
+        For each sequence_id, retrieves the embedding from each model in
+        ``model_names`` order and horizontally concatenates them into a single
+        vector.  Sequences missing an embedding from *any* requested model are
+        omitted from the result.
+
+        Args:
+            sequence_ids: Sequence IDs to fetch.
+            model_names: Ordered list of model names whose embeddings will be
+                concatenated (e.g. ``["esm2-8m", "esmc-300m"]``).
+
+        Returns:
+            Dict mapping ``sequence_id`` → concatenated numpy array.
+        """
+        if not sequence_ids or not model_names:
+            return {}
+
+        per_model: list[dict[int, np.ndarray]] = []
+        for mn in model_names:
+            per_model.append(self.get_embeddings_bulk(sequence_ids, model_name=mn))
+
+        # Only keep IDs present in ALL models
+        common_ids = set(sequence_ids)
+        for emb_map in per_model:
+            common_ids &= set(emb_map.keys())
+
+        result: dict[int, np.ndarray] = {}
+        for sid in common_ids:
+            result[sid] = np.concatenate([pm[sid] for pm in per_model])
+        return result
+
     def get_uncached_sequence_ids(
         self,
         sequence_ids: list[int],

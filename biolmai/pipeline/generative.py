@@ -317,10 +317,15 @@ class GenerationStage(Stage):
         Extract sequence dicts from any BioLM generation response format.
 
         Handles:
-        - **Flat list** (MPNN): ``[{sequence, pdb, ...}, ...]``
+        - **Single dict** (MPNN with unwrap_single=True): ``{sequence, pdb, ...}``
+        - **Flat list** (MPNN, multiple results): ``[{sequence, pdb, ...}, ...]``
         - **Nested samples** (AntiFold): ``[{sequences: [{heavy, light, ...}]}]``
         - **Double-nested** (DSM): ``[[{sequence, log_prob, ...}, ...]]``
         """
+        # Normalize: BioLMApiClient with unwrap_single=True returns a bare dict
+        # for single-item inputs. Wrap so the rest of the logic sees a uniform list.
+        if isinstance(raw, dict):
+            raw = [raw]
         if not raw:
             return []
         sequences: list[dict] = []
@@ -1009,9 +1014,48 @@ class GenerationStage(Stage):
         if len(df_generated) > 0:
             print(f"  Adding {len(df_generated)} sequences to datastore...")
 
-            # Batch-insert all sequences in one vectorized call
-            seq_ids = datastore.add_sequences_batch(df_generated["sequence"].tolist())
+            # Detect extra columns from generation (e.g. heavy_chain, light_chain
+            # from AntiFold) and store them on the sequences table so they survive
+            # WorkingSet materialization.
+            _gen_extra_cols = [
+                c for c in ("heavy_chain", "light_chain")
+                if c in df_generated.columns
+                and df_generated[c].notna().any()
+            ]
+            if _gen_extra_cols:
+                datastore.ensure_input_columns(_gen_extra_cols)
+                _all_cols = ["sequence"] + _gen_extra_cols
+                seq_ids = datastore.add_sequences_batch(
+                    input_df=df_generated[_all_cols],
+                    input_columns=_all_cols,
+                )
+            else:
+                # Batch-insert all sequences in one vectorized call
+                seq_ids = datastore.add_sequences_batch(df_generated["sequence"].tolist())
             df_generated["sequence_id"] = seq_ids
+
+            # Store numeric generation scores (global_score, score, seq_recovery)
+            # as predictions so they survive WorkingSet materialization and are
+            # available for downstream filters.
+            _score_cols = [
+                c for c in ("global_score", "score", "seq_recovery")
+                if c in df_generated.columns
+                and df_generated[c].notna().any()
+            ]
+            if _score_cols:
+                pred_rows = []
+                for sid, row in zip(seq_ids, df_generated.itertuples(index=False)):
+                    for col in _score_cols:
+                        val = getattr(row, col, None)
+                        if val is not None:
+                            pred_rows.append({
+                                "sequence_id": sid,
+                                "prediction_type": col,
+                                "model_name": row.model_name,
+                                "value": float(val),
+                            })
+                if pred_rows:
+                    datastore.add_predictions_batch(pred_rows)
 
             # Store generation metadata in one batched INSERT (BUG-10 fix: replaces N+1 loop)
             run_id = kwargs.get("run_id", "")
@@ -1649,7 +1693,11 @@ class GenerativePipeline(BasePipeline):
 
             # Restore pipeline_runs.definition_id to the full definition (BUG-01 fix)
             # and update .config to include generation stages (GEN2-01 fix).
-            if self.datastore:
+            _conn_alive = (
+                self.datastore is not None
+                and getattr(self.datastore, "conn", None) is not None
+            )
+            if _conn_alive:
                 # GEN2-01: full_config was captured BEFORE the stage swap (see above),
                 # so we use it directly here instead of doing a fragile stages swap.
                 self.datastore.conn.execute(

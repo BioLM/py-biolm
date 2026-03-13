@@ -105,119 +105,120 @@ async def main() -> None:
     db_path = OUTPUT_DIR / "pipeline.duckdb"
     datastore = DuckDBDataStore(db_path)
 
-    generation_configs = build_generation_configs()
+    try:
+        generation_configs = build_generation_configs()
 
-    print("\n=== Multi-MPNN Pipeline ===")
-    print(f"  Structure      : {STRUCTURE_PATH}")
-    print(f"  Models         : {', '.join(MPNN_MODELS)}")
-    print(f"  Temperatures   : {TEMPERATURES}")
-    print(f"  Total configs  : {len(generation_configs)}")
-    print(f"  Max sequences  : {len(generation_configs) * N_PER_CONFIG} (before dedup)")
-    print()
+        print("\n=== Multi-MPNN Pipeline ===")
+        print(f"  Structure      : {STRUCTURE_PATH}")
+        print(f"  Models         : {', '.join(MPNN_MODELS)}")
+        print(f"  Temperatures   : {TEMPERATURES}")
+        print(f"  Total configs  : {len(generation_configs)}")
+        print(f"  Max sequences  : {len(generation_configs) * N_PER_CONFIG} (before dedup)")
+        print()
 
-    pipeline = GenerativePipeline(
-        generation_configs=generation_configs,
-        deduplicate=True,
-        datastore=datastore,
-        run_id="mpnn_multi_v1",
-        output_dir=str(OUTPUT_DIR),
-        verbose=True,
-    )
+        pipeline = GenerativePipeline(
+            generation_configs=generation_configs,
+            deduplicate=True,
+            datastore=datastore,
+            run_id="mpnn_multi_v1",
+            output_dir=str(OUTPUT_DIR),
+            verbose=True,
+        )
 
-    # ------------------------------------------------------------------
-    # Stage 1a: temberture-regression — melting temperature prediction
-    #   Predicts Tm (°C). Higher Tm → more thermally stable.
-    # ------------------------------------------------------------------
-    pipeline.add_prediction(
-        model_name="temberture-regression",
-        action="predict",
-        extractions="prediction",
-        columns="tm",
-        stage_name="temberture",
-        depends_on=["generation"],
-        batch_size=32,
-        max_concurrent=5,
-    )
+        # ------------------------------------------------------------------
+        # Stage 1a: temberture-regression — melting temperature prediction
+        #   Predicts Tm (°C). Higher Tm → more thermally stable.
+        # ------------------------------------------------------------------
+        pipeline.add_prediction(
+            model_name="temberture-regression",
+            action="predict",
+            extractions="prediction",
+            columns="tm",
+            stage_name="temberture",
+            depends_on=["generation"],
+            batch_size=32,
+            max_concurrent=5,
+        )
 
-    # ------------------------------------------------------------------
-    # Stage 1b: soluprot — solubility prediction (parallel with temberture)
-    #   Predicts solubility probability in [0, 1].
-    # ------------------------------------------------------------------
-    pipeline.add_prediction(
-        model_name="soluprot",
-        action="predict",
-        extractions="soluble",
-        columns="solubility",
-        stage_name="soluprot",
-        depends_on=["generation"],
-        batch_size=32,
-        max_concurrent=5,
-    )
+        # ------------------------------------------------------------------
+        # Stage 1b: soluprot — solubility prediction (parallel with temberture)
+        #   Predicts solubility probability in [0, 1].
+        # ------------------------------------------------------------------
+        pipeline.add_prediction(
+            model_name="soluprot",
+            action="predict",
+            extractions="soluble",
+            columns="solubility",
+            stage_name="soluprot",
+            depends_on=["generation"],
+            batch_size=32,
+            max_concurrent=5,
+        )
 
-    # ------------------------------------------------------------------
-    # Stage 2: Filter — Tm AND solubility threshold
-    #   Both prediction stages must complete first; either dependency
-    #   triggers this filter (both are satisfied once both run).
-    # ------------------------------------------------------------------
-    pipeline.add_filter(
-        filter_func=ThresholdFilter(
-            column="tm",
-            min_value=TM_MIN,
-        ),
-        stage_name="filter_tm",
-        depends_on=["temberture", "soluprot"],  # wait for both
-    )
+        # ------------------------------------------------------------------
+        # Stage 2: Filter — Tm AND solubility threshold
+        #   Both prediction stages must complete first; either dependency
+        #   triggers this filter (both are satisfied once both run).
+        # ------------------------------------------------------------------
+        pipeline.add_filter(
+            filter_func=ThresholdFilter(
+                column="tm",
+                min_value=TM_MIN,
+            ),
+            stage_name="filter_tm",
+            depends_on=["temberture", "soluprot"],  # wait for both
+        )
 
-    pipeline.add_filter(
-        filter_func=ThresholdFilter(
-            column="solubility",
-            min_value=SOLUBILITY_MIN,
-        ),
-        stage_name="filter_sol",
-        depends_on=["filter_tm"],
-    )
+        pipeline.add_filter(
+            filter_func=ThresholdFilter(
+                column="solubility",
+                min_value=SOLUBILITY_MIN,
+            ),
+            stage_name="filter_sol",
+            depends_on=["filter_tm"],
+        )
 
-    # ------------------------------------------------------------------
-    # Stage 3: Rank — keep top 100 by Tm
-    # ------------------------------------------------------------------
-    pipeline.add_filter(
-        filter_func=RankingFilter(
-            column="tm",
-            n=TOP_N_FINAL,
-            ascending=False,  # highest Tm first
-        ),
-        stage_name="rank_top100",
-        depends_on=["filter_sol"],
-    )
+        # ------------------------------------------------------------------
+        # Stage 3: Rank — keep top 100 by Tm
+        # ------------------------------------------------------------------
+        pipeline.add_filter(
+            filter_func=RankingFilter(
+                column="tm",
+                n=TOP_N_FINAL,
+                ascending=False,  # highest Tm first
+            ),
+            stage_name="rank_top100",
+            depends_on=["filter_sol"],
+        )
 
-    # ------------------------------------------------------------------
-    # Run
-    # ------------------------------------------------------------------
-    stage_results = await pipeline.run_async()
+        # ------------------------------------------------------------------
+        # Run
+        # ------------------------------------------------------------------
+        stage_results = await pipeline.run_async()
 
-    # ------------------------------------------------------------------
-    # Summary
-    # ------------------------------------------------------------------
-    print("\n=== Stage Summary ===")
-    for _name, result in stage_results.items():
-        print(f"  {result}")
+        # ------------------------------------------------------------------
+        # Summary
+        # ------------------------------------------------------------------
+        print("\n=== Stage Summary ===")
+        for _name, result in stage_results.items():
+            print(f"  {result}")
 
-    df_final = pipeline.get_final_data()
-    out_csv = OUTPUT_DIR / "mpnn_designs.csv"
-    df_final.to_csv(out_csv, index=False)
-    print(f"\nTop {len(df_final)} designs saved → {out_csv}")
+        df_final = pipeline.get_final_data()
+        out_csv = OUTPUT_DIR / "mpnn_designs.csv"
+        df_final.to_csv(out_csv, index=False)
+        print(f"\nTop {len(df_final)} designs saved → {out_csv}")
 
-    if len(df_final) > 0:
-        cols = [
-            c
-            for c in ["sequence", "model_name", "temperature", "tm", "solubility"]
-            if c in df_final.columns
-        ]
-        best = df_final.nlargest(5, "tm")[cols]
-        print("\nTop 5 by Tm:")
-        print(best.to_string(index=False))
-
-    datastore.close()
+        if len(df_final) > 0:
+            cols = [
+                c
+                for c in ["sequence", "model_name", "temperature", "tm", "solubility"]
+                if c in df_final.columns
+            ]
+            best = df_final.nlargest(5, "tm")[cols]
+            print("\nTop 5 by Tm:")
+            print(best.to_string(index=False))
+    finally:
+        datastore.close()
 
 
 if __name__ == "__main__":

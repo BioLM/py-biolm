@@ -341,31 +341,32 @@ async def main() -> None:
     # the same amino-acid sequence always maps to the same sequence_id.
     datastore = DuckDBDataStore(DB_PATH)
 
-    await run1(datastore)
-    await run2(datastore)
-    await run3(datastore)
+    try:
+        await run1(datastore)
+        await run2(datastore)
+        await run3(datastore)
 
-    # Final cross-run summary
-    print("\n" + "=" * 60)
-    print("FINAL DATASTORE SUMMARY")
-    print("=" * 60)
-    conn = datastore.conn
+        # Final cross-run summary
+        print("\n" + "=" * 60)
+        print("FINAL DATASTORE SUMMARY")
+        print("=" * 60)
+        conn = datastore.conn
 
-    total_seq = conn.execute("SELECT COUNT(*) FROM sequences").fetchone()[0]
-    total_folded = conn.execute(
-        "SELECT COUNT(*) FROM predictions WHERE prediction_type='esmfold::predict::mean_plddt'"
-    ).fetchone()[0]
-    lp_cache_key = f"{LP_MODEL}::score::log_prob"
-    total_lp = conn.execute(
-        "SELECT COUNT(*) FROM predictions WHERE prediction_type=?",
-        [lp_cache_key],
-    ).fetchone()[0]
-    print(f"  Total sequences in DB  : {total_seq}")
-    print(f"  Sequences with LP score: {total_lp}")
-    print(f"  Sequences folded (pLDDT): {total_folded}")
-    print(f"\nDB location: {DB_PATH}")
-
-    datastore.close()
+        total_seq = conn.execute("SELECT COUNT(*) FROM sequences").fetchone()[0]
+        total_folded = conn.execute(
+            "SELECT COUNT(*) FROM predictions WHERE prediction_type='esmfold::predict::mean_plddt'"
+        ).fetchone()[0]
+        lp_cache_key = f"{LP_MODEL}::score::log_prob"
+        total_lp = conn.execute(
+            "SELECT COUNT(*) FROM predictions WHERE prediction_type=?",
+            [lp_cache_key],
+        ).fetchone()[0]
+        print(f"  Total sequences in DB  : {total_seq}")
+        print(f"  Sequences with LP score: {total_lp}")
+        print(f"  Sequences folded (pLDDT): {total_folded}")
+        print(f"\nDB location: {DB_PATH}")
+    finally:
+        datastore.close()
 
 
 if __name__ == "__main__":

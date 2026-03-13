@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 from biolmai.pipeline.base import WorkingSet
-from biolmai.pipeline.data import DataPipeline, EmbeddingSpec, ExtractionSpec, PredictionStage
+from biolmai.pipeline.data import DataPipeline, EmbeddingSpec, ExtractionSpec, PredictionStage, _ResolvedExtraction
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 from biolmai.pipeline.filters import (
     CustomFilter,
@@ -1938,3 +1938,166 @@ def test_from_db_set_generation_rerun(tmp_path):
     # New sequences were generated and added
     all_seqs = ds.get_all_sequences()
     assert len(all_seqs) >= 2  # at least the original 2 (new may also be there)
+
+
+# ---------------------------------------------------------------------------
+# Test: get_embeddings_concat()
+# ---------------------------------------------------------------------------
+
+
+def test_get_embeddings_concat_basic(tmp_path):
+    """get_embeddings_concat concatenates embeddings from multiple models."""
+    db = str(tmp_path / "concat.duckdb")
+    ds = DuckDBDataStore(db)
+
+    seqs = ["MKTAYI", "ACDEFG", "NQRSTU"]
+    seq_ids = ds.add_sequences_batch(seqs)
+
+    # Add embeddings for model_a (dim=4) and model_b (dim=3) for all 3 sequences
+    emb_a = [
+        np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32),
+        np.array([5.0, 6.0, 7.0, 8.0], dtype=np.float32),
+        np.array([9.0, 10.0, 11.0, 12.0], dtype=np.float32),
+    ]
+    emb_b = [
+        np.array([0.1, 0.2, 0.3], dtype=np.float32),
+        np.array([0.4, 0.5, 0.6], dtype=np.float32),
+        np.array([0.7, 0.8, 0.9], dtype=np.float32),
+    ]
+    for sid, ea, eb in zip(seq_ids, emb_a, emb_b):
+        ds.add_embedding(sid, "model_a", ea)
+        ds.add_embedding(sid, "model_b", eb)
+
+    result = ds.get_embeddings_concat(seq_ids, ["model_a", "model_b"])
+
+    # All 3 sequences should be present
+    assert len(result) == 3
+    for i, sid in enumerate(seq_ids):
+        assert sid in result
+        concat = result[sid]
+        # Should be dim 7 = 4 + 3
+        assert concat.shape == (7,)
+        # Values should be model_a then model_b
+        np.testing.assert_allclose(concat[:4], emb_a[i], atol=1e-5)
+        np.testing.assert_allclose(concat[4:], emb_b[i], atol=1e-5)
+
+    ds.close()
+
+
+def test_get_embeddings_concat_missing_model(tmp_path):
+    """get_embeddings_concat excludes sequences missing an embedding from any model."""
+    db = str(tmp_path / "concat_missing.duckdb")
+    ds = DuckDBDataStore(db)
+
+    seqs = ["MKTAYI", "ACDEFG", "NQRSTU"]
+    seq_ids = ds.add_sequences_batch(seqs)
+
+    # All 3 get model_a, but only first 2 get model_b
+    for sid in seq_ids:
+        ds.add_embedding(sid, "model_a", np.array([1.0, 2.0], dtype=np.float32))
+    for sid in seq_ids[:2]:
+        ds.add_embedding(sid, "model_b", np.array([3.0], dtype=np.float32))
+
+    result = ds.get_embeddings_concat(seq_ids, ["model_a", "model_b"])
+
+    # Only first 2 sequences should be present (seq_ids[2] is missing model_b)
+    assert len(result) == 2
+    assert seq_ids[0] in result
+    assert seq_ids[1] in result
+    assert seq_ids[2] not in result
+
+    # Concatenated dimension should be 2 + 1 = 3
+    for sid in seq_ids[:2]:
+        assert result[sid].shape == (3,)
+
+    ds.close()
+
+
+# ---------------------------------------------------------------------------
+# Test: Generation score persistence through WorkingSet materialization
+# ---------------------------------------------------------------------------
+
+
+def test_generation_score_persists_through_materialization(tmp_path):
+    """Predictions stored as generation scores survive materialize_working_set()."""
+    db = str(tmp_path / "gen_scores.duckdb")
+    ds = DuckDBDataStore(db)
+
+    seqs = ["MKTAYIAKQRQ", "ACDEFGHIKLM", "NQRSTUVWXYZ"]
+    seq_ids = ds.add_sequences_batch(seqs)
+
+    # Store generation scores as predictions
+    scores = [0.85, 0.72, 0.91]
+    pred_data = [
+        {
+            "sequence_id": sid,
+            "prediction_type": "global_score",
+            "model_name": "antifold",
+            "value": score,
+        }
+        for sid, score in zip(seq_ids, scores)
+    ]
+    ds.add_predictions_batch(pred_data)
+
+    # Create a WorkingSet and materialize
+    ws = WorkingSet(sequence_ids=frozenset(seq_ids))
+    df = ds.materialize_working_set(ws, prediction_types=["global_score"])
+
+    # The materialized DataFrame should have a global_score column
+    assert "global_score" in df.columns
+    assert len(df) == 3
+
+    # Check that values match (order may differ, so match by sequence_id)
+    for sid, expected_score in zip(seq_ids, scores):
+        row = df[df["sequence_id"] == sid]
+        assert len(row) == 1
+        assert abs(row["global_score"].iloc[0] - expected_score) < 1e-6
+
+    ds.close()
+
+
+# ---------------------------------------------------------------------------
+# Test: Nested array flattening in _extract_with_spec()
+# ---------------------------------------------------------------------------
+
+
+def test_extract_with_spec_nested_list_reduction():
+    """_extract_with_spec flattens nested lists before applying reduction."""
+    spec = _ResolvedExtraction(response_key="plddt", column="plddt_mean", reduction="mean")
+
+    # Single-nested: [[0.95, 0.92, 0.88]]
+    result1 = PredictionStage._extract_with_spec(
+        {"plddt": [[0.95, 0.92, 0.88]]}, spec
+    )
+    expected1 = float(np.mean([0.95, 0.92, 0.88]))
+    assert result1 is not None
+    assert abs(result1 - expected1) < 1e-4
+
+    # Double-nested: [[0.9, 0.8], [0.7]]
+    result2 = PredictionStage._extract_with_spec(
+        {"plddt": [[0.9, 0.8], [0.7]]}, spec
+    )
+    expected2 = float(np.mean([0.9, 0.8, 0.7]))
+    assert result2 is not None
+    assert abs(result2 - expected2) < 1e-4
+
+
+def test_extract_with_spec_flat_list_reduction():
+    """_extract_with_spec handles flat lists with reduction."""
+    spec = _ResolvedExtraction(response_key="scores", column="score_max", reduction="max")
+
+    result = PredictionStage._extract_with_spec(
+        {"scores": [0.5, 0.9, 0.3]}, spec
+    )
+    assert result is not None
+    assert abs(result - 0.9) < 1e-6
+
+
+def test_extract_with_spec_no_reduction_returns_none_for_array():
+    """_extract_with_spec returns None for array values when no reduction is set."""
+    spec = _ResolvedExtraction(response_key="plddt", column="plddt", reduction=None)
+
+    result = PredictionStage._extract_with_spec(
+        {"plddt": [[0.95, 0.92, 0.88]]}, spec
+    )
+    assert result is None

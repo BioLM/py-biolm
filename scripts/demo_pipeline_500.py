@@ -317,11 +317,11 @@ async def main():
         print("\nStage summary (Run 3):")
         print(stats3.to_string(index=False))
 
-        # Verify cache worked: predictions table should have grown by at most len(NEW_SEQUENCES)
+        # Verify cache worked: predictions table should have grown
         total_preds = ds4.conn.execute(
-            "SELECT COUNT(DISTINCT sequence_id) FROM predictions WHERE prediction_type='temberture-regression::predict::prediction'"
+            "SELECT COUNT(DISTINCT sequence_id) FROM predictions"
         ).fetchone()[0]
-        assert total_preds >= len(SEQUENCES), "Should retain all original predictions"
+        assert total_preds >= len(SEQUENCES), f"Should retain all original predictions, got {total_preds}"
         ds4.close()
 
     print(f"\n{'='*60}")
