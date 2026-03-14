@@ -1114,6 +1114,17 @@ class PredictionStage(Stage):
             n_batches = (len(all_items) + batch_size - 1) // batch_size
             flight_semaphore = asyncio.Semaphore(self.max_concurrent)
 
+            # Progress bar (graceful fallback if tqdm not installed)
+            try:
+                from tqdm.auto import tqdm as _tqdm_cls
+            except ImportError:
+                _tqdm_cls = None
+            _pbar = (
+                _tqdm_cls(total=n_batches, desc=f"  {self.model_name}", unit="batch")
+                if _tqdm_cls and n_batches > 1
+                else None
+            )
+
             async def _dispatch_batch(batch_idx, _items=all_items, _seq_ids=all_seq_ids):
                 """Send one batch to the API and store results in DuckDB."""
                 start = batch_idx * batch_size
@@ -1254,6 +1265,9 @@ class PredictionStage(Stage):
                             datastore.add_predictions_batch(failed)
                     else:
                         raise
+                finally:
+                    if _pbar is not None:
+                        _pbar.update(1)
 
             try:
                 # BUG-CHK-01 fix: use return_exceptions=True so one failing batch
@@ -1264,6 +1278,8 @@ class PredictionStage(Stage):
                     *[_dispatch_batch(i) for i in range(n_batches)],
                     return_exceptions=True,
                 )
+                if _pbar is not None:
+                    _pbar.close()
                 # Re-raise the first exception that was not swallowed by skip_on_error.
                 # When skip_on_error=True, _dispatch_batch never re-raises, so any
                 # Exception in gather_results means it propagated from outside the
@@ -2611,22 +2627,30 @@ class DataPipeline(BasePipeline):
         """Convenience wrapper around PipelinePlotter.
 
         Args:
-            kind: One of 'funnel', 'predictions', 'distributions'.
+            kind: One of 'funnel', 'predictions', 'distributions', 'scatter',
+                'correlation', 'diversity', 'temperature'.
             **kwargs: Forwarded to the underlying plotter method.
+                scatter requires x_col and y_col.
+                diversity accepts reference_sequence.
+                temperature requires metric_col.
         """
         from biolmai.pipeline.visualization import PipelinePlotter
 
-        plotter = PipelinePlotter(self)
-        if kind == "funnel":
-            return plotter.plot_funnel(self.stage_results, **kwargs)
-        elif kind == "predictions":
-            return plotter.plot_predictions(**kwargs)
-        elif kind == "distributions":
-            return plotter.plot_distributions(**kwargs)
-        else:
+        _kinds = {
+            "funnel": "plot_funnel",
+            "predictions": "plot_predictions",
+            "distributions": "plot_distributions",
+            "scatter": "plot_scatter",
+            "correlation": "plot_correlation_matrix",
+            "diversity": "plot_diversity",
+            "temperature": "plot_temperature_scan",
+        }
+        if kind not in _kinds:
             raise ValueError(
-                f"Unknown plot kind '{kind}'. Choose: 'funnel', 'predictions', 'distributions'"
+                f"Unknown plot kind '{kind}'. Choose: {', '.join(repr(k) for k in _kinds)}"
             )
+        plotter = PipelinePlotter(self)
+        return getattr(plotter, _kinds[kind])(**kwargs)
 
     def add_prediction(
         self,

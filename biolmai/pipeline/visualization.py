@@ -584,3 +584,63 @@ class PipelinePlotter:
     def plot_diversity(self, reference_sequence: Optional[str] = None, **kwargs):
         """Plot sequence diversity."""
         plot_sequence_diversity(self.df, reference_sequence, **kwargs)
+
+    def plot_predictions(self, columns: Optional[list[str]] = None, **kwargs):
+        """Plot distributions of all numeric prediction columns in a multi-panel layout.
+
+        Args:
+            columns: Specific columns to plot. If None, auto-detects all numeric
+                columns except sequence_id, length, and hash.
+            **kwargs: Forwarded to matplotlib (e.g. figsize, bins).
+        """
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            raise ImportError(
+                "matplotlib is required for visualization. "
+                "Install it with: pip install matplotlib"
+            ) from None
+
+        if columns is None:
+            exclude = {"sequence_id", "sequence", "length", "hash"}
+            columns = [
+                c for c in self.df.select_dtypes(include=[np.number]).columns
+                if c not in exclude
+            ]
+
+        if not columns:
+            print("No numeric prediction columns found to plot.")
+            return
+
+        n = len(columns)
+        ncols = min(n, 3)
+        nrows = (n + ncols - 1) // ncols
+        figsize = kwargs.pop("figsize", (5 * ncols, 4 * nrows))
+        bins = kwargs.pop("bins", 30)
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+        for i, col in enumerate(columns):
+            ax = axes[i // ncols][i % ncols]
+            data = self.df[col].dropna()
+            if data.empty:
+                ax.set_title(f"{col} (no data)")
+                continue
+            ax.hist(data, bins=bins, alpha=0.7, edgecolor="black")
+            ax.set_title(col)
+            ax.set_ylabel("Count")
+            mean_val = data.mean()
+            ax.axvline(mean_val, color="red", linestyle="--", alpha=0.7,
+                       label=f"Mean: {mean_val:.2f}")
+            ax.legend(fontsize=8)
+
+        # Hide unused axes
+        for i in range(n, nrows * ncols):
+            axes[i // ncols][i % ncols].set_visible(False)
+
+        plt.suptitle("Prediction Distributions", fontsize=14)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_distributions(self, columns: Optional[list[str]] = None, **kwargs):
+        """Alias for plot_predictions — plot distributions of prediction columns."""
+        return self.plot_predictions(columns=columns, **kwargs)
