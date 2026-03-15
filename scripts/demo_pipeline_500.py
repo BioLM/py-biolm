@@ -1,5 +1,5 @@
 """
-Demo pipeline: real predictions with temberture-regression (Tm) + soluprot (solubility).
+Demo pipeline: real predictions with temberture-regression (Tm) + biolmsol (solubility).
 
 Uses BIOLMAI_TOKEN from the environment for live API calls.
 
@@ -43,7 +43,7 @@ SEQUENCES = [
     # Thermostable enzymes
     "MFKVYGYDSNIHKCNVCDKCHAKDPDMRIVVENMDNPKAHIFEKIDSGKLADYIKAVGADSVIYPDDAKLKFNEPQPEEHLRAIFEKAKKTGKVAVKVLEKYENDTSVDFNQYAQDYQKKLGELIPQNAFNIPVTAPDLYKQIPGGKYTFNIVNGENIFKNGTDEQQSALNAAQMITKELDLKDKIVTFKELKPNLYENLKFDIEMTQLAEQYISSQLNKIMEMVKPNNIKPEQMAELEAAYKLQSYTG",
     "MKIVVLGSGPAGYSAAFRCADNPDVEVVALDADEDYWLNSDAGHMPAGQQIVDKLREIGAQFRTQFEEAGPLVNLHRTLNTLISAAPNDQHAVVLDTNLQDLQRRRGDQLIEAGASDRAVLHPDLIEQLQEAGFKPMVVKALATGGSGSGITLNKDLAEQLRDLGHTVHFHQNPTQALLDQQNLHEYRG",
-    # Short-ish sequences (>= 20 aa for soluprot)
+    # Short-ish sequences (>= 20 aa for biolmsol)
     "MKTAYIAKQRQGHQAMAEIKQ",
     "MSHHWGYGKHNGPEHWHKDFPIAK",
     "MKLAVIDSAQKALAEEQKQILQELQ",
@@ -110,8 +110,8 @@ def build_pipeline_batch2(db_path: Path, data_dir: Path, run_id: str):
         depends_on=["prefilter_length"],
     )
     pipeline.add_prediction(
-        "soluprot",
-        extractions="soluble",
+        "biolmsol",
+        extractions="solubility_score",
         columns="solubility",
         stage_name="predict_sol",
         depends_on=["prefilter_length"],
@@ -139,7 +139,7 @@ def build_pipeline(db_path: Path, data_dir: Path, run_id: str, resume: bool = Fa
         verbose=True,
     )
 
-    # Pre-filter: remove sequences too short for soluprot (min 20 aa)
+    # Pre-filter: remove sequences too short for biolmsol (min 20 aa)
     pipeline.add_filter(
         SequenceLengthFilter(min_length=20),
         stage_name="prefilter_length",
@@ -154,10 +154,10 @@ def build_pipeline(db_path: Path, data_dir: Path, run_id: str, resume: bool = Fa
         depends_on=["prefilter_length"],
     )
 
-    # Stage 2: solubility via SoluProt (runs in parallel with Tm)
+    # Stage 2: solubility via BioLMSol (runs in parallel with Tm)
     pipeline.add_prediction(
-        "soluprot",
-        extractions="soluble",
+        "biolmsol",
+        extractions="solubility_score",
         columns="solubility",
         stage_name="predict_sol",
         depends_on=["prefilter_length"],
@@ -186,7 +186,7 @@ async def main():
         raise RuntimeError("BIOLMAI_TOKEN not set — source your .zshrc first")
 
     print(f"Running real pipeline on {len(SEQUENCES)} sequences")
-    print("Models: temberture-regression (Tm °C) + soluprot (solubility)")
+    print("Models: temberture-regression (Tm °C) + biolmsol (solubility)")
     print()
 
     with tempfile.TemporaryDirectory() as tmp:

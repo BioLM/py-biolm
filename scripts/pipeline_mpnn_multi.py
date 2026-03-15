@@ -12,7 +12,7 @@ Generation (all 15 configs fired in parallel):
           ▼
   Downstream (parallel):
   ├─ temberture-regression  (thermal stability, Tm in °C)
-  └─ soluprot               (solubility probability 0-1)
+  └─ biolmsol               (solubility probability 0-1)
           │
           ▼
   Filter: Tm > 50 °C  AND  solubility > 0.5
@@ -60,7 +60,7 @@ N_PER_CONFIG = 100
 
 # Downstream filter thresholds
 TM_MIN = 50.0  # temberture-regression output is Tm in °C
-SOLUBILITY_MIN = 0.5  # soluprot output is 0-1 probability
+SOLUBILITY_MIN = 0.5  # biolmsol output is 0-1 probability
 
 # Final ranking: keep top N by Tm
 TOP_N_FINAL = 100
@@ -141,15 +141,15 @@ async def main() -> None:
         )
 
         # ------------------------------------------------------------------
-        # Stage 1b: soluprot — solubility prediction (parallel with temberture)
+        # Stage 1b: biolmsol — solubility prediction (parallel with temberture)
         #   Predicts solubility probability in [0, 1].
         # ------------------------------------------------------------------
         pipeline.add_prediction(
-            model_name="soluprot",
+            model_name="biolmsol",
             action="predict",
-            extractions="soluble",
+            extractions="solubility_score",
             columns="solubility",
-            stage_name="soluprot",
+            stage_name="biolmsol",
             depends_on=["generation"],
             batch_size=32,
             max_concurrent=5,
@@ -166,7 +166,7 @@ async def main() -> None:
                 min_value=TM_MIN,
             ),
             stage_name="filter_tm",
-            depends_on=["temberture", "soluprot"],  # wait for both
+            depends_on=["temberture", "biolmsol"],  # wait for both
         )
 
         pipeline.add_filter(

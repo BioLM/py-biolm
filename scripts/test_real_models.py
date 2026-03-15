@@ -408,8 +408,8 @@ async def test_embed_plus_predict(tmp):
         stage_name="predict_tm",
     )
     pipeline.add_prediction(
-        "soluprot",
-        extractions="soluble",
+        "biolmsol",
+        extractions="solubility_score",
         columns="solubility",
         stage_name="predict_sol",
     )

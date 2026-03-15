@@ -2739,7 +2739,7 @@ class DataPipeline(BasePipeline):
         Example:
             >>> pipeline.add_predictions([
             ...     {'model_name': 'temberture-regression', 'extractions': 'prediction', 'columns': 'tm'},
-            ...     {'model_name': 'soluprot', 'extractions': 'soluble', 'columns': 'solubility'},
+            ...     {'model_name': 'biolmsol', 'extractions': 'solubility_score', 'columns': 'solubility'},
             ... ])
         """
         # All parallel models should share the same upstream dependency —

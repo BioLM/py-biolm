@@ -159,7 +159,7 @@ async def main():
         cluster_data = pipeline.query("""
             SELECT p.value AS cluster_id, COUNT(*) AS n_sequences
             FROM predictions p
-            WHERE p.prediction_type = 'cluster_id'
+            WHERE p.prediction_type = 'cluster_k3'
             GROUP BY p.value
             ORDER BY p.value
         """)
@@ -188,7 +188,7 @@ async def main():
                 cluster_df = ds.conn.execute("""
                     SELECT sequence_id, CAST(value AS INTEGER) AS cluster_id
                     FROM predictions
-                    WHERE prediction_type = 'cluster_id'
+                    WHERE prediction_type = 'cluster_k3'
                 """).df()
                 cluster_map = dict(zip(
                     cluster_df["sequence_id"], cluster_df["cluster_id"]

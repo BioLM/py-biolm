@@ -40,7 +40,7 @@ def example_1_parallel_predictions():
     pipeline.add_predictions(
         [
             {"model_name": "temberture-regression", "extractions": "prediction", "columns": "tm"},
-            {"model_name": "pro4s", "extractions": "soluble_prob", "columns": "solubility"},
+            {"model_name": "biolmsol", "extractions": "solubility_score", "columns": "solubility"},
         ]
     )
 
@@ -271,7 +271,7 @@ def example_6_full_pipeline_with_new_features():
     print("\n1. Adding parallel predictions...")
     pipeline.add_predictions([
         {"model_name": "temberture-regression", "extractions": "prediction", "columns": "tm"},
-        {"model_name": "pro4s", "extractions": "soluble_prob", "columns": "solubility"},
+        {"model_name": "biolmsol", "extractions": "solubility_score", "columns": "solubility"},
     ])
 
     # Stage 2: Rank and select top 10 by Tm (depends on predictions)

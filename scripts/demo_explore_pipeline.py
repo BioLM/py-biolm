@@ -4,7 +4,7 @@ Demonstrates the core value proposition of BioLM pipelines: run once, explore ma
 
 Flow:
   1. 30 antimicrobial peptides
-  2. Parallel predictions: temberture-regression (Tm) + pro4s (solubility)
+  2. Parallel predictions: temberture-regression (Tm) + biolmsol (solubility)
   3. ThresholdFilter on Tm, RankingFilter on solubility
   4. summary(), explore(), stats()
   5. SQL queries via query()
@@ -25,7 +25,6 @@ from pathlib import Path
 from biolmai.pipeline import (
     DataPipeline,
     DuckDBDataStore,
-    ExtractionSpec,
     RankingFilter,
     ThresholdFilter,
     ValidAminoAcidFilter,
@@ -102,9 +101,9 @@ async def main():
             batch_size=16,
         )
         pipeline.add_prediction(
-            "soluprot",
+            "biolmsol",
             action="predict",
-            extractions="soluble",
+            extractions="solubility_score",
             columns="solubility",
             stage_name="predict_sol",
             depends_on=["validate"],
@@ -207,7 +206,7 @@ async def main():
             stage_name="predict_tm", depends_on=["validate"], batch_size=16,
         )
         pipeline2.add_prediction(
-            "soluprot", action="predict", extractions="soluble",
+            "biolmsol", action="predict", extractions="solubility_score",
             columns="solubility",
             stage_name="predict_sol", depends_on=["validate"], batch_size=16,
         )

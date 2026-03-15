@@ -5,11 +5,11 @@ NO MOCKS — every API call hits the live BioLM endpoints.
 Requires BIOLMAI_TOKEN in environment.
 
 Avoids structure prediction models (esmfold, alphafold2) to keep costs down.
-Uses fast property models: temberture-regression, soluprot.
+Uses fast property models: temberture-regression, biolmsol.
 
 Real API response formats:
   temberture-regression: {"prediction": 48.6}   → extractions="prediction"
-  soluprot:              {"soluble": 0.368, "is_soluble": false} → extractions="soluble"
+  biolmsol:              {"solubility_score": 0.368} → extractions="solubility_score"
 
 Run:
     python scripts/test_real_pipelines.py
@@ -141,11 +141,11 @@ async def test_1_basic_tm(tmp):
 
 
 # ===========================================================================
-# Test 2: Parallel Tm + soluprot, then filter
+# Test 2: Parallel Tm + biolmsol, then filter
 # ===========================================================================
 async def test_2_parallel_plus_filter(tmp):
     print("\n" + "=" * 70)
-    print("TEST 2: Parallel (Tm + soluprot) + filter")
+    print("TEST 2: Parallel (Tm + biolmsol) + filter")
     print("=" * 70)
 
     db = tmp / "t2.duckdb"
@@ -159,8 +159,8 @@ async def test_2_parallel_plus_filter(tmp):
         stage_name="predict_tm",
     )
     pipeline.add_prediction(
-        "soluprot",
-        extractions="soluble",
+        "biolmsol",
+        extractions="solubility_score",
         columns="solubility",
         stage_name="predict_sol",
     )

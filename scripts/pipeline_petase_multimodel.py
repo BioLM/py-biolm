@@ -15,7 +15,7 @@ Generation sources:
 
 Scoring:
   - temberture-regression (Tm)
-  - soluprot (solubility)
+  - biolmsol (solubility)
   - esmc-300m (log-probability)
 
 Requires BIOLMAI_TOKEN.
@@ -239,8 +239,8 @@ async def step_3_score(generated_df: pd.DataFrame, tmp: Path):
         depends_on=["filter_length"],
     )
     pipeline.add_prediction(
-        "soluprot",
-        extractions="soluble",
+        "biolmsol",
+        extractions="solubility_score",
         columns="solubility",
         stage_name="predict_sol",
         depends_on=["filter_length"],

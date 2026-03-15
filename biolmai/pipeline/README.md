@@ -71,8 +71,8 @@ pipeline.add_prediction(
     stage_name="predict_tm",
 )
 pipeline.add_prediction(
-    "soluprot",
-    extractions="soluble",
+    "biolmsol",
+    extractions="solubility_score",
     columns="solubility",
     stage_name="predict_sol",
 )
@@ -158,7 +158,7 @@ The cache key is derived automatically from `(model_name, action, sorted_respons
 | Model | Action | Response key | `extractions=` |
 |---|---|---|---|
 | `temberture-regression` | predict | `prediction` | `extractions="prediction"` |
-| `soluprot` | predict | `soluble` | `extractions="soluble"` |
+| `biolmsol` | predict | `solubility_score` | `extractions="solubility_score"` |
 | `esmc-300m` | score | `log_prob` | `extractions="log_prob"` |
 | `esm2-8m` | encode | `embeddings` | `EmbeddingSpec(key="embeddings")` |
 | `ablang2` | encode | `seqcoding` | `EmbeddingSpec(key="seqcoding")` |
@@ -507,7 +507,7 @@ Stages use Kahn's algorithm (topological sort) to group into levels. Stages at t
 
 ```
 pipeline.add_prediction("temberture-regression", ..., stage_name="predict_tm")
-pipeline.add_prediction("soluprot", ..., stage_name="predict_sol")
+pipeline.add_prediction("biolmsol", ..., stage_name="predict_sol")
 pipeline.add_filter(RankingFilter(...), depends_on=["predict_tm", "predict_sol"])
 
 → Level 0: [predict_tm, predict_sol]  — asyncio.gather(), concurrent
@@ -732,8 +732,8 @@ pipeline.add_prediction(
     depends_on=["filter_1"],
 )
 pipeline.add_prediction(
-    "soluprot",
-    extractions="soluble",
+    "biolmsol",
+    extractions="solubility_score",
     columns="solubility",
     depends_on=["filter_1"],
 )

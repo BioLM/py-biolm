@@ -149,7 +149,7 @@ def test_add_predictions_parallel_same_deps(tmp_path):
     pipeline = _make_pipeline(tmp_path)
     pipeline.add_predictions([
         {"model_name": "temberture-regression", "extractions": "prediction", "columns": "tm"},
-        {"model_name": "soluprot", "extractions": "soluble"},
+        {"model_name": "biolmsol", "extractions": "solubility_score"},
     ])
     predict_tm = pipeline.stages[0]
     predict_soluble = pipeline.stages[1]
@@ -510,7 +510,7 @@ def test_parallel_merge_uses_intersection_of_rows(tmp_path):
 
     tm_mock = make_model_mock(tm_values, "melting_temperature")
     sol_mock = make_model_mock(sol_values, "solubility_score")
-    model_mocks = {"temberture-regression": tm_mock, "pro4s": sol_mock}
+    model_mocks = {"temberture-regression": tm_mock, "biolmsol": sol_mock}
 
     def make_client(model_name, **kwargs):
         return model_mocks.get(model_name, tm_mock)
@@ -531,7 +531,7 @@ def test_parallel_merge_uses_intersection_of_rows(tmp_path):
         pipeline.add_stage(
             PredictionStage(
                 name="sol_stage",
-                model_name="pro4s",
+                model_name="biolmsol",
                 action="predict",
                 extractions="solubility_score",
                 columns="sol",
@@ -1550,10 +1550,10 @@ def test_column_collision_different_model_raises(tmp_path):
 
     with pytest.raises(ValueError, match="Column"):
         pipeline.add_prediction(
-            "soluprot",
-            extractions="soluble",
+            "biolmsol",
+            extractions="solubility_score",
             columns="tm",
-            stage_name="predict_tm_soluprot",
+            stage_name="predict_tm_biolmsol",
         )
 
 

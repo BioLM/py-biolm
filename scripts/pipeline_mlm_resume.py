@@ -354,12 +354,11 @@ async def main() -> None:
 
         total_seq = conn.execute("SELECT COUNT(*) FROM sequences").fetchone()[0]
         total_folded = conn.execute(
-            "SELECT COUNT(*) FROM predictions WHERE prediction_type='esmfold::predict::mean_plddt'"
+            "SELECT COUNT(*) FROM predictions WHERE prediction_type='plddt'"
         ).fetchone()[0]
-        lp_cache_key = f"{LP_MODEL}::score::log_prob"
         total_lp = conn.execute(
             "SELECT COUNT(*) FROM predictions WHERE prediction_type=?",
-            [lp_cache_key],
+            [LP_PRED_TYPE],
         ).fetchone()[0]
         print(f"  Total sequences in DB  : {total_seq}")
         print(f"  Sequences with LP score: {total_lp}")
