@@ -91,13 +91,13 @@ def _check(df, name, min_rows=1, required_cols=None, no_all_null=True):
 # ===========================================================================
 # 1. ESM2-8M embeddings
 # ===========================================================================
-async def test_esm2_embeddings(tmp):
+async def test_esm2_embeddings(tmp_path):
     """esm2-8m encode → embeddings stored in DuckDB → retrievable."""
     print("\n" + "=" * 70)
     print("TEST: esm2-8m embeddings (encode)")
     print("=" * 70)
 
-    db = tmp / "esm2.duckdb"
+    db = tmp_path / "esm2.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "esm2_data")
 
     pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=True)
@@ -129,13 +129,13 @@ async def test_esm2_embeddings(tmp):
 # ===========================================================================
 # 2. ESMC-300M scoring
 # ===========================================================================
-async def test_esmc_scoring(tmp):
+async def test_esmc_scoring(tmp_path):
     """esmc-300m score → log_prob stored as prediction → filter on it."""
     print("\n" + "=" * 70)
     print("TEST: esmc-300m scoring (log-probability)")
     print("=" * 70)
 
-    db = tmp / "esmc.duckdb"
+    db = tmp_path / "esmc.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "esmc_data")
 
     pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=True)
@@ -169,14 +169,14 @@ async def test_esmc_scoring(tmp):
 # ===========================================================================
 # 3. AbLang2 paired antibody embeddings
 # ===========================================================================
-async def test_ablang2_paired(tmp):
+async def test_ablang2_paired(tmp_path):
     """ablang2 encode with heavy+light → embeddings stored."""
     print("\n" + "=" * 70)
     print("TEST: ablang2 paired embeddings (heavy + light)")
     print("=" * 70)
 
     df_input = pd.DataFrame({"heavy_chain": VH, "light_chain": VL})
-    db = tmp / "ablang2.duckdb"
+    db = tmp_path / "ablang2.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "ablang2_data")
 
     pipeline = DataPipeline(
@@ -209,13 +209,13 @@ async def test_ablang2_paired(tmp):
 # ===========================================================================
 # 4. DNABERT2 DNA embeddings
 # ===========================================================================
-async def test_dnabert2_embeddings(tmp):
+async def test_dnabert2_embeddings(tmp_path):
     """dnabert2 encode DNA sequences → embeddings stored."""
     print("\n" + "=" * 70)
     print("TEST: dnabert2 DNA embeddings")
     print("=" * 70)
 
-    db = tmp / "dnabert2.duckdb"
+    db = tmp_path / "dnabert2.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "dnabert2_data")
 
     pipeline = DataPipeline(sequences=DNA_SEQS, datastore=ds, verbose=True)
@@ -242,13 +242,13 @@ async def test_dnabert2_embeddings(tmp):
 # ===========================================================================
 # 5. DSM-150M generation → scoring → filter
 # ===========================================================================
-async def test_dsm_generation(tmp):
+async def test_dsm_generation(tmp_path):
     """dsm-150m-base generate → esmc-300m score → filter by log-prob."""
     print("\n" + "=" * 70)
     print("TEST: DSM-150M generation → ESMC scoring → filter")
     print("=" * 70)
 
-    db = tmp / "dsm.duckdb"
+    db = tmp_path / "dsm.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "dsm_data")
 
     config = DirectGenerationConfig(
@@ -299,13 +299,13 @@ async def test_dsm_generation(tmp):
 # ===========================================================================
 # 6. ProGen2-OAS antibody generation
 # ===========================================================================
-async def test_progen2_generation(tmp):
+async def test_progen2_generation(tmp_path):
     """progen2-oas generate antibody sequences from VH seed."""
     print("\n" + "=" * 70)
     print("TEST: progen2-oas antibody generation")
     print("=" * 70)
 
-    db = tmp / "progen2.duckdb"
+    db = tmp_path / "progen2.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "progen2_data")
 
     config = DirectGenerationConfig(
@@ -340,13 +340,13 @@ async def test_progen2_generation(tmp):
 # ===========================================================================
 # 7. DSM-650M-PPI: multi-chain generation
 # ===========================================================================
-async def test_dsm_ppi_generation(tmp):
+async def test_dsm_ppi_generation(tmp_path):
     """dsm-650m-ppi: generate from paired chains (chain_a + chain_b)."""
     print("\n" + "=" * 70)
     print("TEST: dsm-650m-ppi multi-chain generation")
     print("=" * 70)
 
-    db = tmp / "dsm_ppi.duckdb"
+    db = tmp_path / "dsm_ppi.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "dsm_ppi_data")
 
     # DSM PPI takes chain_a and chain_b fields
@@ -386,13 +386,13 @@ async def test_dsm_ppi_generation(tmp):
 # ===========================================================================
 # 8. Full pipeline: embed → Tm+Sol → cluster-ready
 # ===========================================================================
-async def test_embed_plus_predict(tmp):
+async def test_embed_plus_predict(tmp_path):
     """ESM2 embed + Tm + solubility in parallel → export with all columns."""
     print("\n" + "=" * 70)
     print("TEST: ESM2 embed + Tm + solubility (parallel)")
     print("=" * 70)
 
-    db = tmp / "full.duckdb"
+    db = tmp_path / "full.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "full_data")
 
     pipeline = DataPipeline(sequences=SEQS, datastore=ds, verbose=True)

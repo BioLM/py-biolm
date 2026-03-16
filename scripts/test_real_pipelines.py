@@ -111,12 +111,12 @@ def _check(df, name, min_rows=1, required_cols=None, no_all_null=True):
 # ===========================================================================
 # Test 1: Basic Tm prediction
 # ===========================================================================
-async def test_1_basic_tm(tmp):
+async def test_1_basic_tm(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 1: Basic Tm prediction (temberture-regression)")
     print("=" * 70)
 
-    db = tmp / "t1.duckdb"
+    db = tmp_path / "t1.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t1_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
@@ -143,12 +143,12 @@ async def test_1_basic_tm(tmp):
 # ===========================================================================
 # Test 2: Parallel Tm + biolmsol, then filter
 # ===========================================================================
-async def test_2_parallel_plus_filter(tmp):
+async def test_2_parallel_plus_filter(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 2: Parallel (Tm + biolmsol) + filter")
     print("=" * 70)
 
-    db = tmp / "t2.duckdb"
+    db = tmp_path / "t2.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t2_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
@@ -188,13 +188,13 @@ async def test_2_parallel_plus_filter(tmp):
 # ===========================================================================
 # Test 3: ValidAA + bad seqs
 # ===========================================================================
-async def test_3_valid_aa(tmp):
+async def test_3_valid_aa(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 3: ValidAminoAcidFilter removes bad sequences")
     print("=" * 70)
 
     all_seqs = ALL_SINGLE + BAD_SEQS
-    db = tmp / "t3.duckdb"
+    db = tmp_path / "t3.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t3_data")
 
     pipeline = DataPipeline(sequences=all_seqs, datastore=ds, verbose=True)
@@ -220,13 +220,13 @@ async def test_3_valid_aa(tmp):
 # ===========================================================================
 # Test 4: Cache + resume
 # ===========================================================================
-async def test_4_cache_resume(tmp):
+async def test_4_cache_resume(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 4: Cache + resume (run twice)")
     print("=" * 70)
 
-    db = tmp / "t4.duckdb"
-    data_dir = tmp / "t4_data"
+    db = tmp_path / "t4.duckdb"
+    data_dir = tmp_path / "t4_data"
     run_id = "cache_001"
 
     # Run 1
@@ -259,13 +259,13 @@ async def test_4_cache_resume(tmp):
 # ===========================================================================
 # Test 5: Trickle new seqs
 # ===========================================================================
-async def test_5_trickle(tmp):
+async def test_5_trickle(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 5: Trickle new sequences (cache reuse)")
     print("=" * 70)
 
-    db = tmp / "t5.duckdb"
-    data_dir = tmp / "t5_data"
+    db = tmp_path / "t5.duckdb"
+    data_dir = tmp_path / "t5_data"
 
     # Run 1: 3 seqs
     ds1 = DuckDBDataStore(db_path=db, data_dir=data_dir)
@@ -294,13 +294,13 @@ async def test_5_trickle(tmp):
 # ===========================================================================
 # Test 6: Multi-column antibody H+L
 # ===========================================================================
-async def test_6_multi_col_antibody(tmp):
+async def test_6_multi_col_antibody(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 6: Multi-column antibody (heavy + light)")
     print("=" * 70)
 
     df_input = pd.DataFrame({"heavy_chain": ANTIBODY_VH, "light_chain": ANTIBODY_VL})
-    db = tmp / "t6.duckdb"
+    db = tmp_path / "t6.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t6_data")
 
     pipeline = DataPipeline(
@@ -346,7 +346,7 @@ async def test_6_multi_col_antibody(tmp):
 # ===========================================================================
 # Test 7: Multi-column dedup
 # ===========================================================================
-async def test_7_multi_col_dedup(tmp):
+async def test_7_multi_col_dedup(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 7: Multi-column dedup (4 rows → 3 unique)")
     print("=" * 70)
@@ -356,7 +356,7 @@ async def test_7_multi_col_dedup(tmp):
         "light_chain": [ANTIBODY_VL[0], ANTIBODY_VL[1], ANTIBODY_VL[0], ANTIBODY_VL[0]],
     })
 
-    db = tmp / "t7.duckdb"
+    db = tmp_path / "t7.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t7_data")
 
     pipeline = DataPipeline(
@@ -385,7 +385,7 @@ async def test_7_multi_col_dedup(tmp):
 # ===========================================================================
 # Test 7b: Tm on heavy AND light separately (parallel), zipped back together
 # ===========================================================================
-async def test_7b_parallel_per_chain_tm(tmp):
+async def test_7b_parallel_per_chain_tm(tmp_path):
     """Predict Tm on heavy_chain and light_chain separately, in parallel.
     Both predictions should appear as separate columns in the final output."""
     print("\n" + "=" * 70)
@@ -398,7 +398,7 @@ async def test_7b_parallel_per_chain_tm(tmp):
     })
     print(f"  Input: {len(df_input)} antibody pairs")
 
-    db = tmp / "t7b.duckdb"
+    db = tmp_path / "t7b.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t7b_data")
 
     pipeline = DataPipeline(
@@ -468,13 +468,13 @@ async def test_7b_parallel_per_chain_tm(tmp):
 # ===========================================================================
 # Test 8: Chained filter funnel
 # ===========================================================================
-async def test_8_chained_filters(tmp):
+async def test_8_chained_filters(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 8: Chained filter funnel (ValidAA → Length → Tm → Top-2)")
     print("=" * 70)
 
     all_seqs = ALL_SINGLE + BAD_SEQS
-    db = tmp / "t8.duckdb"
+    db = tmp_path / "t8.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t8_data")
 
     pipeline = DataPipeline(sequences=all_seqs, datastore=ds, verbose=True)
@@ -507,12 +507,12 @@ async def test_8_chained_filters(tmp):
 # ===========================================================================
 # Test 9: Context
 # ===========================================================================
-async def test_9_context(tmp):
+async def test_9_context(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 9: Pipeline context")
     print("=" * 70)
 
-    db = tmp / "t9.duckdb"
+    db = tmp_path / "t9.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t9_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE[:2], datastore=ds, verbose=True)
@@ -542,12 +542,12 @@ async def test_9_context(tmp):
 # ===========================================================================
 # Test 10: Streaming
 # ===========================================================================
-async def test_10_streaming(tmp):
+async def test_10_streaming(tmp_path):
     print("\n" + "=" * 70)
     print("TEST 10: Streaming mode (predict → filter)")
     print("=" * 70)
 
-    db = tmp / "t10.duckdb"
+    db = tmp_path / "t10.duckdb"
     ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t10_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
