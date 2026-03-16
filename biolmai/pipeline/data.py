@@ -237,6 +237,68 @@ class EmbeddingSpec:
         return arr
 
 
+@dataclass
+class StructureSpec:
+    """Specification for extracting and storing a structure from an API response.
+
+    Args:
+        key: Response dict key containing the structure string (e.g. "pdb", "cif", "pdbs").
+        format: Structure format — "pdb" or "cif". Auto-detected from key if None.
+        plddt_key: Optional response key for a confidence score to store alongside.
+        index: For list-valued keys (e.g. AF2 "pdbs"), which element to store (default 0).
+    """
+
+    key: str
+    format: Optional[str] = None
+    plddt_key: Optional[str] = None
+    index: Optional[int] = 0
+
+    def detect_format(self) -> str:
+        if self.format:
+            return self.format
+        return "pdb" if "pdb" in self.key.lower() else "cif"
+
+
+@dataclass
+class MatrixExtractionSpec:
+    """Flattens a per-mutation response into individual prediction rows.
+
+    Each mutation becomes a separate prediction row with prediction_type
+    formatted as '{prefix}_{label}' (e.g., 'ddg_M1A').
+
+    Two modes:
+        - **Matrix mode** (SPURS): 2D array + row/col labels.
+        - **List mode** (ThermoMPNN): list of dicts with mutation name + value.
+
+    Args:
+        prefix: Prediction type prefix (e.g. "ddg").
+        values_key: Dot-path to 2D array in response (matrix mode).
+        row_labels_key: Dot-path to row labels (position labels).
+        col_labels_key: Dot-path to column labels (amino acid labels).
+        mutation_key: Dict key for mutation name (list mode). If set, uses list mode.
+        value_key: Dict key for the numeric value (list mode).
+    """
+
+    prefix: str = "ddg"
+    # Matrix mode (SPURS)
+    values_key: str = "ddG_matrix.values"
+    row_labels_key: str = "ddG_matrix.residue_axis"
+    col_labels_key: str = "ddG_matrix.amino_acid_axis"
+    # List mode (ThermoMPNN)
+    mutation_key: Optional[str] = None
+    value_key: Optional[str] = None
+
+
+def _dot_access(obj: dict, path: str):
+    """Access nested dict keys via dot-separated path (e.g. 'ddG_matrix.values')."""
+    for part in path.split("."):
+        if isinstance(obj, dict):
+            obj = obj[part]
+        else:
+            raise KeyError(f"Cannot access '{part}' on {type(obj)}")
+    return obj
+
+
 class PredictionStage(Stage):
     """
     Generic prediction stage using BioLM API.
@@ -265,6 +327,11 @@ class PredictionStage(Stage):
             into multiple sub-requests by the model's ``maxItems`` limit;
             ``max_connections`` caps how many of those sub-requests run
             simultaneously across all in-flight batches.
+        structure_output: Store the structure from this model's response.
+        structure_input: Inject structures from upstream models into API items.
+            Maps API field name → source model name (e.g. ``{"pdb": "esmfold"}``).
+        matrix_extraction: Flatten a per-mutation response into individual
+            prediction rows (e.g. for DMS heatmaps).
     """
 
     merge_mode = "union"
@@ -282,6 +349,9 @@ class PredictionStage(Stage):
         extractions: Optional[Union[str, list[Union[str, ExtractionSpec]]]] = None,
         columns: Optional[Union[str, dict[str, str]]] = None,
         embedding_extractor: Optional[Union[EmbeddingSpec, callable]] = None,
+        structure_output: Optional[StructureSpec] = None,
+        structure_input: Optional[dict[str, str]] = None,
+        matrix_extraction: Optional[MatrixExtractionSpec] = None,
         **kwargs,
     ):
         # Extract skip_on_error before passing to parent
@@ -304,18 +374,26 @@ class PredictionStage(Stage):
         # Embedding extraction: user-defined function or EmbeddingSpec.
         self._embedding_extractor = embedding_extractor
 
+        # Structure output/input specs
+        self._structure_output = structure_output
+        self._structure_input = structure_input
+        self._matrix_extraction = matrix_extraction
+
         # --- Resolve extractions + columns into list[_ResolvedExtraction] ---
         self._resolved: list[_ResolvedExtraction] = []
 
         if action in ("predict", "score"):
-            if extractions is None:
+            # extractions can be None when structure_output or matrix_extraction
+            # is the primary output (no scalar extraction needed)
+            if extractions is None and structure_output is None and matrix_extraction is None:
                 raise ValueError(
                     f"PredictionStage '{name}': `extractions` is required. "
                     f"Set extractions='response_key' or "
                     f"extractions=[ExtractionSpec('key', reduction='mean')]. "
                     f"Check your model's API response to find the correct key."
                 )
-            self._resolved = _resolve_extractions(extractions, columns)
+            if extractions is not None:
+                self._resolved = _resolve_extractions(extractions, columns)
 
         if action == "encode" and self._embedding_extractor is None:
             raise ValueError(
@@ -380,6 +458,21 @@ class PredictionStage(Stage):
             "max_connections": self._max_connections,
             "item_columns": self.item_columns,
             "embedding_extractor": embedding_extractor_spec,
+            "structure_output": (
+                {"key": self._structure_output.key, "format": self._structure_output.format,
+                 "plddt_key": self._structure_output.plddt_key, "index": self._structure_output.index}
+                if self._structure_output else None
+            ),
+            "structure_input": self._structure_input,
+            "matrix_extraction": (
+                {"prefix": self._matrix_extraction.prefix,
+                 "values_key": self._matrix_extraction.values_key,
+                 "row_labels_key": self._matrix_extraction.row_labels_key,
+                 "col_labels_key": self._matrix_extraction.col_labels_key,
+                 "mutation_key": self._matrix_extraction.mutation_key,
+                 "value_key": self._matrix_extraction.value_key}
+                if self._matrix_extraction else None
+            ),
             "skip_on_error": self.skip_on_error,
             "depends_on": self.depends_on,
         }
@@ -518,6 +611,22 @@ class PredictionStage(Stage):
                                             }
                                         )
                                         out_df.at[idx, spec.column] = val
+                                # Store structure if configured
+                                if self._structure_output is not None:
+                                    self._store_structure(datastore, seq_id, result)
+                                # Extract matrix predictions if configured
+                                if self._matrix_extraction is not None:
+                                    pairs = self._extract_matrix(result)
+                                    for pred_type, mval in pairs:
+                                        batch_data.append(
+                                            {
+                                                "sequence_id": seq_id,
+                                                "prediction_type": pred_type,
+                                                "model_name": self.model_name,
+                                                "value": mval,
+                                                "metadata": {"params": self.params},
+                                            }
+                                        )
 
                         elif self.action == "encode":
                             self._store_embeddings(datastore, seq_id, result)
@@ -639,6 +748,64 @@ class PredictionStage(Stage):
             if embedding.size > 0:
                 datastore.add_embedding(seq_id, self.model_name, embedding, layer=layer)
 
+    def _store_structure(self, datastore: DataStore, seq_id: int, result: dict):
+        """Store a structure string from an API result into the datastore."""
+        spec = self._structure_output
+        val = result.get(spec.key)
+        if val is None:
+            return
+        # Handle list-valued keys (e.g. AF2 "pdbs")
+        if isinstance(val, list):
+            idx = spec.index if spec.index is not None else 0
+            if idx < len(val):
+                val = val[idx]
+            else:
+                return
+        if not isinstance(val, str) or not val:
+            return
+        fmt = spec.detect_format()
+        plddt = None
+        if spec.plddt_key:
+            plddt_val = result.get(spec.plddt_key)
+            if isinstance(plddt_val, (int, float)):
+                plddt = float(plddt_val)
+        datastore.add_structure(seq_id, self.model_name, structure_str=val, format=fmt, plddt_mean=plddt)
+
+    def _extract_matrix(self, result) -> list[tuple[str, float]]:
+        """Extract per-mutation predictions from a matrix or list response.
+
+        Returns list of (prediction_type, value) pairs.
+        """
+        spec = self._matrix_extraction
+        if spec.mutation_key:
+            # List mode (ThermoMPNN): [{mutation: "M1A", ddg: -0.5}, ...]
+            items = result if isinstance(result, list) else [result]
+            pairs = []
+            for item in items:
+                if isinstance(item, dict):
+                    name = item.get(spec.mutation_key)
+                    val = item.get(spec.value_key)
+                    if name is not None and val is not None:
+                        pairs.append((f"{spec.prefix}_{name}", float(val)))
+            return pairs
+        else:
+            # Matrix mode (SPURS): 2D array + axis labels
+            try:
+                values = _dot_access(result, spec.values_key)
+                rows = _dot_access(result, spec.row_labels_key)
+                cols = _dot_access(result, spec.col_labels_key)
+            except (KeyError, TypeError) as e:
+                logger.warning("_extract_matrix: could not access matrix data: %s", e)
+                return []
+            pairs = []
+            for i, row_label in enumerate(rows):
+                for j, col_label in enumerate(cols):
+                    try:
+                        pairs.append((f"{spec.prefix}_{row_label}{col_label}", float(values[i][j])))
+                    except (IndexError, TypeError, ValueError):
+                        continue
+            return pairs
+
     async def process(
         self, df: pd.DataFrame, datastore: DataStore, **kwargs
     ) -> tuple[pd.DataFrame, StageResult]:
@@ -747,6 +914,14 @@ class PredictionStage(Stage):
                     {"sequence": seq} for seq in df_uncached["sequence"].tolist()
                 ]
 
+            # Inject structures from upstream models if configured
+            if self._structure_input:
+                for i, seq_id in enumerate(seq_ids):
+                    for api_field, source_model in self._structure_input.items():
+                        struct = datastore.get_structure(seq_id, source_model)
+                        if struct and struct.get("structure_str"):
+                            all_items[i][api_field] = struct["structure_str"]
+
             # --- Bounded-concurrency dispatch (same pattern as process_ws) ---
             batch_size = self.batch_size
             n_batches = (len(all_items) + batch_size - 1) // batch_size
@@ -836,6 +1011,22 @@ class PredictionStage(Stage):
                                             "metadata": {"params": self.params},
                                         }
                                     )
+                                # Store structure if configured
+                                if self._structure_output is not None:
+                                    self._store_structure(datastore, seq_id, result)
+                                # Extract matrix predictions if configured
+                                if self._matrix_extraction is not None:
+                                    pairs = self._extract_matrix(result)
+                                    for pred_type, val in pairs:
+                                        batch_data.append(
+                                            {
+                                                "sequence_id": seq_id,
+                                                "prediction_type": pred_type,
+                                                "model_name": self.model_name,
+                                                "value": val,
+                                                "metadata": {"params": self.params},
+                                            }
+                                        )
                         elif self.action == "encode":
                             self._store_embeddings(datastore, seq_id, result)
 
@@ -1022,6 +1213,25 @@ class PredictionStage(Stage):
                 _uncached_ws_set |= set(
                     datastore.get_uncached_sequence_ids(input_ids, _spec.column, self.model_name)
                 )
+            # When no scalar extractions but structure_output or matrix_extraction
+            # is set, check the structures table for cached structures.
+            if not self._resolved and self._structure_output:
+                _cached_struct_ids = set(
+                    datastore.conn.execute(
+                        "SELECT DISTINCT sequence_id FROM structures WHERE model_name = ?",
+                        [self.model_name],
+                    ).df()["sequence_id"].tolist()
+                )
+                _uncached_ws_set |= {sid for sid in input_ids if sid not in _cached_struct_ids}
+            elif not self._resolved and self._matrix_extraction:
+                # For matrix-only stages, check if any predictions exist for this model
+                _cached_matrix_ids = set(
+                    datastore.conn.execute(
+                        "SELECT DISTINCT sequence_id FROM predictions WHERE model_name = ?",
+                        [self.model_name],
+                    ).df()["sequence_id"].tolist()
+                )
+                _uncached_ws_set |= {sid for sid in input_ids if sid not in _cached_matrix_ids}
             uncached_ids = list(_uncached_ws_set)
         cached_count = input_count - len(uncached_ids)
 
@@ -1107,6 +1317,14 @@ class PredictionStage(Stage):
                         "Fill or drop these rows before running the pipeline."
                     )
                 all_items = [{"sequence": p[1]} for p in id_seq_pairs]
+
+            # Inject structures from upstream models if configured
+            if self._structure_input:
+                for i, seq_id in enumerate(all_seq_ids):
+                    for api_field, source_model in self._structure_input.items():
+                        struct = datastore.get_structure(seq_id, source_model)
+                        if struct and struct.get("structure_str"):
+                            all_items[i][api_field] = struct["structure_str"]
 
             # --- Bounded-concurrency dispatch ---
             # Split into pipeline batches, keep max_concurrent in flight.
@@ -1235,6 +1453,22 @@ class PredictionStage(Stage):
                                             "metadata": {"params": self.params},
                                         }
                                     )
+                                # Store structure if configured
+                                if self._structure_output is not None:
+                                    self._store_structure(datastore, seq_id, result)
+                                # Extract matrix predictions if configured
+                                if self._matrix_extraction is not None:
+                                    pairs = self._extract_matrix(result)
+                                    for pred_type, val in pairs:
+                                        batch_data.append(
+                                            {
+                                                "sequence_id": seq_id,
+                                                "prediction_type": pred_type,
+                                                "model_name": self.model_name,
+                                                "value": val,
+                                                "metadata": {"params": self.params},
+                                            }
+                                        )
                         elif self.action == "encode":
                             self._store_embeddings(datastore, seq_id, result)
 
@@ -1321,6 +1555,25 @@ class PredictionStage(Stage):
                 candidate_ids &= have_col
                 if not candidate_ids:
                     break
+            # For structure-only or matrix-only stages (no scalar extractions),
+            # gate on the structures/predictions table.
+            if not self._resolved:
+                if self._structure_output:
+                    have_struct = set(
+                        datastore.conn.execute(
+                            "SELECT DISTINCT sequence_id FROM structures WHERE model_name = ?",
+                            [self.model_name],
+                        ).df()["sequence_id"].tolist()
+                    )
+                    candidate_ids &= have_struct
+                elif self._matrix_extraction:
+                    have_matrix = set(
+                        datastore.conn.execute(
+                            "SELECT DISTINCT sequence_id FROM predictions WHERE model_name = ?",
+                            [self.model_name],
+                        ).df()["sequence_id"].tolist()
+                    )
+                    candidate_ids &= have_matrix
             ws_out = WorkingSet.from_ids(candidate_ids)
         elif self.action == "encode":
             _emb_layer = (
@@ -2716,6 +2969,55 @@ class DataPipeline(BasePipeline):
 
         self.add_stage(stage)
         return self
+
+    def add_structure_prediction(
+        self,
+        model_name: str,
+        structure_key: str = "pdb",
+        extractions: Optional[Union[str, list[Union[str, ExtractionSpec]]]] = None,
+        columns: Optional[Union[str, dict[str, str]]] = None,
+        plddt_key: Optional[str] = None,
+        structure_format: Optional[str] = None,
+        stage_name: Optional[str] = None,
+        depends_on: Optional[list[str]] = None,
+        **kwargs,
+    ):
+        """Add a prediction stage that stores the structure from the response.
+
+        Convenience wrapper around ``add_prediction()`` with a ``StructureSpec``.
+
+        Args:
+            model_name: BioLM model name (e.g. 'esmfold', 'alphafold2').
+            structure_key: Response key containing the structure string.
+            extractions: Optional scalar extractions (e.g. 'mean_plddt').
+            columns: Output column name(s) for scalar extractions.
+            plddt_key: Optional response key for confidence score.
+            structure_format: 'pdb' or 'cif' (auto-detected from key if None).
+            stage_name: Custom stage name.
+            depends_on: Stage dependencies.
+
+        Example::
+
+            pipeline.add_structure_prediction(
+                "esmfold",
+                extractions="mean_plddt", columns="plddt",
+                plddt_key="mean_plddt",
+            )
+        """
+        spec = StructureSpec(
+            key=structure_key,
+            format=structure_format,
+            plddt_key=plddt_key,
+        )
+        return self.add_prediction(
+            model_name=model_name,
+            extractions=extractions,
+            columns=columns,
+            stage_name=stage_name,
+            depends_on=depends_on,
+            structure_output=spec,
+            **kwargs,
+        )
 
     def add_predictions(
         self,

@@ -26,8 +26,10 @@ from biolmai.pipeline.data import (
     Embed,
     EmbeddingSpec,
     ExtractionSpec,
+    MatrixExtractionSpec,
     Predict,
     SingleStepPipeline,
+    StructureSpec,
 )
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
 from biolmai.pipeline.filters import (
@@ -102,6 +104,8 @@ __all__ = [
     "DiversitySamplingFilter",
     "ExtractionSpec",
     "EmbeddingSpec",
+    "StructureSpec",
+    "MatrixExtractionSpec",
     "MLMRemasker",
     "RemaskingConfig",
     "CONSERVATIVE_CONFIG",
