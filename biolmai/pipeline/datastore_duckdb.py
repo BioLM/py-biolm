@@ -14,9 +14,12 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import logging
 import math
 import re as _re
 import warnings
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -102,13 +105,27 @@ class DuckDBDataStore:
         try:
             self.conn = duckdb.connect(str(self.db_path))
         except Exception as exc:
-            if "Could not set lock" in str(exc) or "lock" in str(exc).lower():
+            exc_str = str(exc)
+            if "Could not set lock" in exc_str or "lock" in exc_str.lower():
                 raise RuntimeError(
                     f"DuckDB at '{self.db_path}' is locked by another process.\n"
                     "Only one pipeline can write to a given database at a time. "
                     "Wait for the other process to finish, or use a different db_path."
                 ) from exc
-            raise
+            # WAL corruption (e.g. from kernel restart mid-write) — delete the
+            # WAL file and retry. The main .duckdb file is still valid; only
+            # uncommitted transactions from the WAL are lost.
+            wal_path = Path(str(self.db_path) + ".wal")
+            if wal_path.exists() and ("WAL" in exc_str or "replay" in exc_str.lower()):
+                logger.warning(
+                    "Corrupted WAL file detected at %s — removing and retrying. "
+                    "Uncommitted transactions may be lost.",
+                    wal_path,
+                )
+                wal_path.unlink()
+                self.conn = duckdb.connect(str(self.db_path))
+            else:
+                raise
 
         # Initialize schema
         self._init_schema()

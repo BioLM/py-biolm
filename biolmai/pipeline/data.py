@@ -861,6 +861,24 @@ class PredictionStage(Stage):
                 _uncached_set |= set(
                     datastore.get_uncached_sequence_ids(_all_seq_ids, _spec.column, self.model_name)
                 )
+            # When structure_output is set, also check structures table so
+            # sequences with cached scalars but no stored structure get re-dispatched.
+            if self._structure_output:
+                _cached_struct_ids_legacy = set(
+                    datastore.conn.execute(
+                        "SELECT DISTINCT sequence_id FROM structures WHERE model_name = ?",
+                        [self.model_name],
+                    ).df()["sequence_id"].tolist()
+                )
+                _uncached_set |= {int(sid) for sid in _all_seq_ids if sid not in _cached_struct_ids_legacy}
+            if not self._resolved and self._matrix_extraction:
+                _cached_matrix_ids_legacy = set(
+                    datastore.conn.execute(
+                        "SELECT DISTINCT sequence_id FROM predictions WHERE model_name = ?",
+                        [self.model_name],
+                    ).df()["sequence_id"].tolist()
+                )
+                _uncached_set |= {int(sid) for sid in _all_seq_ids if sid not in _cached_matrix_ids_legacy}
         uncached_ids = list(_uncached_set)
         uncached_mask = df["sequence_id"].isin(_uncached_set)
         df_uncached = df[uncached_mask]
@@ -1213,9 +1231,10 @@ class PredictionStage(Stage):
                 _uncached_ws_set |= set(
                     datastore.get_uncached_sequence_ids(input_ids, _spec.column, self.model_name)
                 )
-            # When no scalar extractions but structure_output or matrix_extraction
-            # is set, check the structures table for cached structures.
-            if not self._resolved and self._structure_output:
+            # When structure_output is set, also check the structures table.
+            # A sequence with cached scalar predictions but no stored structure
+            # must be re-dispatched so the structure gets stored too.
+            if self._structure_output:
                 _cached_struct_ids = set(
                     datastore.conn.execute(
                         "SELECT DISTINCT sequence_id FROM structures WHERE model_name = ?",
@@ -1223,8 +1242,8 @@ class PredictionStage(Stage):
                     ).df()["sequence_id"].tolist()
                 )
                 _uncached_ws_set |= {sid for sid in input_ids if sid not in _cached_struct_ids}
-            elif not self._resolved and self._matrix_extraction:
-                # For matrix-only stages, check if any predictions exist for this model
+            # For matrix_extraction (without scalar extractions), check predictions table.
+            if not self._resolved and self._matrix_extraction:
                 _cached_matrix_ids = set(
                     datastore.conn.execute(
                         "SELECT DISTINCT sequence_id FROM predictions WHERE model_name = ?",
@@ -1556,24 +1575,24 @@ class PredictionStage(Stage):
                 if not candidate_ids:
                     break
             # For structure-only or matrix-only stages (no scalar extractions),
-            # gate on the structures/predictions table.
-            if not self._resolved:
-                if self._structure_output:
-                    have_struct = set(
-                        datastore.conn.execute(
-                            "SELECT DISTINCT sequence_id FROM structures WHERE model_name = ?",
-                            [self.model_name],
-                        ).df()["sequence_id"].tolist()
-                    )
-                    candidate_ids &= have_struct
-                elif self._matrix_extraction:
-                    have_matrix = set(
-                        datastore.conn.execute(
-                            "SELECT DISTINCT sequence_id FROM predictions WHERE model_name = ?",
-                            [self.model_name],
-                        ).df()["sequence_id"].tolist()
-                    )
-                    candidate_ids &= have_matrix
+            # gate on the structures/predictions table so sequences without
+            # output don't pass through.
+            if not self._resolved and self._structure_output:
+                have_struct = set(
+                    datastore.conn.execute(
+                        "SELECT DISTINCT sequence_id FROM structures WHERE model_name = ?",
+                        [self.model_name],
+                    ).df()["sequence_id"].tolist()
+                )
+                candidate_ids &= have_struct
+            if not self._resolved and self._matrix_extraction:
+                have_matrix = set(
+                    datastore.conn.execute(
+                        "SELECT DISTINCT sequence_id FROM predictions WHERE model_name = ?",
+                        [self.model_name],
+                    ).df()["sequence_id"].tolist()
+                )
+                candidate_ids &= have_matrix
             ws_out = WorkingSet.from_ids(candidate_ids)
         elif self.action == "encode":
             _emb_layer = (
