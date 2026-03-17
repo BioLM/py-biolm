@@ -1382,6 +1382,10 @@ class BasePipeline(ABC):
         # _stage_data populated by the streaming path.
         return self._stage_data.get(last_stage_name, pd.DataFrame())
 
+    def query(self, sql: str, params=None) -> pd.DataFrame:
+        """Execute arbitrary SQL against the pipeline's DuckDB datastore."""
+        return self.datastore.query(sql, params)
+
     def export_to_csv(self, output_path: Optional[Union[str, Path]] = None):
         """Export final results to CSV."""
         if output_path is None:
