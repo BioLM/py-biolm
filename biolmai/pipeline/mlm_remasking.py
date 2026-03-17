@@ -336,15 +336,22 @@ class MLMRemasker:
                     f"{predicted_seq!r}. Expected all mask positions to be filled."
                 )
 
-            # Path 2: Model returns logits (ESM2 predict)
+            # Path 2: Model returns logits (ESM2/ESMC predict)
             logits = pred_result.get("logits")
             seq_tokens = pred_result.get("sequence_tokens")
             vocab_tokens = pred_result.get("vocab_tokens")
 
-            if logits is not None and seq_tokens is not None and vocab_tokens is not None:
-                return self._decode_logits(
-                    sequence, mask_positions, logits, seq_tokens, vocab_tokens
-                )
+            if logits is not None:
+                # Fallback vocab for ESMC-style responses that return logits without
+                # sequence_tokens / vocab_tokens (20-dim logits, ACDEFGHIKLMNPQRSTVWY order)
+                if seq_tokens is None:
+                    seq_tokens = list(sequence)
+                if vocab_tokens is None and len(logits) > 0 and len(logits[0]) == 20:
+                    vocab_tokens = list("ACDEFGHIKLMNPQRSTVWY")
+                if seq_tokens is not None and vocab_tokens is not None:
+                    return self._decode_logits(
+                        sequence, mask_positions, logits, seq_tokens, vocab_tokens
+                    )
 
             raise ValueError(
                 f"API result missing both 'logits' and 'sequence'. "
@@ -367,11 +374,14 @@ class MLMRemasker:
         seq_list = list(original_sequence)
         confidences: dict[int, float] = {}
 
-        if len(logits_arr) != len(seq_tokens):
+        if len(logits_arr) == len(seq_tokens) + 2:
+            # ESMC/ESM3 style: logits include BOS and EOS special tokens — strip them
+            logits_arr = logits_arr[1:-1]
+        elif len(logits_arr) != len(seq_tokens):
             raise ValueError(
                 f"Logits array length ({len(logits_arr)}) != sequence token length "
-                f"({len(seq_tokens)}). The API may be returning special tokens "
-                f"(CLS/EOS) in the logits. Slice to remove them."
+                f"({len(seq_tokens)}). Got {len(logits_arr)} logit rows for "
+                f"{len(seq_tokens)} tokens."
             )
 
         # Map mask_positions (0-indexed in sequence) to token indices
