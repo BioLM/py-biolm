@@ -799,9 +799,17 @@ class PredictionStage(Stage):
                 return []
             pairs = []
             for i, row_label in enumerate(rows):
+                # Use standard mutation notation: {WT}{pos}{MT} (e.g., "M1A").
+                # If the row label already includes a position number (e.g., "M1"),
+                # use it as-is. Otherwise, prepend the 1-based index.
+                import re as _re_mod
+                if _re_mod.search(r'\d', str(row_label)):
+                    pos_label = row_label
+                else:
+                    pos_label = f"{row_label}{i + 1}"
                 for j, col_label in enumerate(cols):
                     try:
-                        pairs.append((f"{spec.prefix}_{row_label}{col_label}", float(values[i][j])))
+                        pairs.append((f"{spec.prefix}_{pos_label}{col_label}", float(values[i][j])))
                     except (IndexError, TypeError, ValueError):
                         continue
             return pairs
