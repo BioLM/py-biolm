@@ -1534,6 +1534,8 @@ class GenerativePipeline(BasePipeline):
         """
         import copy as _copy
 
+        resume = kwargs.get("resume", False)
+
         # Reset generated_ws at start so previous run's data doesn't bleed through
         self._generated_ws = None
 
@@ -1560,6 +1562,46 @@ class GenerativePipeline(BasePipeline):
             # Run every generation stage first, collect all produced sequence IDs
             all_gen_ids: set[int] = set()
             for gen_stage in gen_stages:
+                stage_id = f"{self.run_id}_{gen_stage.name}"
+
+                # Resume: if this generation stage already completed, reload its
+                # working set from generation_metadata rather than re-running.
+                # generation_metadata.run_id scopes to this run, so the reload
+                # is exact and won't pick up sequences from other runs.
+                if resume and self.datastore:
+                    sc = self.datastore.conn.execute(
+                        "SELECT status, output_count FROM stage_completions WHERE stage_id = ?",
+                        [stage_id],
+                    ).fetchone()
+                    if sc and sc[0] == "completed":
+                        expected_count = sc[1]
+                        ids = self.datastore.conn.execute(
+                            "SELECT DISTINCT sequence_id FROM generation_metadata "
+                            "WHERE run_id = ?",
+                            [self.run_id],
+                        ).df()["sequence_id"].tolist()
+                        if ids:
+                            if expected_count is not None and len(ids) != expected_count:
+                                import warnings
+                                warnings.warn(
+                                    f"Stage '{gen_stage.name}': stage_completions recorded "
+                                    f"{expected_count} sequences but only {len(ids)} found in "
+                                    f"generation_metadata. Some sequences may be missing downstream "
+                                    f"predictions and will be silently skipped. Consider re-running "
+                                    f"without resume=True to regenerate.",
+                                    RuntimeWarning,
+                                    stacklevel=2,
+                                )
+                            ws = WorkingSet.from_ids(ids)
+                            self._working_sets[gen_stage.name] = ws
+                            all_gen_ids |= set(ids)
+                            if self.verbose:
+                                print(f"\n{'='*60}")
+                                print(f"✓ Stage '{gen_stage.name}' already complete "
+                                      f"— reloaded {len(ids)} sequences from DB")
+                                print(f"{'='*60}")
+                            continue
+
                 if self.verbose:
                     print(f"\n{'='*60}")
                     print(f"Stage: {gen_stage.name} (Generation)")
@@ -1586,7 +1628,7 @@ class GenerativePipeline(BasePipeline):
                     self.datastore.mark_stage_complete(
                         run_id=self.run_id,
                         stage_name=gen_stage.name,
-                        stage_id=f"{self.run_id}_{gen_stage.name}",
+                        stage_id=stage_id,
                         input_count=0,
                         output_count=len(df_generated),
                         status="completed",

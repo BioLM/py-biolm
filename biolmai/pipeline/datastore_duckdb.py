@@ -408,6 +408,19 @@ class DuckDBDataStore:
         """
         )
 
+        # Large-value store for pipeline definition blobs (e.g. PDB strings).
+        # stages_json stores {"_blob_ref": blob_id} instead of the raw content.
+        # Content-addressed: same PDB in two pipelines → one row.
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_blobs (
+                blob_id VARCHAR PRIMARY KEY,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
         # Prediction column registry — enforces (column, model, action) uniqueness per DB
         self.conn.execute(
             """
@@ -2370,6 +2383,28 @@ class DuckDBDataStore:
         """,
             [definition_id, pipeline_type, input_schema_json, stages_json, datetime.now()],
         )
+
+    def store_blob(self, content: str) -> str:
+        """Store a large string value, returning its blob_id (SHA-256[:32]).
+
+        Content-addressed: identical content always maps to the same blob_id.
+        Safe to call multiple times with the same content (INSERT OR IGNORE).
+        """
+        import hashlib
+        blob_id = hashlib.sha256(content.encode()).hexdigest()[:32]
+        self.conn.execute(
+            "INSERT INTO pipeline_blobs (blob_id, content, created_at) "
+            "VALUES (?, ?, ?) ON CONFLICT (blob_id) DO NOTHING",
+            [blob_id, content, datetime.now()],
+        )
+        return blob_id
+
+    def load_blob(self, blob_id: str) -> Optional[str]:
+        """Retrieve a stored blob by its blob_id. Returns None if not found."""
+        row = self.conn.execute(
+            "SELECT content FROM pipeline_blobs WHERE blob_id = ?", [blob_id]
+        ).fetchone()
+        return row[0] if row else None
 
     def load_pipeline_definition(self, definition_id: Optional[str] = None) -> Optional[dict]:
         """Load a pipeline definition by ID, or the latest one if ID is None."""

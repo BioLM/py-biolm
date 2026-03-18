@@ -481,12 +481,18 @@ class BasePipeline(ABC):
                 ) from exc
 
         input_cols = self.input_schema.columns if self.input_schema else None
+        # Hash computed from the FULL spec (before blob extraction) so the
+        # definition ID is stable regardless of blob storage threshold changes.
         def_id = _pipeline_def_hash(self.pipeline_type, input_cols, stages_specs)
+        # Externalize large strings (PDB files etc.) into pipeline_blobs and
+        # replace them with {"_blob_ref": blob_id} before writing stages_json.
+        from biolmai.pipeline.pipeline_def import _extract_blobs
+        stages_specs_stored = _extract_blobs(stages_specs, self.datastore)
         self.datastore.save_pipeline_definition(
             def_id,
             self.pipeline_type,
             json.dumps(input_cols) if input_cols is not None else None,
-            json.dumps(stages_specs),
+            json.dumps(stages_specs_stored),
         )
         for s in self.stages:
             for r in getattr(s, "_resolved", []):
@@ -532,6 +538,15 @@ class BasePipeline(ABC):
         from biolmai.pipeline.pipeline_def import pipeline_from_definition
 
         ds = DataStore(str(db_path))
+        # If a run_id is given, resolve its definition_id directly so we load
+        # the definition that was actually used for that run, not the latest one.
+        if definition_id is None and run_id is not None:
+            row = ds.conn.execute(
+                "SELECT definition_id FROM pipeline_runs WHERE run_id = ?",
+                [run_id],
+            ).fetchone()
+            if row and row[0]:
+                definition_id = row[0]
         defn = ds.load_pipeline_definition(definition_id)
         if defn is None:
             raise ValueError(
@@ -823,6 +838,27 @@ class BasePipeline(ABC):
 
             ws_resumed = self._reload_stage_working_set(stage, ws_input)
             if ws_resumed is not None:
+                # Integrity check: warn if reloaded count differs from recorded output_count.
+                # This catches partial writes (crash mid-batch) where stage_completions
+                # says "completed" but fewer rows were actually committed.
+                sc_row = self.datastore.conn.execute(
+                    "SELECT output_count FROM stage_completions WHERE stage_id = ?",
+                    [stage_id],
+                ).fetchone()
+                if sc_row is not None and sc_row[0] is not None:
+                    expected = sc_row[0]
+                    actual = len(ws_resumed)
+                    if actual != expected:
+                        import warnings
+                        warnings.warn(
+                            f"Stage '{stage.name}' resume integrity mismatch: "
+                            f"stage_completions recorded {expected} output sequences but "
+                            f"only {actual} have verifiable data in the datastore. "
+                            f"Some sequences may be missing downstream predictions. "
+                            f"Re-run without resume=True to reprocess missing sequences.",
+                            RuntimeWarning,
+                            stacklevel=3,
+                        )
                 if self.verbose:
                     print(f"  Reloaded {len(ws_resumed):,} sequences")
                 return ws_resumed, StageResult(
@@ -928,8 +964,18 @@ class BasePipeline(ABC):
         )
 
         try:
-            # Save pipeline definition (content-hash dedup) + register output columns
-            self._save_definition_and_register_columns()
+            # Save pipeline definition (content-hash dedup) + register output columns.
+            # Skip on resume: if this run_id already has a definition_id the definition
+            # was already persisted on the first run. Re-saving would create a new
+            # definition entry based on the *reconstructed* stage list, which may be
+            # incomplete (e.g. from_db() recovery), corrupting pipeline_definitions.
+            existing_def = self.datastore.conn.execute(
+                "SELECT definition_id FROM pipeline_runs WHERE run_id = ? "
+                "AND definition_id IS NOT NULL",
+                [self.run_id],
+            ).fetchone()
+            if existing_def is None:
+                self._save_definition_and_register_columns()
 
             # Get initial data — returns WorkingSet
             ws_current = await self._get_initial_data_ws(**kwargs)

@@ -19,6 +19,54 @@ if TYPE_CHECKING:
     from biolmai.pipeline.filters import BaseFilter
 
 
+# Strings longer than this are externalized to pipeline_blobs rather than
+# stored inline in stages_json.  5 000 chars is safely above any protein
+# sequence (~3 000 AA max) but well below any PDB file (~10 000+ chars).
+_BLOB_THRESHOLD = 5_000
+
+
+def _extract_blobs(obj: Any, datastore: "DuckDBDataStore") -> Any:
+    """Recursively walk *obj*, replacing large strings with blob references.
+
+    Modifies nothing in-place — returns a new structure.  Any string longer
+    than ``_BLOB_THRESHOLD`` chars is stored in ``pipeline_blobs`` and replaced
+    with ``{"_blob_ref": blob_id}``.
+    """
+    if isinstance(obj, str):
+        if len(obj) > _BLOB_THRESHOLD:
+            blob_id = datastore.store_blob(obj)
+            return {"_blob_ref": blob_id}
+        return obj
+    if isinstance(obj, dict):
+        return {k: _extract_blobs(v, datastore) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_extract_blobs(item, datastore) for item in obj]
+    return obj
+
+
+def _resolve_blobs(obj: Any, datastore: "DuckDBDataStore") -> Any:
+    """Inverse of ``_extract_blobs``: replace blob references with their content.
+
+    Raises ``ValueError`` if a blob_id is not found in the datastore (DB was
+    truncated or the blob was deleted).
+    """
+    if isinstance(obj, dict):
+        if "_blob_ref" in obj and len(obj) == 1:
+            blob_id = obj["_blob_ref"]
+            content = datastore.load_blob(blob_id)
+            if content is None:
+                raise ValueError(
+                    f"Pipeline definition references blob '{blob_id}' which is "
+                    "not in the pipeline_blobs table.  The database may be "
+                    "incomplete or the blob was deleted."
+                )
+            return content
+        return {k: _resolve_blobs(v, datastore) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_resolve_blobs(item, datastore) for item in obj]
+    return obj
+
+
 def _pipeline_def_hash(
     pipeline_type: str,
     input_schema_cols: Optional[list[str]],
@@ -394,6 +442,9 @@ def pipeline_from_definition(
 
     input_cols = json.loads(input_schema_json) if input_schema_json else None
     stages_specs = json.loads(stages_json)
+    # Resolve any blob references (large strings stored externally in pipeline_blobs)
+    if datastore is not None:
+        stages_specs = _resolve_blobs(stages_specs, datastore)
 
     # BUG-3 fix: if no run_id supplied, look up the most recent run for this
     # definition so that resume finds already-completed stages correctly.

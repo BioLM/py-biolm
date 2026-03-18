@@ -800,6 +800,114 @@ for r in getattr(stage, "_resolved", []):
 
 This fires at `add_stage()` time (when the pipeline is being configured), not at `run()` time — failing fast before any computation.
 
+### `from_db()` — Full Recovery Walkthrough
+
+After a kernel crash, the entire pipeline is reconstructable from the DuckDB file alone:
+
+```python
+pipeline = BasePipeline.from_db("petase.duckdb", run_id="petase_v1")
+pipeline.run(resume=True)  # generation skipped, all predictions served from cache
+```
+
+**Step 1 — Look up the definition for that run**
+
+`pipeline_runs.definition_id` links every run to its stored definition:
+
+```sql
+SELECT definition_id FROM pipeline_runs WHERE run_id = 'petase_v1'
+-- → '873d0055e888847b3bb000f90b0f80a3'
+```
+
+**Step 2 — Load `stages_json` from `pipeline_definitions`**
+
+```sql
+SELECT stages_json FROM pipeline_definitions WHERE definition_id = '873d0055...'
+```
+
+`stages_json` is the complete, fully-parameterized stage array — not just names. Example entry for a generation stage:
+
+```json
+{
+  "type": "GenerationStage",
+  "name": "generation",
+  "configs": [
+    {
+      "type": "RemaskingConfig",
+      "model_name": "esmc-300m",
+      "action": "predict",
+      "mask_fraction": 0.15,
+      "num_iterations": 3,
+      "conserved_positions": [164, 209, 241],
+      "parent_sequence": "SNPYARGPNPT...",
+      "num_variants": 5
+    },
+    {
+      "type": "DirectGenerationConfig",
+      "model_name": "protein-mpnn",
+      "item_field": "pdb",
+      "params": {"batch_size": 5, "temperature": 0.1}
+    }
+  ]
+}
+```
+
+And for a prediction stage:
+
+```json
+{
+  "type": "PredictionStage",
+  "name": "predict_tm",
+  "model_name": "temberture-regression",
+  "action": "predict",
+  "resolved": [{"response_key": "prediction", "column": "tm", "reduction": null}],
+  "depends_on": ["filter_length"]
+}
+```
+
+**Step 3 — Deserialize each stage** (`pipeline_def.py: stage_from_spec()`)
+
+| `"type"` | Reconstructed as | What's restored |
+|---|---|---|
+| `GenerationStage` | `GenerationStage(configs=[...])` | All generation configs including parent_sequence, conserved positions |
+| `PredictionStage` | `PredictionStage(model_name=..., extractions=..., columns=...)` | Model, action, extraction→column mappings, batch size, item_columns |
+| `FilterStage` | `FilterStage(filter_func=<filter>)` | Filter type + all parameters (column, min, max, n, method) |
+| `ClusteringStage` | `ClusteringStage(method=..., n_clusters=...)` | Algorithm and hyperparameters |
+
+`CustomFilter` and custom callable `embedding_extractor` raise `NotImplementedError` — they are not serializable by design. The error message instructs the user to re-attach manually.
+
+**Step 4 — Resume execution**
+
+`run(resume=True)` checks `stage_completions` before executing each stage:
+
+```
+stage_id                   │ status
+───────────────────────────┼───────────
+petase_v1_generation       │ completed   ← skip generation; reload from generation_metadata
+petase_v1_filter_length    │ completed   ← reload passing IDs from filter_results
+petase_v1_predict_tm       │ completed   ← all predictions in cache; 0 API calls
+petase_v1_filter_tm        │ completed   ← reload passing IDs from filter_results
+petase_v1_rank_sol         │ completed   ← reload passing IDs from filter_results
+```
+
+The **generation stage** has a special reload path: rather than re-running inference, it reads `generation_metadata WHERE run_id = ?` to reconstruct the exact set of sequence IDs from the original run — this is the only stage that uses `run_id`-scoped metadata for its working set.
+
+All other stages reload via:
+- **PredictionStage**: queries `predictions` table, intersects with current working set
+- **FilterStage**: calls `get_filter_results(run_id, stage_name)` which returns the IDs that originally passed
+
+### Why `run_id` Must Be Preserved
+
+The resume check uses `stage_id = f"{run_id}_{stage_name}"` as the lookup key. If `from_db()` were given a new `run_id`, none of the `stage_completions` rows would match and every stage would re-run from scratch. `from_db(run_id="petase_v1")` explicitly preserves the original `run_id` so all stage completion records are found.
+
+### What Cannot Be Recovered Automatically
+
+| Scenario | Behaviour |
+|---|---|
+| `CustomFilter` | `NotImplementedError` — re-attach with `pipeline.stages[i].filter_func = my_filter` |
+| Custom lambda `embedding_extractor` | `NotImplementedError` — use `EmbeddingSpec` instead |
+| `CofoldingPredictionStage.static_entities` | `UserWarning` — re-attach manually before `.run()` |
+| `stage_completions` row missing (crashed mid-stage) | Stage re-runs; prediction cache prevents redundant API calls |
+
 ---
 
 ## 11. Layer 8 — Multi-Column Inputs and Context

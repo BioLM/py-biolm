@@ -318,6 +318,12 @@ class MLMRemasker:
                     f"API returned unexpected type: {type(pred_result)}"
                 )
 
+            # API error dict — surface clearly rather than falling through to decode
+            if "error" in pred_result and "status_code" in pred_result:
+                raise ValueError(
+                    f"API error {pred_result['status_code']}: {pred_result['error']}"
+                )
+
             # Path 1: Model returns filled sequence directly (DSM generate)
             predicted_seq = pred_result.get("sequence")
             if predicted_seq is not None and self.config.mask_token not in predicted_seq:
