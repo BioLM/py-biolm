@@ -580,12 +580,10 @@ class PredictionStage(Stage):
             for completed_task in done:
                 try:
                     results = await completed_task
-                    # AP-07 fix: detect top-level error dict in streaming mode.
+                    # Some models (e.g. esmc score with 1-item batch) return a bare
+                    # dict instead of a list — wrap it so the per-result loop works.
                     if isinstance(results, dict):
-                        logger.warning(
-                            "API returned error dict in streaming mode: %s", results
-                        )
-                        continue
+                        results = [results]
                     pending_batch_df, batch_indices = pending_tasks[completed_task]
                     out_df = pending_batch_df.copy()
 

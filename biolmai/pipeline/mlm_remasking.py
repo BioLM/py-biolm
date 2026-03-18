@@ -296,17 +296,22 @@ class MLMRemasker:
                     items=[{"sequence": masked_seq}],
                 )
 
-            if not isinstance(result, list) or len(result) == 0:
+            # Unwrap response — formats differ by model/action:
+            #   ESMC predict  → dict directly
+            #   ESM2 predict  → [{...}]
+            #   DSM generate  → [[{...}]]
+            if isinstance(result, dict):
+                pred_result = result
+            elif isinstance(result, list) and len(result) > 0:
+                pred_result = result[0]
+                if isinstance(pred_result, list):
+                    if not pred_result:
+                        raise ValueError("API returned empty nested list")
+                    pred_result = pred_result[0]
+            else:
                 raise ValueError(
                     f"API returned empty or invalid result: {result}"
                 )
-
-            # Unwrap: generate returns [[{...}]], predict returns [{...}]
-            pred_result = result[0]
-            if isinstance(pred_result, list):
-                if not pred_result:
-                    raise ValueError("API returned empty nested list")
-                pred_result = pred_result[0]
 
             if not isinstance(pred_result, dict):
                 raise ValueError(
