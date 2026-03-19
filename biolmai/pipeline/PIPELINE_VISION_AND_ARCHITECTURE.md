@@ -1,7 +1,6 @@
 # BioLM Pipeline: Vision, Motivation & Architecture
 
-**Last Updated**: 2026-03-04
-**Branch**: `chance/pipelines`
+**Last Updated**: 2026-03-18
 
 ---
 
@@ -20,8 +19,6 @@
 11. [Layer 8 — Multi-Column Inputs and Context (`base.py`, `data.py`)](#11-layer-8--multi-column-inputs-and-context)
 12. [Execution Model](#12-execution-model)
 13. [API Surface Design Decisions](#13-api-surface-design-decisions)
-14. [Known Gaps and Future Work](#14-known-gaps-and-future-work)
-
 ---
 
 ## 1. The Problem
@@ -668,24 +665,19 @@ This produces diverse variants without needing a dedicated generation API endpoi
 
 ### Generation Stage and Downstream Flow
 
+`GenerativePipeline.run_async()` runs the `GenerationStage` first, stores the generated sequences in DuckDB, builds a `WorkingSet` from the new IDs, then passes that WorkingSet to `super().run_async()` for downstream prediction and filter stages. Generated sequences are indistinguishable from CSV-loaded sequences at the DuckDB level.
+
+**GEN-05 — WorkingSet ID forwarding**: `GenerationStage.process_ws()` forwards the input WorkingSet's IDs as `ws_ids` to `process()`. This scopes structure lookups in `DirectGenerationConfig` (via `structure_from_model`) to sequences that exist in the current pipeline run, preventing cross-run contamination when a DuckDB file is reused across experiments.
+
 ```python
-# generative.py: GenerativePipeline.run_async()
-async def run_async(self, **kwargs):
-    # 1. Run generation (special handling — happens before downstream stages)
-    gen_stage = GenerationStage(configs=self.generation_configs)
-    gen_df, gen_result = await gen_stage.process(empty_df, self.datastore)
-
-    # 2. Store generated sequences in DuckDB
-    # gen_df has: sequence, heavy_chain (if antibody), generation metadata
-    seq_ids = self.datastore.add_sequences_batch(gen_df)
-    self._generated_ws = WorkingSet.from_ids(seq_ids)
-
-    # 3. Run downstream stages (predictions, filters) via super().run_async()
-    # Downstream stages see the generated sequences as their input
-    return await super().run_async(**kwargs)
+# generative.py: GenerationStage.process_ws()
+async def process_ws(self, ws, datastore, **kwargs):
+    # Forward input WS IDs so structure lookups stay scoped to this run
+    if ws and "ws_ids" not in kwargs:
+        kwargs["ws_ids"] = ws.to_list()
+    df_generated, result = await self.process(pd.DataFrame(), datastore, **kwargs)
+    ...
 ```
-
-Generated sequences are stored in DuckDB exactly like any other sequence. Downstream `PredictionStage` stages don't know or care whether their input came from a CSV file or a generation model.
 
 ### Structure Passing Between Stages
 
@@ -1110,18 +1102,6 @@ Both support `resume=True` on `run()` — `from_db` simply reconstructs the stag
 
 ---
 
-## 14. Known Gaps and Future Work
-
-| Area | Notes |
-|------|-------|
-| `ClusteringStage` legacy (DataFrame-based) | Needs pandas for distance matrices; SQL-native clustering is complex for embedding similarity |
-| Streaming resumability | Chunk checkpoint not implemented — interrupted streaming runs cannot resume mid-stream |
-| Integration tests with real API | Real end-to-end tests are manual (`scripts/test_real_*.py`); mocked tests cover the vast majority |
-| `asyncio.run()` in sync `run()` | Fails from within an existing event loop (Jupyter) — expose `run_async()` as primary interface |
-| Filter resume across different `run_id`s | `resume=True` with a new `run_id` re-runs filter stages; pass the original `run_id` explicitly to avoid this |
-
----
-
 ## File Index
 
 | File | Role |
@@ -1136,10 +1116,8 @@ Both support `resume=True` on `run()` — `from_db` simply reconstructs the stag
 | [`biolmai/pipeline/mlm_remasking.py`](biolmai/pipeline/mlm_remasking.py) | `MLMRemasker`, `RemaskingConfig` — iterative masked-LM variant generation |
 | [`biolmai/pipeline/clustering.py`](biolmai/pipeline/clustering.py) | `SequenceClusterer`, `DiversityAnalyzer` |
 | [`biolmai/pipeline/visualization.py`](biolmai/pipeline/visualization.py) | `PipelinePlotter` — funnel, PCA/UMAP, distributions |
-| [`PIPELINE_QUICKSTART.md`](PIPELINE_QUICKSTART.md) | User-facing: examples, extraction guide, filter reference |
-| [`PIPELINE_ARCHITECTURE_GUIDE.md`](PIPELINE_ARCHITECTURE_GUIDE.md) | Technical deep-dive: schema, performance, async model |
 | [`biolmai/pipeline/README.md`](biolmai/pipeline/README.md) | Module-level reference: all classes, all params |
 
 ---
 
-*Generated from `chance/pipelines` branch — 2026-03-04*
+*Last updated: 2026-03-18*

@@ -452,6 +452,55 @@ Structures and confidence scores are stored in the DuckDB `structures` table.
 
 ---
 
+## Convenience Functions
+
+One-liner alternatives to building a full pipeline object.
+
+### `Embed()`
+
+```python
+from biolmai.pipeline import Embed
+
+# Returns a DataFrame with columns: sequence, sequence_id, embedding
+df = Embed("esm2-8m", sequences=my_sequences)
+
+# Specific layer
+df = Embed("esm2-650m", sequences=my_sequences, layer=33)
+```
+
+Equivalent to creating a `SingleStepPipeline` with `action="encode"` and calling `get_embeddings_bulk()` — but in one call.
+
+### `Predict()`
+
+```python
+from biolmai.pipeline import Predict
+
+df = Predict("temberture-regression", sequences=my_sequences, extractions="prediction")
+```
+
+---
+
+## Context Manager
+
+`DataPipeline` and `GenerativePipeline` implement `__enter__`/`__exit__` for automatic DuckDB cleanup:
+
+```python
+ds = DuckDBDataStore("project.duckdb")
+
+with DataPipeline(sequences=my_sequences, datastore=ds) as pipeline:
+    pipeline.add_prediction("temberture-regression",
+        extractions="prediction", columns="tm")
+    pipeline.run()
+    df = pipeline.get_final_data()
+# ds is closed automatically on exit — even if an exception is raised
+
+# Async variant
+async with DataPipeline(sequences=my_sequences, datastore=ds) as pipeline:
+    ...
+```
+
+---
+
 ## Caching and Resume
 
 All predictions are cached in DuckDB. Re-running the same sequences against the same model hits the cache — no API call is made.
@@ -489,106 +538,18 @@ pipeline.run(resume=True)
 
 ## Architecture
 
-### WorkingSet transport
+Between stages the pipeline passes a `WorkingSet` — a `frozenset[int]` of sequence IDs — rather than a DataFrame. All data lives in DuckDB. A DataFrame is materialized only at `get_final_data()` time via a single SQL JOIN. `1M sequence IDs ≈ 28 MB (frozenset[int]) vs 500 MB+ DataFrame`.
 
-Between stages the pipeline passes a `WorkingSet` — a `frozenset[int]` of sequence IDs — rather than a DataFrame. All data lives in DuckDB. The WorkingSet is a scoped view: "apply this operation only to these sequence IDs."
-
-```
-1M sequence IDs ≈ 28 MB (frozenset[int])  vs  500 MB+ DataFrame
-```
-
-A DataFrame is materialized only at `get_final_data()` time via a single SQL JOIN across all prediction columns.
-
-Parallel stages merge using intersection: sequences that completed in *all* parallel stages survive; any sequence that failed or was uncached in one stage is dropped from the working set.
-
-### Dependency resolution
-
-Stages use Kahn's algorithm (topological sort) to group into levels. Stages at the same level run concurrently via `asyncio.gather()`. Declaring `depends_on=[]` (the default) places a stage at the earliest possible level — automatically parallel with other independent stages.
+Independent stages run concurrently via `asyncio.gather()` (Kahn's algorithm topological sort). Declaring `depends_on=[]` (the default) places a stage at the earliest possible level.
 
 ```
-pipeline.add_prediction("temberture-regression", ..., stage_name="predict_tm")
-pipeline.add_prediction("biolmsol", ..., stage_name="predict_sol")
-pipeline.add_filter(RankingFilter(...), depends_on=["predict_tm", "predict_sol"])
-
 → Level 0: [predict_tm, predict_sol]  — asyncio.gather(), concurrent
 → Level 1: [ranking_filter]           — sequential, after both complete
 ```
 
-### Batching and concurrency
+Within each `PredictionStage`: `batch_size` (default 32) sequences per pipeline batch, `max_concurrent` (default 5) batches in flight, `max_connections` (default 10) HTTP connections. Raise `batch_size` and `max_concurrent` for fast scoring models; lower them for slow structure models.
 
-Within each `PredictionStage`, API calls are made at two levels of concurrency:
-
-| Parameter | Default | Controls |
-|---|---|---|
-| `batch_size` | 32 | Sequences per pipeline batch |
-| `max_concurrent` | 5 | Pipeline batches in flight simultaneously |
-| `max_connections` | 10 | Max HTTP connections to the API |
-
-The SDK auto-splits each pipeline batch according to the model's `maxItems` schema limit. Sub-batches from all in-flight pipeline batches share a connection pool throttled by `max_connections`.
-
-```python
-# Tune for high-throughput scoring models
-pipeline.add_prediction("temberture-regression",
-    extractions="prediction",
-    columns="tm",
-    batch_size=64,
-    max_concurrent=8,
-    max_connections=16,
-)
-```
-
-Guideline:
-- **Fast models** (scoring, property prediction): raise `batch_size` to 64-128, `max_concurrent` to 8-10.
-- **Slow models** (structure prediction, co-folding): lower `batch_size` to 1-4, keep `max_concurrent` at 3-5.
-- **Memory constrained**: lower `max_concurrent` and `batch_size`.
-
-### Streaming mode
-
-```python
-pipeline.run(enable_streaming=True)
-```
-
-Streaming fires all prediction batches at once (no `max_concurrent` cap) and passes results to the next stage as batches complete, rather than waiting for all predictions to finish. Use when multiple prediction stages are chained and the downstream stage is a per-sequence filter. For aggregate filters (`RankingFilter`, `DiversitySamplingFilter`), the pipeline automatically buffers the full result before applying the filter.
-
-### DuckDB DataStore schema
-
-| Table | Purpose |
-|---|---|
-| `sequences` | Sequences, input columns, SHA-256 hash for dedup |
-| `predictions` | Cached prediction values, keyed by `(sequence_id, prediction_type, model_name)` |
-| `embeddings` | Embedding vectors stored as `FLOAT[]` |
-| `structures` | PDB/CIF text content and pLDDT scores |
-| `generation_metadata` | Generation parameters per sequence |
-| `pipeline_runs` | Run metadata and status |
-| `stage_completions` | Which stages completed in which run (resume support) |
-| `filter_results` | Sequence IDs that passed each filter stage (resume support) |
-| `pipeline_context` | Inter-stage key-value store, scoped by `run_id` |
-| `pipeline_definitions` | Content-hash of stage graph (for `from_db()` reconstruction) |
-| `prediction_column_registry` | Cross-session column collision detection |
-
-### Key performance patterns
-
-**Anti-join deduplication** — inserting sequences checks existing hashes with a single SQL `LEFT JOIN ... WHERE hash IS NULL`, not N individual lookups.
-
-**Vectorized cache check** — `get_uncached_sequence_ids()` uses a single anti-join against the `predictions` table instead of N `has_prediction()` calls.
-
-**SQL-native filtering** — `ThresholdFilter`, `RankingFilter`, `SequenceLengthFilter`, and `ValidAminoAcidFilter` generate SQL executed directly in DuckDB. No Python, no pandas.
-
-**Explicit DataFrame registration** — all code uses `conn.register('_name', df)` / `conn.unregister('_name')` before any SQL that references a local DataFrame variable.
-
-### Module reference
-
-| File | Key exports |
-|---|---|
-| `base.py` | `BasePipeline`, `Stage`, `WorkingSet`, `InputSchema`, `PipelineContext`, `StageResult` |
-| `data.py` | `DataPipeline`, `PredictionStage`, `FilterStage`, `ClusteringStage`, `ExtractionSpec`, `EmbeddingSpec` |
-| `generative.py` | `GenerativePipeline`, `GenerationStage`, `DirectGenerationConfig`, `FoldingEntity` |
-| `mlm_remasking.py` | `MLMRemasker`, `RemaskingConfig` |
-| `datastore_duckdb.py` | `DuckDBDataStore` |
-| `filters.py` | All filter classes, `combine_filters` |
-| `pipeline_def.py` | `stage_from_spec`, `filter_from_spec`, `pipeline_from_definition` |
-| `clustering.py` | `SequenceClusterer`, `DiversityAnalyzer` |
-| `visualization.py` | `PipelinePlotter` |
+For the full architecture deep-dive — DuckDB schema, performance patterns, design decisions, execution model — see [`PIPELINE_VISION_AND_ARCHITECTURE.md`](PIPELINE_VISION_AND_ARCHITECTURE.md).
 
 ---
 
