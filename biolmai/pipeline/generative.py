@@ -948,8 +948,11 @@ class GenerationStage(Stage):
         """Generate sequences using configured models."""
         context = kwargs.get("context")
         run_id = kwargs.get("run_id")
-        # GEN-05: extract WS IDs from df_input for structure scoping
-        ws_ids: Optional[list[int]] = (
+        # GEN-05: extract WS IDs for structure scoping.
+        # Prefer ws_ids passed explicitly from process_ws() so that structure
+        # lookups are scoped to the current pipeline working set even when
+        # process() is called with an empty DataFrame (the WorkingSet path).
+        ws_ids: Optional[list[int]] = kwargs.get("ws_ids") or (
             df["sequence_id"].tolist()
             if not df.empty and "sequence_id" in df.columns
             else None
@@ -1086,7 +1089,16 @@ class GenerationStage(Stage):
     async def process_ws(
         self, ws: WorkingSet, datastore: DataStore, **kwargs
     ) -> tuple[WorkingSet, StageResult]:
-        """Generate sequences and return a WorkingSet of the new IDs."""
+        """Generate sequences and return a WorkingSet of the new IDs.
+
+        The input WorkingSet's IDs are forwarded as ``ws_ids`` so that
+        ``DirectGenerationConfig`` can scope structure lookups to sequences
+        already in the current pipeline run (GEN-05 consistency: no cross-run
+        contamination when ``structure_from_stage`` is set).
+        """
+        # Forward input WS IDs so structure lookups stay scoped to this run.
+        if ws and "ws_ids" not in kwargs:
+            kwargs["ws_ids"] = ws.to_list()
         df_generated, result = await self.process(pd.DataFrame(), datastore, **kwargs)
         if "sequence_id" in df_generated.columns:
             return WorkingSet.from_ids(df_generated["sequence_id"].tolist()), result

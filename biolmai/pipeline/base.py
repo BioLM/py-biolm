@@ -1229,25 +1229,59 @@ class BasePipeline(ABC):
     async def _execute_stage_streaming(
         self, stage: Stage, next_stage: Stage, df: pd.DataFrame
     ) -> pd.DataFrame:
-        """
-        Execute stage in streaming mode, passing results to next_stage incrementally.
+        """Execute stage in streaming mode, passing results to next_stage incrementally.
+
+        Supports within-stage checkpointing for crash recovery: after every
+        chunk, filter results are written to DuckDB and a progress checkpoint
+        is updated.  On resume with ``self.resume=True``, already-processed
+        sequences are skipped so only the remaining tail is re-streamed.
 
         Returns:
-            Final output DataFrame after both stages
+            Final output DataFrame after both stages (only ``sequence_id``
+            column is guaranteed; prediction columns depend on chunk content).
         """
+        import json as _json
+
         from biolmai.pipeline.data import FilterStage
 
         if self.verbose:
             print(f"\n[Stage: {stage.name}] (streaming to {next_stage.name})")
 
-        # Collect output chunks
-        output_chunks = []
-        processed_count = 0
-        filtered_count = 0
+        # ------------------------------------------------------------------
+        # STREAMING RESUME: reload checkpoint and skip already-done sequences.
+        # Checkpoint key stores the list of sequence_ids that have completed
+        # both the prediction step and the filter step in a previous partial run.
+        # ------------------------------------------------------------------
+        _checkpoint_key = f"_stream_done_{self.run_id}_{stage.name}"
+        _already_done_ids: set[int] = set()
+        _pre_passed_ids: set[int] = set()
+        _full_input_count = len(df)
 
-        # Stream through both stages
+        if self.resume and self.datastore and "sequence_id" in df.columns:
+            _raw_checkpoint = self.datastore.get_pipeline_metadata(_checkpoint_key)
+            if _raw_checkpoint:
+                _already_done_ids = set(_raw_checkpoint)
+                # Sequences from the previous partial run that passed the filter
+                _pre_passed_ids = set(
+                    self.datastore.get_filter_results(self.run_id, next_stage.name)
+                ) & _already_done_ids
+                # Only stream the sequences not yet processed
+                df = df[~df["sequence_id"].isin(_already_done_ids)].reset_index(drop=True)
+                if self.verbose:
+                    print(
+                        f"  Resuming stream: {len(_already_done_ids)} sequences already "
+                        f"checkpointed, {len(df)} remaining"
+                    )
+
+        _all_processed_ids: list[int] = list(_already_done_ids)
+        output_chunks: list[pd.DataFrame] = []
+        processed_count = len(_pre_passed_ids)
+        filtered_count = len(_already_done_ids) - len(_pre_passed_ids)
+
+        # ------------------------------------------------------------------
+        # Stream through both stages, persisting results after every chunk.
+        # ------------------------------------------------------------------
         async for chunk_df in stage.process_streaming(df, self.datastore):
-            # Pass chunk through next stage immediately
             if isinstance(next_stage, FilterStage):
                 # Guard: filters that need all data cannot run in streaming mode
                 if getattr(
@@ -1260,40 +1294,75 @@ class BasePipeline(ABC):
                         "cannot be used in streaming mode. Remove enable_streaming=True "
                         "or use a per-sequence filter."
                     )
-                # Filter the chunk
                 start_chunk_count = len(chunk_df)
                 filtered_chunk = next_stage.filter_func(chunk_df)
                 filtered_count += start_chunk_count - len(filtered_chunk)
 
-                if len(filtered_chunk) > 0:
+                # --- INCREMENTAL PERSISTENCE (checkpoint) ---
+                _chunk_ids = (
+                    chunk_df["sequence_id"].tolist()
+                    if "sequence_id" in chunk_df.columns
+                    else []
+                )
+                _chunk_passed = (
+                    filtered_chunk["sequence_id"].tolist()
+                    if "sequence_id" in filtered_chunk.columns
+                    else []
+                )
+                if _chunk_passed and self.datastore:
+                    # Write filter results for this chunk immediately so a crash
+                    # after this point won't lose them (ON CONFLICT DO NOTHING is
+                    # idempotent, so safe to call again on resume).
+                    self.datastore.save_filter_results(
+                        self.run_id, next_stage.name, _chunk_passed
+                    )
+                if _chunk_ids and self.datastore:
+                    # Update checkpoint: record all sequence_ids fully processed
+                    # so far (both prediction and filter).
+                    _all_processed_ids.extend(_chunk_ids)
+                    self.datastore.set_pipeline_metadata(
+                        _checkpoint_key, _all_processed_ids
+                    )
+                # --- END INCREMENTAL PERSISTENCE ---
+
+                if filtered_chunk is not None and len(filtered_chunk) > 0:
                     output_chunks.append(filtered_chunk)
                     processed_count += len(filtered_chunk)
 
                     if self.verbose and processed_count % 100 == 0:
                         print(f"  Processed: {processed_count} sequences (streaming)")
 
-        # Combine all chunks
+        # ------------------------------------------------------------------
+        # Assemble final DataFrame: include pre-checkpointed survivors.
+        # (Only sequence_id column is needed downstream — run_async() converts
+        # to WorkingSet immediately after this returns.)
+        # ------------------------------------------------------------------
+        if _pre_passed_ids:
+            output_chunks.insert(
+                0, pd.DataFrame({"sequence_id": sorted(_pre_passed_ids)})
+            )
+
         if output_chunks:
             df_out = pd.concat(output_chunks, ignore_index=True)
         else:
-            df_out = pd.DataFrame(columns=df.columns)
+            df_out = pd.DataFrame(columns=["sequence_id"])
 
         # Record results for both stages
         self.stage_results[stage.name] = StageResult(
             stage_name=stage.name,
-            input_count=len(df),
-            output_count=len(df),  # All sequences processed
+            input_count=_full_input_count,
+            output_count=_full_input_count,
             filtered_count=0,
         )
-
         self.stage_results[next_stage.name] = StageResult(
             stage_name=next_stage.name,
-            input_count=len(df),
+            input_count=_full_input_count,
             output_count=len(df_out),
             filtered_count=filtered_count,
         )
 
-        # Persist filter results so resume can reload the filter stage output
+        # Safety net: save any filter results not yet persisted incrementally.
+        # ON CONFLICT DO NOTHING makes this idempotent.
         if (
             self.datastore
             and isinstance(next_stage, FilterStage)
@@ -1303,15 +1372,15 @@ class BasePipeline(ABC):
                 self.run_id, next_stage.name, df_out["sequence_id"].tolist()
             )
 
-        # Bug #1 fix: mark both stages complete so resume logic works correctly
+        # Mark both stages complete
         if self.datastore:
             stage_id = f"{self.run_id}_{stage.name}"
             self.datastore.mark_stage_complete(
                 run_id=self.run_id,
                 stage_name=stage.name,
                 stage_id=stage_id,
-                input_count=len(df),
-                output_count=len(df),
+                input_count=_full_input_count,
+                output_count=_full_input_count,
                 status="completed",
             )
             next_stage_id = f"{self.run_id}_{next_stage.name}"
@@ -1319,15 +1388,20 @@ class BasePipeline(ABC):
                 run_id=self.run_id,
                 stage_name=next_stage.name,
                 stage_id=next_stage_id,
-                input_count=len(df),
+                input_count=_full_input_count,
                 output_count=len(df_out),
                 status="completed",
             )
+            # Clear checkpoint now that both stages completed successfully.
+            self.datastore.conn.execute(
+                "DELETE FROM pipeline_metadata WHERE key = ?", [_checkpoint_key]
+            )
 
         if self.verbose:
-            print(f"  {stage.name}: processed {len(df)} sequences")
+            print(f"  {stage.name}: processed {_full_input_count} sequences")
             print(
-                f"  {next_stage.name}: {len(df_out)} passed filter (filtered {filtered_count})"
+                f"  {next_stage.name}: {len(df_out)} passed filter "
+                f"(filtered {filtered_count})"
             )
 
         return df_out
@@ -1427,6 +1501,35 @@ class BasePipeline(ABC):
         # Fallback: cached DataFrame saved before datastore was closed, or legacy
         # _stage_data populated by the streaming path.
         return self._stage_data.get(last_stage_name, pd.DataFrame())
+
+    # ------------------------------------------------------------------
+    # Context manager support — ensures DuckDB connection is closed
+    # whether the user calls .run() explicitly or not (e.g. in notebooks).
+    # ------------------------------------------------------------------
+
+    def __enter__(self) -> "BasePipeline":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Close the datastore on exit from a `with` block."""
+        if self.datastore:
+            try:
+                self.datastore.close()
+            except Exception:
+                pass
+        return False
+
+    async def __aenter__(self) -> "BasePipeline":
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Close the datastore on exit from an `async with` block."""
+        if self.datastore:
+            try:
+                self.datastore.close()
+            except Exception:
+                pass
+        return False
 
     def query(self, sql: str, params=None) -> pd.DataFrame:
         """Execute arbitrary SQL against the pipeline's DuckDB datastore."""

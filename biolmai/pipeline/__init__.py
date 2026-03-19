@@ -47,7 +47,6 @@ from biolmai.pipeline.filters import (
 from biolmai.pipeline.generative import (
     DirectGenerationConfig,
     FoldingEntity,
-    GenerationConfig,
     GenerativePipeline,
     SequenceSourceConfig,
 )
@@ -79,7 +78,6 @@ __all__ = [
     "PipelineContext",
     "PipelineMetadata",
     "GenerativePipeline",
-    "GenerationConfig",
     "DirectGenerationConfig",
     "SequenceSourceConfig",
     "FoldingEntity",

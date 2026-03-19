@@ -186,6 +186,8 @@ class EmbeddingSpec:
 
     def __call__(self, result: dict) -> EmbeddingResult:
         """Extract embeddings from an API response dict."""
+        if not isinstance(result, dict):
+            return []
         val = result.get(self.key)
         if val is None:
             return []
@@ -3372,6 +3374,32 @@ def Embed(
     """
     params = {"layer": layer} if layer is not None else None
 
+    # EMBED-02: create an explicit datastore so the connection stays open after
+    # run() completes.  When no datastore is provided, run_async() closes the
+    # auto-created one in its finally block — before we can call
+    # get_embeddings_bulk().  By passing our own datastore we set
+    # _auto_created_datastore=False, keeping the connection alive.
+    user_ds = kwargs.pop("datastore", None)
+    if user_ds is None:
+        import tempfile as _tempfile
+
+        output_dir = kwargs.get("output_dir")
+        if output_dir is None:
+            _tmpdir = _tempfile.mkdtemp(prefix="biolm_embed_")
+            output_dir = Path(_tmpdir)
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as _DS
+
+        _owned_ds: Optional["_DS"] = _DS(
+            db_path=output_dir / "embed.duckdb",
+            data_dir=output_dir / "data",
+        )
+    else:
+        _owned_ds = None
+
+    ds = _owned_ds if _owned_ds is not None else user_ds
+
     # WS-21 fix: pass layer= to EmbeddingSpec so cache check and storage use the correct layer.
     pipeline = SingleStepPipeline(
         model_name=model_name,
@@ -3379,15 +3407,20 @@ def Embed(
         sequences=sequences,
         params=params,
         embedding_extractor=EmbeddingSpec(key="embedding", layer=layer),
+        datastore=ds,
         **kwargs,
     )
-    pipeline.run()
-    df = pipeline.get_final_data()
+    try:
+        pipeline.run()
+        df = pipeline.get_final_data()
 
-    # Load embeddings via bulk fetch (single DuckDB JOIN + batch Parquet reads)
-    # instead of N per-sequence queries
-    seq_ids = df["sequence_id"].tolist()
-    emb_map = pipeline.datastore.get_embeddings_bulk(seq_ids, model_name=model_name)
-    df["embedding"] = [emb_map.get(int(sid)) for sid in seq_ids]
+        # Load embeddings via bulk fetch (single DuckDB JOIN + batch Parquet reads)
+        # instead of N per-sequence queries
+        seq_ids = df["sequence_id"].tolist()
+        emb_map = ds.get_embeddings_bulk(seq_ids, model_name=model_name)
+        df["embedding"] = [emb_map.get(int(sid)) for sid in seq_ids]
+    finally:
+        if _owned_ds is not None:
+            _owned_ds.close()
 
     return df
