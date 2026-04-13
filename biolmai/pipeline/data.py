@@ -5,6 +5,8 @@ DataPipeline: Load sequences from files/lists and run predictions
 SingleStepPipeline: Simplified single-step prediction pipeline
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -370,8 +372,6 @@ class PredictionStage(Stage):
         # E.g. {'H': 'heavy_chain', 'L': 'light_chain'} for abodybuilder3.
         # When None, defaults to {'sequence': 'sequence'}.
         self.item_columns = item_columns
-        # Reuse API client across calls for connection pooling
-        self._api_client = None
 
         # Embedding extraction: user-defined function or EmbeddingSpec.
         self._embedding_extractor = embedding_extractor
@@ -528,16 +528,12 @@ class PredictionStage(Stage):
         if len(df_uncached) == 0:
             return
 
-        # Create or reuse async API client.
-        # Bug M fix: always create a fresh semaphore bound to the current event loop
-        # so streaming mode has the same concurrency limiting as process_ws().
-        if self._api_client is None:
-            _stream_semaphore = asyncio.Semaphore(self._max_connections)
-            self._api_client = BioLMApiClient(
-                self.model_name, semaphore=_stream_semaphore, retry_error_batches=True,
-                
-            )
-        api = self._api_client
+        # R1 fix: create a local API client per call (not stored on self) so
+        # the connection pool is always shut down in the finally block.
+        _stream_semaphore = asyncio.Semaphore(self._max_connections)
+        api = BioLMApiClient(
+            self.model_name, semaphore=_stream_semaphore, retry_error_batches=True,
+        )
 
         # Batch sequences for API calls
         batch_size = self.batch_size
@@ -570,109 +566,117 @@ class PredictionStage(Stage):
 
             pending_tasks[task] = (batch_df, batch_indices)
 
-        # Process batches as they complete (true streaming!)
+        # R2 fix: wrap in try/finally to cancel orphaned tasks and shut down client
         remaining_tasks = set(pending_tasks.keys())
+        try:
+            # Process batches as they complete (true streaming!)
+            while remaining_tasks:
+                # Wait for next batch to complete
+                done, remaining_tasks = await asyncio.wait(
+                    remaining_tasks, return_when=asyncio.FIRST_COMPLETED
+                )
 
-        while remaining_tasks:
-            # Wait for next batch to complete
-            done, remaining_tasks = await asyncio.wait(
-                remaining_tasks, return_when=asyncio.FIRST_COMPLETED
-            )
+                for completed_task in done:
+                    try:
+                        results = await completed_task
+                        # Some models (e.g. esmc score with 1-item batch) return a bare
+                        # dict instead of a list — wrap it so the per-result loop works.
+                        if isinstance(results, dict):
+                            results = [results]
+                        pending_batch_df, batch_indices = pending_tasks[completed_task]
+                        out_df = pending_batch_df.copy()
 
-            for completed_task in done:
-                try:
-                    results = await completed_task
-                    # Some models (e.g. esmc score with 1-item batch) return a bare
-                    # dict instead of a list — wrap it so the per-result loop works.
-                    if isinstance(results, dict):
-                        results = [results]
-                    pending_batch_df, batch_indices = pending_tasks[completed_task]
-                    out_df = pending_batch_df.copy()
+                        # Store results and add to DataFrame.
+                        # Collect into batch_data and flush once (not per-row add_prediction).
+                        batch_data = []
+                        for (_, row), result in zip(pending_batch_df.iterrows(), results):
+                            seq_id = int(row["sequence_id"])
+                            idx = row.name
 
-                    # Store results and add to DataFrame.
-                    # Collect into batch_data and flush once (not per-row add_prediction).
-                    batch_data = []
-                    for (_, row), result in zip(pending_batch_df.iterrows(), results):
-                        seq_id = int(row["sequence_id"])
-                        idx = row.name
+                            if self.action in ("predict", "score"):
+                                if isinstance(result, dict):
+                                    for spec in self._resolved:
+                                        val = self._extract_with_spec(result, spec)
+                                        if val is not None:
+                                            batch_data.append(
+                                                {
+                                                    "sequence_id": seq_id,
+                                                    "prediction_type": spec.column,
+                                                    "model_name": self.model_name,
+                                                    "value": val,
+                                                    "metadata": {"params": self.params},
+                                                }
+                                            )
+                                            out_df.at[idx, spec.column] = val
+                                    # Store structure if configured
+                                    if self._structure_output is not None:
+                                        self._store_structure(datastore, seq_id, result)
+                                    # Extract matrix predictions if configured
+                                    if self._matrix_extraction is not None:
+                                        pairs = self._extract_matrix(result)
+                                        for pred_type, mval in pairs:
+                                            batch_data.append(
+                                                {
+                                                    "sequence_id": seq_id,
+                                                    "prediction_type": pred_type,
+                                                    "model_name": self.model_name,
+                                                    "value": mval,
+                                                    "metadata": {"params": self.params},
+                                                }
+                                            )
 
-                        if self.action in ("predict", "score"):
-                            if isinstance(result, dict):
-                                for spec in self._resolved:
-                                    val = self._extract_with_spec(result, spec)
-                                    if val is not None:
-                                        batch_data.append(
-                                            {
-                                                "sequence_id": seq_id,
-                                                "prediction_type": spec.column,
-                                                "model_name": self.model_name,
-                                                "value": val,
-                                                "metadata": {"params": self.params},
-                                            }
-                                        )
-                                        out_df.at[idx, spec.column] = val
-                                # Store structure if configured
-                                if self._structure_output is not None:
-                                    self._store_structure(datastore, seq_id, result)
-                                # Extract matrix predictions if configured
-                                if self._matrix_extraction is not None:
-                                    pairs = self._extract_matrix(result)
-                                    for pred_type, mval in pairs:
-                                        batch_data.append(
-                                            {
-                                                "sequence_id": seq_id,
-                                                "prediction_type": pred_type,
-                                                "model_name": self.model_name,
-                                                "value": mval,
-                                                "metadata": {"params": self.params},
-                                            }
-                                        )
+                            elif self.action == "encode":
+                                self._store_embeddings(datastore, seq_id, result)
 
-                        elif self.action == "encode":
-                            self._store_embeddings(datastore, seq_id, result)
+                        # Single batch insert per completed async task
+                        if batch_data:
+                            datastore.add_predictions_batch(batch_data)
 
-                    # Single batch insert per completed async task
-                    if batch_data:
-                        datastore.add_predictions_batch(batch_data)
+                        # Yield batch immediately!
+                        yield out_df
 
-                    # Yield batch immediately!
-                    yield out_df
-
-                except Exception as e:
-                    if self.skip_on_error:
-                        # BUG-STR-02 fix: use .get() to avoid KeyError if the task
-                        # was already removed from pending_tasks in the normal path.
-                        _pending_entry = pending_tasks.get(completed_task)
-                        pending_batch_df = _pending_entry[0] if _pending_entry is not None else None
-                        print(f"  Error processing batch (skipped): {e}")
-                        # Write one NULL row per resolved column so that resume
-                        # correctly detects all columns as present (failed).
-                        _failed_seq_ids = (
-                            pending_batch_df["sequence_id"].tolist()
-                            if pending_batch_df is not None
-                            else []
-                        )
-                        failed_batch = [
-                            {
-                                "sequence_id": int(sid),
-                                "prediction_type": spec.column,
-                                "model_name": self.model_name,
-                                "value": None,
-                                "metadata": {
-                                    "status": "failed",
-                                    "error": str(e),
-                                    "params": self.params,
-                                },
-                            }
-                            for sid in _failed_seq_ids
-                            for spec in self._resolved
-                        ]
-                        if failed_batch:
-                            datastore.add_predictions_batch(failed_batch)
-                        # Don't yield failed batch - sequences are filtered out
-                    else:
-                        print(f"  Error processing batch: {e}")
-                        raise
+                    except Exception as e:
+                        if self.skip_on_error:
+                            # BUG-STR-02 fix: use .get() to avoid KeyError if the task
+                            # was already removed from pending_tasks in the normal path.
+                            _pending_entry = pending_tasks.get(completed_task)
+                            pending_batch_df = _pending_entry[0] if _pending_entry is not None else None
+                            print(f"  Error processing batch (skipped): {e}")
+                            # Write one NULL row per resolved column so that resume
+                            # correctly detects all columns as present (failed).
+                            _failed_seq_ids = (
+                                pending_batch_df["sequence_id"].tolist()
+                                if pending_batch_df is not None
+                                else []
+                            )
+                            failed_batch = [
+                                {
+                                    "sequence_id": int(sid),
+                                    "prediction_type": spec.column,
+                                    "model_name": self.model_name,
+                                    "value": None,
+                                    "metadata": {
+                                        "status": "failed",
+                                        "error": str(e),
+                                        "params": self.params,
+                                    },
+                                }
+                                for sid in _failed_seq_ids
+                                for spec in self._resolved
+                            ]
+                            if failed_batch:
+                                datastore.add_predictions_batch(failed_batch)
+                            # Don't yield failed batch - sequences are filtered out
+                        else:
+                            print(f"  Error processing batch: {e}")
+                            raise
+        finally:
+            # Cancel any remaining in-flight tasks to prevent orphaned writes
+            for task in remaining_tasks:
+                task.cancel()
+            if remaining_tasks:
+                await asyncio.gather(*remaining_tasks, return_exceptions=True)
+            await api.shutdown()
 
     @staticmethod
     def _extract_with_spec(
@@ -898,17 +902,13 @@ class PredictionStage(Stage):
         if len(df_uncached) > 0:
             print(f"  Calling {self.model_name}.{self.action}...")
 
-            # AP-06 fix: create semaphore lazily inside process() so it is bound
-            # to the current event loop (not created at __init__ time outside any loop).
-            if self._connection_semaphore is None:
-                self._connection_semaphore = asyncio.Semaphore(self._max_connections)
-            # Reuse client across calls — DO NOT shut down in finally
-            if self._api_client is None:
-                self._api_client = BioLMApiClient(
-                    self.model_name, semaphore=self._connection_semaphore, retry_error_batches=True,
-                    
-                )
-            api = self._api_client
+            # R1 fix: create a local API client per call so the connection pool
+            # is always shut down properly.  The client is closed in the finally
+            # block below (see end of the uncached processing branch).
+            _process_semaphore = asyncio.Semaphore(self._max_connections)
+            api = BioLMApiClient(
+                self.model_name, semaphore=_process_semaphore, retry_error_batches=True,
+            )
 
             seq_ids = df_uncached["sequence_id"].tolist()
             seq_id_to_seq = dict(
@@ -1100,6 +1100,9 @@ class PredictionStage(Stage):
             except Exception as e:
                 print(f"  Error during prediction: {e}")
                 raise
+            finally:
+                # R1 fix: always shut down the local API client
+                await api.shutdown()
 
         # --- Vectorized result merge: single JOIN query, not N individual queries ---
         # Copy so we don't mutate the caller's DataFrame (BUG-09 fix)
@@ -1658,13 +1661,11 @@ class FilterStage(Stage):
             "requires_complete_data",
             True,  # Default: safe (batch)
         )
-        # F12: Cache inspect.signature result at init time rather than on every call.
-        if isinstance(filter_func, BaseFilter):
-            import inspect as _inspect
-            _to_sql_sig = _inspect.signature(filter_func.to_sql)
-            self._to_sql_accepts_model_name = "model_name" in _to_sql_sig.parameters
-        else:
-            self._to_sql_accepts_model_name = False
+        # All BaseFilter subclasses now accept model_name in to_sql().
+        self._to_sql_accepts_model_name = isinstance(filter_func, BaseFilter)
+        # ARCH-05 fix: cache for resample=False filters lives on the stage,
+        # not monkey-patched onto the datastore.
+        self._cached_ws_ids: Optional[list[int]] = None
 
     def to_spec(self) -> dict:
         """Return a serializable dict for pipeline definition persistence."""
@@ -1776,8 +1777,8 @@ class FilterStage(Stage):
             # DataFrame-based path — required for non-SQL filters
             # F08: if resample=False and already have a working set cached, respect it.
             _resample = getattr(self.filter_func, "resample", True)
-            if not _resample and self.name in getattr(datastore, "_filter_ws_cache", {}):
-                cached_ids = datastore._filter_ws_cache[self.name]
+            if not _resample and self._cached_ws_ids is not None:
+                cached_ids = self._cached_ws_ids
                 # Intersect with current ws so we only keep IDs still in the pipeline.
                 ws_out = WorkingSet.from_ids(
                     [sid for sid in cached_ids if sid in ws.sequence_ids]
@@ -1797,9 +1798,7 @@ class FilterStage(Stage):
                     ws_out = WorkingSet.from_ids(df_filtered["sequence_id"].tolist())
                     # Cache for resample=False on future invocations.
                     if not _resample:
-                        if not hasattr(datastore, "_filter_ws_cache"):
-                            datastore._filter_ws_cache = {}
-                        datastore._filter_ws_cache[self.name] = list(ws_out.sequence_ids)
+                        self._cached_ws_ids = list(ws_out.sequence_ids)
                 else:
                     # WS-18 fix: raise instead of silently passing all sequences through.
                     raise RuntimeError(
@@ -2665,6 +2664,13 @@ class DataPipeline(BasePipeline):
         """
 
         if sequence_filter:
+            # S1 fix: reject SQL injection vectors
+            if ";" in sequence_filter:
+                raise ValueError("sequence_filter must not contain semicolons")
+            _upper = sequence_filter.strip().upper()
+            for _kw in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "EXEC"):
+                if _kw in _upper.split():
+                    raise ValueError(f"sequence_filter must not contain {_kw} statements")
             query += f" WHERE {sequence_filter}"
 
         # Execute and load only requested data (columnar scan - fast!)
@@ -2802,6 +2808,14 @@ class DataPipeline(BasePipeline):
             ...     columns=['tm', 'plddt']
             ... )
         """
+        # S1 fix: reject SQL injection vectors
+        if ";" in sql_where:
+            raise ValueError("sql_where must not contain semicolons")
+        _upper = sql_where.strip().upper()
+        for _kw in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "EXEC"):
+            if _kw in _upper.split():
+                raise ValueError(f"sql_where must not contain {_kw} statements")
+
         # Build efficient DuckDB query
         query = f"""
             SELECT DISTINCT
@@ -2957,7 +2971,11 @@ class DataPipeline(BasePipeline):
                 (unmapped keys keep their name).
             params: Optional API parameters
             stage_name: Custom stage name (defaults to ``predict_{first_column}``)
-            depends_on: List of stage names this depends on
+            depends_on: List of stage names this depends on. When ``None``
+                (default), the stage auto-depends on the last added stage,
+                creating a sequential chain.  Pass ``depends_on=[]`` to run
+                at the earliest possible level (parallel with other level-0
+                stages).
 
         Example::
 
@@ -3108,7 +3126,9 @@ class DataPipeline(BasePipeline):
         Args:
             filter_func: Filter function or BaseFilter instance
             stage_name: Custom stage name
-            depends_on: List of stage names this depends on
+            depends_on: List of stage names this depends on. When ``None``
+                (default), auto-depends on the last added stage. Pass
+                ``depends_on=[]`` for earliest-level execution.
         """
         stage_name = stage_name or f"filter_{len(self.stages)}"
 
@@ -3355,6 +3375,7 @@ def Embed(
     model_name: str,
     sequences: Union[list[str], pd.DataFrame, str, Path],
     layer: Optional[int] = None,
+    key: Optional[str] = None,
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -3364,6 +3385,9 @@ def Embed(
         model_name: BioLM model name (e.g., 'esm2')
         sequences: Input sequences
         layer: Optional layer number
+        key: Response dict key containing embeddings. Auto-detected if None:
+            ESM2 models use "embeddings", AbLang2 uses "seqcoding",
+            others default to "embedding".
         **kwargs: Additional arguments
 
     Returns:
@@ -3373,6 +3397,16 @@ def Embed(
         >>> df = Embed('esm2', sequences=['MKTAYIAKQRQ', 'MKLAVID'])
     """
     params = {"layer": layer} if layer is not None else None
+
+    # UX-01 fix: auto-detect the response key based on model name
+    if key is None:
+        _mn = model_name.lower()
+        if "ablang" in _mn:
+            key = "seqcoding"
+        elif "esm" in _mn:
+            key = "embeddings"
+        else:
+            key = "embedding"
 
     # EMBED-02: create an explicit datastore so the connection stays open after
     # run() completes.  When no datastore is provided, run_async() closes the
@@ -3406,7 +3440,7 @@ def Embed(
         action="encode",
         sequences=sequences,
         params=params,
-        embedding_extractor=EmbeddingSpec(key="embedding", layer=layer),
+        embedding_extractor=EmbeddingSpec(key=key, layer=layer),
         datastore=ds,
         **kwargs,
     )

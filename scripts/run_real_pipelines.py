@@ -117,7 +117,7 @@ async def test_1_basic_tm(tmp_path):
     print("=" * 70)
 
     db = tmp_path / "t1.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t1_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t1_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
     pipeline.add_prediction(
@@ -149,7 +149,7 @@ async def test_2_parallel_plus_filter(tmp_path):
     print("=" * 70)
 
     db = tmp_path / "t2.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t2_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t2_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
     pipeline.add_prediction(
@@ -195,7 +195,7 @@ async def test_3_valid_aa(tmp_path):
 
     all_seqs = ALL_SINGLE + BAD_SEQS
     db = tmp_path / "t3.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t3_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t3_data")
 
     pipeline = DataPipeline(sequences=all_seqs, datastore=ds, verbose=True)
     pipeline.add_filter(ValidAminoAcidFilter(verbose=True), stage_name="filter_valid")
@@ -301,7 +301,7 @@ async def test_6_multi_col_antibody(tmp_path):
 
     df_input = pd.DataFrame({"heavy_chain": ANTIBODY_VH, "light_chain": ANTIBODY_VL})
     db = tmp_path / "t6.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t6_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t6_data")
 
     pipeline = DataPipeline(
         sequences=df_input,
@@ -357,7 +357,7 @@ async def test_7_multi_col_dedup(tmp_path):
     })
 
     db = tmp_path / "t7.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t7_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t7_data")
 
     pipeline = DataPipeline(
         sequences=df_input, input_columns=["heavy_chain", "light_chain"],
@@ -399,7 +399,7 @@ async def test_7b_parallel_per_chain_tm(tmp_path):
     print(f"  Input: {len(df_input)} antibody pairs")
 
     db = tmp_path / "t7b.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t7b_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t7b_data")
 
     pipeline = DataPipeline(
         sequences=df_input,
@@ -415,6 +415,7 @@ async def test_7b_parallel_per_chain_tm(tmp_path):
         columns="tm_heavy",
         stage_name="predict_tm_heavy",
         item_columns={"sequence": "heavy_chain"},
+        depends_on=[],
     )
     # Predict Tm on light chain (runs in parallel — same dependency level)
     pipeline.add_prediction(
@@ -423,6 +424,7 @@ async def test_7b_parallel_per_chain_tm(tmp_path):
         columns="tm_light",
         stage_name="predict_tm_light",
         item_columns={"sequence": "light_chain"},
+        depends_on=[],
     )
     # Filter: keep pairs where BOTH chains have Tm > 45
     pipeline.add_filter(
@@ -475,7 +477,7 @@ async def test_8_chained_filters(tmp_path):
 
     all_seqs = ALL_SINGLE + BAD_SEQS
     db = tmp_path / "t8.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t8_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t8_data")
 
     pipeline = DataPipeline(sequences=all_seqs, datastore=ds, verbose=True)
     pipeline.add_filter(ValidAminoAcidFilter(verbose=True), stage_name="f_valid")
@@ -513,7 +515,7 @@ async def test_9_context(tmp_path):
     print("=" * 70)
 
     db = tmp_path / "t9.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t9_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t9_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE[:2], datastore=ds, verbose=True)
     pipeline.context.set("experiment", "thermo_screen")
@@ -548,7 +550,7 @@ async def test_10_streaming(tmp_path):
     print("=" * 70)
 
     db = tmp_path / "t10.duckdb"
-    ds = DuckDBDataStore(db_path=db, data_dir=tmp / "t10_data")
+    ds = DuckDBDataStore(db_path=db, data_dir=tmp_path / "t10_data")
 
     pipeline = DataPipeline(sequences=ALL_SINGLE, datastore=ds, verbose=True)
     pipeline.add_prediction(

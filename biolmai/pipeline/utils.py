@@ -5,6 +5,8 @@ Also includes structure file conversion utilities (CIF ↔ PDB) for use with
 structure-conditioned generative models (AntiFold, HyperMPNN, etc.).
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
@@ -209,7 +211,7 @@ def deduplicate_sequences(
 
 def hash_sequence(sequence: str) -> str:
     """Generate SHA256 hash of a sequence."""
-    return hashlib.sha256(sequence.encode()).hexdigest()[:16]
+    return hashlib.sha256(sequence.encode()).hexdigest()[:32]
 
 
 def validate_sequence(sequence: str, alphabet: str = "protein") -> bool:

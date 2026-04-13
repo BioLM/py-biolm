@@ -289,6 +289,8 @@ def stage_from_spec(spec: dict) -> "Stage":
         )
 
     if stype == "PredictionStage":
+        from biolmai.pipeline.data import MatrixExtractionSpec, StructureSpec
+
         resolved = [
             _ResolvedExtraction(
                 response_key=r["response_key"],
@@ -317,6 +319,31 @@ def stage_from_spec(spec: dict) -> "Stage":
             extractions = None
             columns = None
 
+        # C6 fix: reconstruct structure_output, structure_input, matrix_extraction
+        structure_output = None
+        so_spec = spec.get("structure_output")
+        if so_spec:
+            structure_output = StructureSpec(
+                key=so_spec["key"],
+                format=so_spec.get("format"),
+                plddt_key=so_spec.get("plddt_key"),
+                index=so_spec.get("index", 0),
+            )
+
+        structure_input = spec.get("structure_input")
+
+        matrix_extraction = None
+        mx_spec = spec.get("matrix_extraction")
+        if mx_spec:
+            matrix_extraction = MatrixExtractionSpec(
+                prefix=mx_spec["prefix"],
+                values_key=mx_spec.get("values_key"),
+                row_labels_key=mx_spec.get("row_labels_key"),
+                col_labels_key=mx_spec.get("col_labels_key"),
+                mutation_key=mx_spec.get("mutation_key"),
+                value_key=mx_spec.get("value_key"),
+            )
+
         stage = PredictionStage(
             name=spec["name"],
             model_name=spec["model_name"],
@@ -329,6 +356,9 @@ def stage_from_spec(spec: dict) -> "Stage":
             max_connections=spec.get("max_connections", 10),
             item_columns=spec.get("item_columns"),
             embedding_extractor=emb_extractor,
+            structure_output=structure_output,
+            structure_input=structure_input,
+            matrix_extraction=matrix_extraction,
             skip_on_error=spec.get("skip_on_error", False),
             depends_on=spec.get("depends_on", []),
         )

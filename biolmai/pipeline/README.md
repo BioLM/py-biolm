@@ -63,18 +63,20 @@ from biolmai.pipeline.filters import RankingFilter
 
 pipeline = DataPipeline(sequences=my_sequences)
 
-# These two predictions run in parallel
+# These two predictions run in parallel (depends_on=[] prevents auto-chaining)
 pipeline.add_prediction(
     "temberture-regression",
     extractions="prediction",
     columns="tm",
     stage_name="predict_tm",
+    depends_on=[],
 )
 pipeline.add_prediction(
     "biolmsol",
     extractions="solubility_score",
     columns="solubility",
     stage_name="predict_sol",
+    depends_on=[],
 )
 
 # Rank after both complete
@@ -679,39 +681,42 @@ generated = gen_pipeline.get_final_data()
 # Step 2: Score all variants
 pipeline = DataPipeline(sequences=[LCC] + generated["sequence"].tolist())
 
-pipeline.add_filter(ValidAminoAcidFilter())
+pipeline.add_filter(ValidAminoAcidFilter(), stage_name="valid_aa")
 pipeline.add_filter(
     SequenceLengthFilter(min_length=100, max_length=500),
-    depends_on=["filter_0"],
+    stage_name="length_filter",
+    depends_on=["valid_aa"],
 )
 
-# Three predictions run in parallel
+# Three predictions run in parallel (explicit depends_on avoids auto-chaining)
 pipeline.add_prediction(
     "temberture-regression",
     extractions="prediction",
     columns="tm",
-    depends_on=["filter_1"],
+    depends_on=["length_filter"],
 )
 pipeline.add_prediction(
     "biolmsol",
     extractions="solubility_score",
     columns="solubility",
-    depends_on=["filter_1"],
+    depends_on=["length_filter"],
 )
 pipeline.add_prediction(
     "esmc-300m",
     action="score",
     extractions="log_prob",
-    depends_on=["filter_1"],
+    depends_on=["length_filter"],
 )
 
 pipeline.add_filter(
     ThresholdFilter("tm", min_value=45),
+    stage_name="tm_filter",
     depends_on=["predict_tm"],
 )
 pipeline.add_filter(
     RankingFilter("solubility", n=20, ascending=False),
-    depends_on=["filter_3", "predict_solubility", "predict_log_prob"],
+    stage_name="top_solubility",
+    depends_on=["tm_filter", "predict_solubility", "predict_log_prob"],
 )
 
 pipeline.run()

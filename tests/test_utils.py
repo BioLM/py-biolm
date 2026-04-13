@@ -143,7 +143,7 @@ class TestUtils(unittest.TestCase):
 
         self.assertEqual(hash1, hash2)
         self.assertIsInstance(hash1, str)
-        self.assertEqual(len(hash1), 16)
+        self.assertEqual(len(hash1), 32)
 
         # Different sequence = different hash
         hash3 = hash_sequence("MKLAVIDSAQ")

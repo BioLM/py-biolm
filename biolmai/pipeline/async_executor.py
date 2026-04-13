@@ -2,6 +2,8 @@
 Async batch execution utilities with semaphore-based rate limiting.
 """
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import Coroutine
 from typing import Any, Callable, Optional, TypeVar

@@ -6,15 +6,20 @@ Filters can be:
 - Aggregate: Require all data before filtering (must batch)
 """
 
+from __future__ import annotations
+
+import itertools as _itertools
 import re
-import re as _re
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
 
-_SAFE_COL_RE = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+# Module-level counter for unique marker column names (avoids id() GC-reuse risk)
+_FILTER_MARKER_COUNTER = _itertools.count()
+
+_SAFE_COL_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def _validate_sql_identifier(name: str) -> None:
@@ -51,13 +56,17 @@ class BaseFilter(ABC):
         """
         pass
 
-    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+    def to_sql(self, ws_table: str = "_filter_ws", model_name: Optional[str] = None) -> Optional[str]:
         """Return a complete SQL SELECT that yields surviving ``sequence_id`` values.
 
         The query **must** be scoped to the working set by JOINing with
         *ws_table* (a registered DuckDB table with a single ``sequence_id``
         column).  This ensures ranking/limit operations apply only to the
         current pipeline rows, not the entire datastore.
+
+        Args:
+            ws_table: Name of the registered temp table containing the working set.
+            model_name: Optional model name to scope predictions to.
 
         Example return value::
 
@@ -246,7 +255,7 @@ class SequenceLengthFilter(BaseFilter):
 
         return df[mask].copy()
 
-    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+    def to_sql(self, ws_table: str = "_filter_ws", model_name: Optional[str] = None) -> Optional[str]:
         if not _SAFE_COL_RE.match(ws_table):
             raise ValueError(f"Invalid ws_table name: '{ws_table}'")
         conditions = []
@@ -632,7 +641,7 @@ class DiversitySamplingFilter(BaseFilter):
         self.score_column = score_column
         self.random_seed = random_seed
         self.resample = resample
-        self._sampled_marker_col = f"_sampled_{id(self)}"
+        self._sampled_marker_col = f"_sampled_{next(_FILTER_MARKER_COUNTER)}"
 
         if method not in ["random", "spread", "top"]:
             raise ValueError(
@@ -786,7 +795,7 @@ class ValidAminoAcidFilter(BaseFilter):
             )
         return df[mask].copy()
 
-    def to_sql(self, ws_table: str = "_filter_ws") -> Optional[str]:
+    def to_sql(self, ws_table: str = "_filter_ws", model_name: Optional[str] = None) -> Optional[str]:
         # F05: non-standard column may not exist on sequences table — fall back to
         # DataFrame materialization so we never reference a missing column in SQL.
         if self.column != "sequence":

@@ -9,6 +9,8 @@ Performance Notes:
 - Embedding-based clustering scales much better than Hamming distance
 """
 
+from __future__ import annotations
+
 import warnings
 from collections import Counter
 from dataclasses import dataclass

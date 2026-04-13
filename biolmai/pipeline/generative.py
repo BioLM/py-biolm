@@ -8,6 +8,8 @@ Supports:
 - Multi-model generation in parallel
 """
 
+from __future__ import annotations
+
 import asyncio
 import itertools as _itertools
 import logging
@@ -972,8 +974,16 @@ class GenerationStage(Stage):
                 )
                 for cfg in self.configs
             ]
-            results_list = await asyncio.gather(*tasks)
-            results = [item for sublist in results_list for item in sublist]
+            results_list = await asyncio.gather(*tasks, return_exceptions=True)
+            results = []
+            for i, r in enumerate(results_list):
+                if isinstance(r, Exception):
+                    logger.warning(
+                        "Generation config %d/%d failed: %s",
+                        i + 1, len(self.configs), r,
+                    )
+                else:
+                    results.extend(r)
 
         df_generated = (
             pd.DataFrame(results)

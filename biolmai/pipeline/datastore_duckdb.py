@@ -216,6 +216,12 @@ class DuckDBDataStore:
             )
         """
         )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_struct_seq_model
+            ON structures(sequence_id, model_name)
+        """
+        )
         # Migration: add structure_str column to existing databases
         try:
             self.conn.execute("ALTER TABLE structures ADD COLUMN structure_str TEXT")
@@ -466,7 +472,7 @@ class DuckDBDataStore:
     @staticmethod
     def _hash_sequence(sequence: str) -> str:
         """Create hash of sequence for deduplication."""
-        return hashlib.sha256(sequence.encode()).hexdigest()[:16]
+        return hashlib.sha256(sequence.encode()).hexdigest()[:32]
 
     @staticmethod
     def _hash_row(values: dict[str, str]) -> str:
@@ -803,12 +809,11 @@ class DuckDBDataStore:
                     prediction_id = predictions.prediction_id
             """
             )
-            # TXN-02: resync counter from actual MAX so ON CONFLICT DO UPDATE (which
-            # keeps the old prediction_id) doesn't cause the in-memory counter to drift.
-            max_row = self.conn.execute(
-                "SELECT MAX(prediction_id) FROM predictions"
-            ).fetchone()
-            self._prediction_counter = (max_row[0] or 0) + 1
+            # PERF-02 fix: advance counter arithmetically instead of SELECT MAX()
+            # full table scan after every batch.  We pre-assigned IDs up to
+            # start_id + len(df) - 1; setting counter to start_id + len(df)
+            # guarantees no ID collisions (gaps from ON CONFLICT are harmless).
+            self._prediction_counter = start_id + len(df)
         finally:
             self.conn.unregister(_tmp)
 
@@ -1462,7 +1467,7 @@ class DuckDBDataStore:
                     ON c.sequence_id = p.sequence_id
                     AND p.prediction_type = ?
                     AND p.model_name = ?
-                WHERE p.prediction_id IS NULL OR p.value IS NULL
+                WHERE p.prediction_id IS NULL
             """,
                 [prediction_type, model_name],
             ).fetchall()
@@ -1737,19 +1742,20 @@ class DuckDBDataStore:
             self._filter_id_counter += 1
 
         df = pd.DataFrame(rows)
-        self.conn.register("_filter_batch", df)
+        _filter_tmp = f"_filter_batch_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_filter_tmp, df)
         try:
             self.conn.execute(
-                """
+                f"""
                 INSERT INTO filter_results
                 (filter_id, run_id, stage_name, sequence_id, passed, created_at)
                 SELECT filter_id, run_id, stage_name, sequence_id, passed, created_at
-                FROM _filter_batch
+                FROM {_filter_tmp}
                 ON CONFLICT DO NOTHING
             """
             )
         finally:
-            self.conn.unregister("_filter_batch")
+            self.conn.unregister(_filter_tmp)
 
     def get_filter_results(
         self,
@@ -2242,20 +2248,21 @@ class DuckDBDataStore:
         if not sequence_ids or not attr_names:
             return {}
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        self.conn.register("_attr_ids", ids_df)
+        _attr_ids_tmp = f"_attr_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_attr_ids_tmp, ids_df)
         try:
             placeholders = ", ".join(["?"] * len(attr_names))
             rows = self.conn.execute(
                 f"""
                 SELECT a.sequence_id, a.attr_name, a.attr_value
                 FROM sequence_attributes a
-                INNER JOIN _attr_ids w ON a.sequence_id = w.sequence_id
+                INNER JOIN {_attr_ids_tmp} w ON a.sequence_id = w.sequence_id
                 WHERE a.attr_name IN ({placeholders})
             """,
                 attr_names,
             ).fetchall()
         finally:
-            self.conn.unregister("_attr_ids")
+            self.conn.unregister(_attr_ids_tmp)
 
         result: dict[int, dict[str, str]] = {}
         for sid, name, val in rows:
@@ -2527,12 +2534,17 @@ class DuckDBDataStore:
 
     def __repr__(self):
         """String representation."""
-        seq_count = self.conn.execute("SELECT COUNT(*) FROM sequences").fetchone()[0]
-        pred_count = self.conn.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
-        emb_count = self.conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
-        struct_count = self.conn.execute("SELECT COUNT(*) FROM structures").fetchone()[
-            0
-        ]
+        if not hasattr(self, "conn") or self.conn is None:
+            return f"DuckDBDataStore(db='{self.db_path}', closed=True)"
+        try:
+            seq_count = self.conn.execute("SELECT COUNT(*) FROM sequences").fetchone()[0]
+            pred_count = self.conn.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+            emb_count = self.conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
+            struct_count = self.conn.execute("SELECT COUNT(*) FROM structures").fetchone()[
+                0
+            ]
+        except Exception:
+            return f"DuckDBDataStore(db='{self.db_path}', closed=True)"
 
         return (
             f"DuckDBDataStore(db='{self.db_path}', "

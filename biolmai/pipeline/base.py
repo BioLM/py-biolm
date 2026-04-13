@@ -2,6 +2,8 @@
 Base Pipeline classes for stage management and execution.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -45,7 +47,7 @@ class InputSchema:
 
         parts = [str(row.get(c, "")) for c in sorted(self.columns)]
         payload = "\x00".join(parts)
-        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+        return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 
 class PipelineContext:
@@ -778,20 +780,32 @@ class BasePipeline(ABC):
 
         return None
 
-    # Legacy compat: kept for tests that reference _reload_stage_output
-    def _reload_stage_output(
-        self,
-        stage: Stage,
-        df_input: pd.DataFrame,
-    ) -> Optional[pd.DataFrame]:
-        """Reconstruct a stage's output DataFrame from the datastore (for resume)."""
-        if self.datastore is None or "sequence_id" not in df_input.columns:
-            return None
-        ws_input = WorkingSet.from_ids(df_input["sequence_id"].tolist())
-        ws_out = self._reload_stage_working_set(stage, ws_input)
-        if ws_out is None:
-            return None
-        return self.datastore.materialize_working_set(ws_out)
+    def _get_stage_input_ws(self, stage: Stage, ws_initial: WorkingSet) -> WorkingSet:
+        """Resolve the correct input WorkingSet for a stage based on depends_on.
+
+        C1 fix: in a branched DAG, each stage should receive the output of its
+        declared dependencies, not the global ws_current.
+
+        - No dependencies → use the initial (root) working set
+        - One dependency → use that dependency's stored output
+        - Multiple dependencies → intersect all dependency outputs
+        """
+        deps = stage.depends_on if hasattr(stage, "depends_on") else []
+        if not deps:
+            return ws_initial
+
+        dep_sets = []
+        for dep_name in deps:
+            if dep_name in self._working_sets:
+                dep_sets.append(self._working_sets[dep_name])
+
+        if not dep_sets:
+            return ws_initial
+
+        result = dep_sets[0]
+        for ws in dep_sets[1:]:
+            result = result.intersect(ws)
+        return result
 
     async def _execute_stage_ws(
         self, stage: Stage, ws_input: WorkingSet
@@ -931,12 +945,11 @@ class BasePipeline(ABC):
         # BUG-2 fix: reset end_time so a re-run after failure doesn't retain
         # the previous run's end timestamp.
         self.end_time = None
-        # WS-11: clear the filter-WS cache that is monkey-patched onto the
-        # datastore by execute_filter_sql().  Without this, a second run()
-        # call on the same pipeline object reuses stale cached filter results
-        # from the previous run.
-        if hasattr(self.datastore, "_filter_ws_cache"):
-            self.datastore._filter_ws_cache = {}
+        # WS-11: clear the filter-WS cache on each FilterStage so a second
+        # run() call doesn't reuse stale cached results from the previous run.
+        for stage in self.stages:
+            if hasattr(stage, "_cached_ws_ids"):
+                stage._cached_ws_ids = None
 
         # Guard: prevent two pipelines from writing to the same DuckDB simultaneously.
         # Sequential use of the same DB (accumulation, resume) is fine — the second
@@ -1023,7 +1036,8 @@ class BasePipeline(ABC):
 
                     if can_stream:
                         # STREAMING: uses legacy DataFrame path
-                        df_current = self.datastore.materialize_working_set(ws_current)
+                        ws_stage_input = self._get_stage_input_ws(stage, ws_current)
+                        df_current = self.datastore.materialize_working_set(ws_stage_input)
                         df_out = await self._execute_stage_streaming(
                             stage, next_stage, df_current
                         )
@@ -1049,8 +1063,10 @@ class BasePipeline(ABC):
                         processed_stages.add(next_stage.name)
                     else:
                         # BATCHING: WorkingSet path
+                        # C1 fix: resolve input from declared dependencies, not global ws_current
+                        ws_stage_input = self._get_stage_input_ws(stage, ws_current)
                         ws_out, result = await self._execute_stage_ws(
-                            stage, ws_current
+                            stage, ws_stage_input
                         )
                         self.stage_results[stage.name] = result
                         self._working_sets[stage.name] = ws_out
@@ -1080,7 +1096,9 @@ class BasePipeline(ABC):
                         print(f"\nExecuting {len(level_stages)} stages in parallel...")
 
                     tasks = [
-                        self._execute_stage_ws(stage, ws_current)
+                        self._execute_stage_ws(
+                            stage, self._get_stage_input_ws(stage, ws_current)
+                        )
                         for stage in level_stages
                     ]
                     # BUG-CHK-06 fix: use return_exceptions=True so that a failure
@@ -1136,12 +1154,11 @@ class BasePipeline(ABC):
                     else:
                         ws_current = WorkingSet(frozenset())
 
-                    # Parallel-merge fix: update ALL parallel stages' working sets
-                    # to the merged result, not just the last one.  This ensures
-                    # downstream stages that use depends_on referencing any of the
-                    # parallel stages all see the correctly merged WorkingSet.
-                    for s in level_stages:
-                        self._working_sets[s.name] = ws_current
+                    # C1 fix: each stage's working set is preserved as its own
+                    # output (set in the loop above).  ws_current is updated to
+                    # the merged result for the linear chain fallback.
+                    # _get_stage_input_ws resolves dependencies from individual
+                    # stage outputs, not from ws_current.
 
             self.status = "completed"
             self.end_time = time.time()
@@ -1176,16 +1193,10 @@ class BasePipeline(ABC):
             # Always release the running-path lock so the next sequential run can proceed.
             if _db_path_key:
                 _RUNNING_DB_PATHS.discard(_db_path_key)
-            # BUG-CHK-03 fix: close the DuckDB connection when we auto-created the
-            # datastore.  On Windows, an unclosed connection holds a file lock that
-            # prevents re-running the pipeline.  On all platforms, it leaks a
-            # file descriptor.  User-provided datastores are NOT closed here — the
-            # caller owns them and may reuse them after the pipeline finishes.
-            if getattr(self, "_auto_created_datastore", False) and self.datastore:
-                try:
-                    self.datastore.close()
-                except Exception:
-                    pass  # Ignore errors during cleanup
+            # NOTE: We intentionally do NOT auto-close the datastore here.
+            # Post-run methods (query_results, explore, stats, get_final_data,
+            # run(resume=True)) all need the datastore alive.  Closing happens
+            # in close(), __exit__, __aexit__, or __del__.
 
     async def _get_initial_data_ws(self, **kwargs) -> WorkingSet:
         """Get initial WorkingSet for the pipeline.
@@ -1420,19 +1431,18 @@ class BasePipeline(ABC):
 
         if loop is not None and loop.is_running():
             # Already inside a running event loop (e.g. Jupyter).
-            # Return a coroutine that the caller can await.
-            import warnings
-            warnings.warn(
-                "pipeline.run() called from inside a running event loop (e.g. Jupyter). "
-                "Use 'await pipeline.run_async()' instead for proper async execution. "
-                "Attempting synchronous execution via nest_asyncio if available.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
             try:
                 import nest_asyncio
                 nest_asyncio.apply()
             except ImportError:
+                import warnings
+                warnings.warn(
+                    "pipeline.run() called from inside a running event loop (e.g. Jupyter). "
+                    "Use 'await pipeline.run_async()' instead for proper async execution, "
+                    "or install nest_asyncio: pip install nest_asyncio",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
                 # WS-16: if nest_asyncio is not installed and we are inside a
                 # running event loop, loop.run_until_complete() will deadlock.
                 # Raise a clear, actionable error rather than hanging silently.
@@ -1507,16 +1517,28 @@ class BasePipeline(ABC):
     # whether the user calls .run() explicitly or not (e.g. in notebooks).
     # ------------------------------------------------------------------
 
-    def __enter__(self) -> "BasePipeline":
-        return self
+    def close(self):
+        """Close the pipeline's datastore connection.
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        """Close the datastore on exit from a `with` block."""
+        Safe to call multiple times.  Called automatically by ``__exit__``,
+        ``__aexit__``, and ``__del__``.
+        """
         if self.datastore:
             try:
                 self.datastore.close()
             except Exception:
                 pass
+
+    def __del__(self):
+        """Close the datastore on garbage collection to prevent file-lock leaks."""
+        self.close()
+
+    def __enter__(self) -> "BasePipeline":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Close the datastore on exit from a `with` block."""
+        self.close()
         return False
 
     async def __aenter__(self) -> "BasePipeline":
@@ -1524,11 +1546,7 @@ class BasePipeline(ABC):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Close the datastore on exit from an `async with` block."""
-        if self.datastore:
-            try:
-                self.datastore.close()
-            except Exception:
-                pass
+        self.close()
         return False
 
     def query(self, sql: str, params=None) -> pd.DataFrame:

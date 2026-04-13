@@ -5,6 +5,8 @@ Provides functionality for iterative remasking and prediction using
 masked language models like ESM, ESM-1v, ESM-2.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import math
