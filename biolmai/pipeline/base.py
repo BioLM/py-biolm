@@ -1520,8 +1520,10 @@ class BasePipeline(ABC):
     def close(self):
         """Close the pipeline's datastore connection.
 
-        Safe to call multiple times.  Called automatically by ``__exit__``,
-        ``__aexit__``, and ``__del__``.
+        Safe to call multiple times.  Called automatically by ``__exit__``
+        and ``__aexit__``.  Also called by ``__del__`` for auto-created
+        datastores only (user-provided datastores are not closed on GC so
+        the caller can continue using them after the pipeline is discarded).
         """
         if self.datastore:
             try:
@@ -1530,8 +1532,12 @@ class BasePipeline(ABC):
                 pass
 
     def __del__(self):
-        """Close the datastore on garbage collection to prevent file-lock leaks."""
-        self.close()
+        """Close the datastore on garbage collection, but only if this pipeline
+        created it.  User-provided datastores are left open so the caller can
+        continue using them after the pipeline object is garbage-collected.
+        """
+        if getattr(self, "_auto_created_datastore", False):
+            self.close()
 
     def __enter__(self) -> "BasePipeline":
         return self

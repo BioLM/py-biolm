@@ -72,9 +72,10 @@ class TestEmbedFunction:
         from biolmai.pipeline.data import Embed
 
         mock_instance = AsyncMock()
-        # Embed() uses EmbeddingSpec(key="embedding"), so return that key
+        # Embed() auto-detects key="embeddings" for ESM models (model_name contains "esm").
+        # Return the correct key so EmbeddingSpec can extract and store the embedding.
         mock_instance.encode = AsyncMock(
-            return_value=[{"embedding": emb.tolist()}] * len(sequences)
+            return_value=[{"embeddings": emb.tolist()}] * len(sequences)
         )
         mock_instance.shutdown = AsyncMock()
 

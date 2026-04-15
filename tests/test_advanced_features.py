@@ -61,12 +61,11 @@ class TestPipelineResumability:
         )
         pipeline.add_stage(stage)
 
-        # Mock the API call to avoid actual network calls
-        with patch.object(stage, "_api_client") as mock_client:
+        # Verify cache checking works without running the pipeline
+        # (patch.object with create=True handles the case where _api_client
+        # is not stored as a persistent attribute after the R1 client-lifecycle fix)
+        with patch.object(stage, "_api_client", create=True) as mock_client:
             mock_client.predict = AsyncMock(return_value=[60.0])  # Only 1 uncached seq
-
-            # "Resume" the pipeline (it will use cache for first 2 sequences)
-            # We can't easily run without network, but we can verify cache logic
             pass
 
         # Verify cache checking works
@@ -127,7 +126,9 @@ class TestStreamingBehavior:
         sequences = [f"SEQ{i:03d}" * 5 for i in range(100)]  # 100 sequences
         df = pd.DataFrame({"sequence": sequences})
 
-        # Mock the API client to track timing
+        # Mock the API client to track timing.
+        # Patch at module level so process_streaming() picks up the mock when it
+        # creates a BioLMApiClient internally (R1 fix moved client creation local).
         batch_times = []
 
         class TimedMockClient:
@@ -144,28 +145,29 @@ class TestStreamingBehavior:
             async def shutdown(self):
                 pass
 
-        stage._api_client = TimedMockClient()
+        mock_client = TimedMockClient()
 
         # Track when we receive chunks
         receive_times = []
         chunks_received = 0
 
         # Stream through the stage
-        async for _chunk in stage.process_streaming(df, datastore):
-            receive_times.append(time.time())
-            chunks_received += 1
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=mock_client):
+            async for _chunk in stage.process_streaming(df, datastore):
+                receive_times.append(time.time())
+                chunks_received += 1
 
-            # KEY TEST: We should receive chunks BEFORE all batches complete
-            # If streaming works, we get chunks while API calls are still in flight
-            if chunks_received == 2:
-                # After receiving 2 chunks, there should be more API calls still pending
-                # (100 sequences / 32 batch_size = ~4 batches)
-                assert (
-                    stage._api_client.call_count >= 2
-                ), "Should have made multiple API calls"
-                print(
-                    f"  ✓ Streaming verified: Received chunk {chunks_received} while batches still in flight"
-                )
+                # KEY TEST: We should receive chunks BEFORE all batches complete
+                # If streaming works, we get chunks while API calls are still in flight
+                if chunks_received == 2:
+                    # After receiving 2 chunks, there should be more API calls still pending
+                    # (100 sequences / 32 batch_size = ~4 batches)
+                    assert (
+                        mock_client.call_count >= 2
+                    ), "Should have made multiple API calls"
+                    print(
+                        f"  ✓ Streaming verified: Received chunk {chunks_received} while batches still in flight"
+                    )
 
         # Verify we got multiple chunks
         assert (
@@ -198,7 +200,7 @@ class TestStreamingBehavior:
         sequences = [f"SEQ{i:03d}" * 5 for i in range(50)]
         df = pd.DataFrame({"sequence": sequences})
 
-        # Mock API client
+        # Mock API client — patch at module level so process() picks it up internally.
         class MockClient:
             async def predict(self, items, params=None):
                 await asyncio.sleep(0.05)
@@ -207,11 +209,10 @@ class TestStreamingBehavior:
             async def shutdown(self):
                 pass
 
-        stage._api_client = MockClient()
-
         # Non-streaming process should return complete result at once
         start = time.time()
-        _, result = await stage.process(df, datastore)
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            _, result = await stage.process(df, datastore)
         elapsed = time.time() - start
 
         # Should wait for all batches
@@ -239,7 +240,7 @@ class TestErrorHandling:
 
         df = pd.DataFrame({"sequence": ["VALID", "INVALID", "VALID2"]})
 
-        # Mock API that fails
+        # Mock API that fails — patch at module level so process() picks it up.
         class FailingMockClient:
             async def predict(self, items, params=None):
                 raise ValueError("API error")
@@ -247,11 +248,10 @@ class TestErrorHandling:
             async def shutdown(self):
                 pass
 
-        stage._api_client = FailingMockClient()
-
         # Should raise error by default
-        with pytest.raises(ValueError, match="API error"):
-            await stage.process(df, datastore)
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=FailingMockClient()):
+            with pytest.raises(ValueError, match="API error"):
+                await stage.process(df, datastore)
 
     @pytest.mark.asyncio
     async def test_skip_on_error_marks_failures(self, datastore):
@@ -268,7 +268,7 @@ class TestErrorHandling:
         sequences = ["BADSEQ1", "BADSEQ2"]
         df = pd.DataFrame({"sequence": sequences})
 
-        # Mock API that always fails
+        # Mock API that always fails — patch at module level so process() picks it up.
         class FailingMockClient:
             async def predict(self, items, params=None):
                 raise ValueError("Simulated API error")
@@ -276,10 +276,9 @@ class TestErrorHandling:
             async def shutdown(self):
                 pass
 
-        stage._api_client = FailingMockClient()
-
         # Should NOT raise error, but mark sequences as failed
-        await stage.process(df, datastore)
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=FailingMockClient()):
+            await stage.process(df, datastore)
 
         # Verify sequences are marked as having predictions (failed ones)
         for seq in sequences:

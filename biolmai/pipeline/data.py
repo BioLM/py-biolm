@@ -11,7 +11,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -150,7 +150,7 @@ def _resolve_extractions(
 # ---------------------------------------------------------------------------
 
 # Return type for embedding extractors: list of (array, optional_layer_number)
-EmbeddingResult = list[tuple[np.ndarray, Optional[int]]]
+EmbeddingResult = List[Tuple[np.ndarray, Optional[int]]]
 
 
 @dataclass
