@@ -501,7 +501,7 @@ class PredictionStage(Stage):
         uncached_id_set: set[int] = set()
         for spec in self._resolved:
             uncached_id_set |= set(
-                datastore.get_uncached_sequence_ids(all_seq_ids, spec.response_key, self.model_name)
+                datastore.get_uncached_sequence_ids(all_seq_ids, spec.column, self.model_name)
             )
         uncached_ids = list(uncached_id_set)
         uncached_mask = df["sequence_id"].isin(uncached_id_set)
@@ -518,7 +518,7 @@ class PredictionStage(Stage):
             cached_seq_ids = df_cached["sequence_id"].tolist()
             for spec in merge_specs:
                 pred_df = datastore.get_predictions_bulk(
-                    cached_seq_ids, spec.response_key, self.model_name
+                    cached_seq_ids, spec.column, self.model_name
                 )
                 if not pred_df.empty:
                     val_map = dict(zip(pred_df["sequence_id"], pred_df["value"]))
@@ -602,7 +602,7 @@ class PredictionStage(Stage):
                                             batch_data.append(
                                                 {
                                                     "sequence_id": seq_id,
-                                                    "prediction_type": spec.response_key,
+                                                    "prediction_type": spec.column,
                                                     "model_name": self.model_name,
                                                     "value": val,
                                                     "metadata": {"params": self.params},
@@ -666,7 +666,7 @@ class PredictionStage(Stage):
                             failed_batch = [
                                 {
                                     "sequence_id": int(sid),
-                                    "prediction_type": spec.response_key,
+                                    "prediction_type": spec.column,
                                     "model_name": self.model_name,
                                     "value": None,
                                     "metadata": {
@@ -885,7 +885,7 @@ class PredictionStage(Stage):
             _uncached_set: set[int] = set()
             for _spec in self._resolved:
                 _uncached_set |= set(
-                    datastore.get_uncached_sequence_ids(_all_seq_ids, _spec.response_key, self.model_name)
+                    datastore.get_uncached_sequence_ids(_all_seq_ids, _spec.column, self.model_name)
                 )
             # When structure_output is set, also check structures table so
             # sequences with cached scalars but no stored structure get re-dispatched.
@@ -1047,7 +1047,7 @@ class PredictionStage(Stage):
                                     batch_data.append(
                                         {
                                             "sequence_id": seq_id,
-                                            "prediction_type": spec.response_key,
+                                            "prediction_type": spec.column,
                                             "model_name": self.model_name,
                                             "value": value,
                                             "metadata": {"params": self.params},
@@ -1095,7 +1095,7 @@ class PredictionStage(Stage):
                         failed = [
                             {
                                 "sequence_id": sid,
-                                "prediction_type": spec.response_key,
+                                "prediction_type": spec.column,
                                 "model_name": self.model_name,
                                 "value": None,
                                 "metadata": {
@@ -1145,7 +1145,7 @@ class PredictionStage(Stage):
 
             for spec in merge_specs:
                 pred_df = datastore.get_predictions_bulk(
-                    all_seq_ids, spec.response_key, self.model_name
+                    all_seq_ids, spec.column, self.model_name
                 )
                 if not pred_df.empty:
                     # Map sequence_id → value for O(n) assignment instead of merge
@@ -1269,7 +1269,7 @@ class PredictionStage(Stage):
             _uncached_ws_set: set[int] = set()
             for _spec in self._resolved:
                 _uncached_ws_set |= set(
-                    datastore.get_uncached_sequence_ids(input_ids, _spec.response_key, self.model_name)
+                    datastore.get_uncached_sequence_ids(input_ids, _spec.column, self.model_name)
                 )
             # When structure_output is set, also check the structures table.
             # A sequence with cached scalar predictions but no stored structure
@@ -1508,7 +1508,7 @@ class PredictionStage(Stage):
                                     batch_data.append(
                                         {
                                             "sequence_id": seq_id,
-                                            "prediction_type": spec.response_key,
+                                            "prediction_type": spec.column,
                                             "model_name": self.model_name,
                                             "value": value,
                                             "metadata": {"params": self.params},
@@ -1557,7 +1557,7 @@ class PredictionStage(Stage):
                         failed = [
                             {
                                 "sequence_id": sid,
-                                "prediction_type": spec.response_key,
+                                "prediction_type": spec.column,
                                 "model_name": self.model_name,
                                 "value": None,
                                 "metadata": {
@@ -1624,7 +1624,7 @@ class PredictionStage(Stage):
             candidate_ids = set(input_ids)
             for spec in self._resolved:
                 have_col = set(datastore.get_sequence_ids_with_prediction(
-                    list(candidate_ids), spec.response_key, self.model_name
+                    list(candidate_ids), spec.column, self.model_name
                 ))
                 candidate_ids &= have_col
                 if not candidate_ids:
