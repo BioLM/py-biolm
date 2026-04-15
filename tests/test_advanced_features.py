@@ -280,14 +280,16 @@ class TestErrorHandling:
         with patch("biolmai.pipeline.data.BioLMApiClient", return_value=FailingMockClient()):
             await stage.process(df, datastore)
 
-        # Verify sequences are marked as having predictions (failed ones)
+        # Verify sequences are marked as having predictions (failed ones).
+        # C4 fix: failures are stored under response_key ("prediction"), not
+        # the column alias ("score"), so cache checks use the response_key.
         for seq in sequences:
-            assert datastore.has_prediction(seq, "score", "esm2_t6_8M")
+            assert datastore.has_prediction(seq, "prediction", "esm2_t6_8M")
 
             # Get prediction and verify it's marked as failed
             preds = datastore.get_predictions_by_sequence(seq)
             matching = preds[
-                (preds["prediction_type"] == "score")
+                (preds["prediction_type"] == "prediction")
                 & (preds["model_name"] == "esm2_t6_8M")
             ]
             assert not matching.empty

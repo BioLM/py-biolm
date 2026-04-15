@@ -501,7 +501,7 @@ class PredictionStage(Stage):
         uncached_id_set: set[int] = set()
         for spec in self._resolved:
             uncached_id_set |= set(
-                datastore.get_uncached_sequence_ids(all_seq_ids, spec.column, self.model_name)
+                datastore.get_uncached_sequence_ids(all_seq_ids, spec.response_key, self.model_name)
             )
         uncached_ids = list(uncached_id_set)
         uncached_mask = df["sequence_id"].isin(uncached_id_set)
@@ -518,7 +518,7 @@ class PredictionStage(Stage):
             cached_seq_ids = df_cached["sequence_id"].tolist()
             for spec in merge_specs:
                 pred_df = datastore.get_predictions_bulk(
-                    cached_seq_ids, spec.column, self.model_name
+                    cached_seq_ids, spec.response_key, self.model_name
                 )
                 if not pred_df.empty:
                     val_map = dict(zip(pred_df["sequence_id"], pred_df["value"]))
@@ -589,6 +589,7 @@ class PredictionStage(Stage):
                         # Store results and add to DataFrame.
                         # Collect into batch_data and flush once (not per-row add_prediction).
                         batch_data = []
+                        batch_emb_data = []
                         for (_, row), result in zip(pending_batch_df.iterrows(), results):
                             seq_id = int(row["sequence_id"])
                             idx = row.name
@@ -601,7 +602,7 @@ class PredictionStage(Stage):
                                             batch_data.append(
                                                 {
                                                     "sequence_id": seq_id,
-                                                    "prediction_type": spec.column,
+                                                    "prediction_type": spec.response_key,
                                                     "model_name": self.model_name,
                                                     "value": val,
                                                     "metadata": {"params": self.params},
@@ -626,11 +627,24 @@ class PredictionStage(Stage):
                                             )
 
                             elif self.action == "encode":
-                                self._store_embeddings(datastore, seq_id, result)
+                                if isinstance(result, dict):
+                                    extracted = self._embedding_extractor(result)
+                                    for embedding, layer in extracted:
+                                        if not isinstance(embedding, np.ndarray):
+                                            embedding = np.asarray(embedding, dtype=float)
+                                        if embedding.size > 0:
+                                            batch_emb_data.append({
+                                                "sequence_id": seq_id,
+                                                "model_name": self.model_name,
+                                                "embedding": embedding,
+                                                "layer": layer,
+                                            })
 
                         # Single batch insert per completed async task
                         if batch_data:
                             datastore.add_predictions_batch(batch_data)
+                        if batch_emb_data:
+                            datastore.add_embeddings_batch(batch_emb_data)
 
                         # Yield batch immediately!
                         yield out_df
@@ -652,7 +666,7 @@ class PredictionStage(Stage):
                             failed_batch = [
                                 {
                                     "sequence_id": int(sid),
-                                    "prediction_type": spec.column,
+                                    "prediction_type": spec.response_key,
                                     "model_name": self.model_name,
                                     "value": None,
                                     "metadata": {
@@ -871,7 +885,7 @@ class PredictionStage(Stage):
             _uncached_set: set[int] = set()
             for _spec in self._resolved:
                 _uncached_set |= set(
-                    datastore.get_uncached_sequence_ids(_all_seq_ids, _spec.column, self.model_name)
+                    datastore.get_uncached_sequence_ids(_all_seq_ids, _spec.response_key, self.model_name)
                 )
             # When structure_output is set, also check structures table so
             # sequences with cached scalars but no stored structure get re-dispatched.
@@ -940,11 +954,12 @@ class PredictionStage(Stage):
                     {"sequence": seq} for seq in df_uncached["sequence"].tolist()
                 ]
 
-            # Inject structures from upstream models if configured
+            # PERF-03: batch-fetch structures (one query per source model, not N)
             if self._structure_input:
-                for i, seq_id in enumerate(seq_ids):
-                    for api_field, source_model in self._structure_input.items():
-                        struct = datastore.get_structure(seq_id, source_model)
+                for api_field, source_model in self._structure_input.items():
+                    struct_map = datastore.get_structures_for_ids(seq_ids, source_model)
+                    for i, seq_id in enumerate(seq_ids):
+                        struct = struct_map.get(int(seq_id))
                         if struct and struct.get("structure_str"):
                             all_items[i][api_field] = struct["structure_str"]
 
@@ -985,6 +1000,7 @@ class PredictionStage(Stage):
                             results = [results]
 
                     batch_data = []
+                    batch_emb_data = []
                     for seq_id, result in zip(batch_seq_ids, results):
                         if (
                             isinstance(result, dict)
@@ -1031,7 +1047,7 @@ class PredictionStage(Stage):
                                     batch_data.append(
                                         {
                                             "sequence_id": seq_id,
-                                            "prediction_type": spec.column,
+                                            "prediction_type": spec.response_key,
                                             "model_name": self.model_name,
                                             "value": value,
                                             "metadata": {"params": self.params},
@@ -1054,10 +1070,23 @@ class PredictionStage(Stage):
                                             }
                                         )
                         elif self.action == "encode":
-                            self._store_embeddings(datastore, seq_id, result)
+                            if isinstance(result, dict):
+                                extracted = self._embedding_extractor(result)
+                                for embedding, layer in extracted:
+                                    if not isinstance(embedding, np.ndarray):
+                                        embedding = np.asarray(embedding, dtype=float)
+                                    if embedding.size > 0:
+                                        batch_emb_data.append({
+                                            "sequence_id": seq_id,
+                                            "model_name": self.model_name,
+                                            "embedding": embedding,
+                                            "layer": layer,
+                                        })
 
                     if batch_data:
                         datastore.add_predictions_batch(batch_data)
+                    if batch_emb_data:
+                        datastore.add_embeddings_batch(batch_emb_data)
 
                 except Exception as e:
                     # Bug D fix: mark only THIS batch's sequences as failed (not all uncached).
@@ -1066,7 +1095,7 @@ class PredictionStage(Stage):
                         failed = [
                             {
                                 "sequence_id": sid,
-                                "prediction_type": spec.column,
+                                "prediction_type": spec.response_key,
                                 "model_name": self.model_name,
                                 "value": None,
                                 "metadata": {
@@ -1116,7 +1145,7 @@ class PredictionStage(Stage):
 
             for spec in merge_specs:
                 pred_df = datastore.get_predictions_bulk(
-                    all_seq_ids, spec.column, self.model_name
+                    all_seq_ids, spec.response_key, self.model_name
                 )
                 if not pred_df.empty:
                     # Map sequence_id → value for O(n) assignment instead of merge
@@ -1240,7 +1269,7 @@ class PredictionStage(Stage):
             _uncached_ws_set: set[int] = set()
             for _spec in self._resolved:
                 _uncached_ws_set |= set(
-                    datastore.get_uncached_sequence_ids(input_ids, _spec.column, self.model_name)
+                    datastore.get_uncached_sequence_ids(input_ids, _spec.response_key, self.model_name)
                 )
             # When structure_output is set, also check the structures table.
             # A sequence with cached scalar predictions but no stored structure
@@ -1348,11 +1377,12 @@ class PredictionStage(Stage):
                     )
                 all_items = [{"sequence": p[1]} for p in id_seq_pairs]
 
-            # Inject structures from upstream models if configured
+            # PERF-03: batch-fetch structures (one query per source model, not N)
             if self._structure_input:
-                for i, seq_id in enumerate(all_seq_ids):
-                    for api_field, source_model in self._structure_input.items():
-                        struct = datastore.get_structure(seq_id, source_model)
+                for api_field, source_model in self._structure_input.items():
+                    struct_map = datastore.get_structures_for_ids(all_seq_ids, source_model)
+                    for i, seq_id in enumerate(all_seq_ids):
+                        struct = struct_map.get(int(seq_id))
                         if struct and struct.get("structure_str"):
                             all_items[i][api_field] = struct["structure_str"]
 
@@ -1426,6 +1456,7 @@ class PredictionStage(Stage):
 
                     # Process results and write to DuckDB immediately
                     batch_data = []
+                    batch_emb_data = []
                     for seq_id, result in zip(batch_seq_ids, results):
                         if (
                             isinstance(result, dict)
@@ -1477,7 +1508,7 @@ class PredictionStage(Stage):
                                     batch_data.append(
                                         {
                                             "sequence_id": seq_id,
-                                            "prediction_type": spec.column,
+                                            "prediction_type": spec.response_key,
                                             "model_name": self.model_name,
                                             "value": value,
                                             "metadata": {"params": self.params},
@@ -1500,10 +1531,23 @@ class PredictionStage(Stage):
                                             }
                                         )
                         elif self.action == "encode":
-                            self._store_embeddings(datastore, seq_id, result)
+                            if isinstance(result, dict):
+                                extracted = self._embedding_extractor(result)
+                                for embedding, layer in extracted:
+                                    if not isinstance(embedding, np.ndarray):
+                                        embedding = np.asarray(embedding, dtype=float)
+                                    if embedding.size > 0:
+                                        batch_emb_data.append({
+                                            "sequence_id": seq_id,
+                                            "model_name": self.model_name,
+                                            "embedding": embedding,
+                                            "layer": layer,
+                                        })
 
                     if batch_data:
                         datastore.add_predictions_batch(batch_data)
+                    if batch_emb_data:
+                        datastore.add_embeddings_batch(batch_emb_data)
 
                 except Exception as e:
                     if self.skip_on_error:
@@ -1513,7 +1557,7 @@ class PredictionStage(Stage):
                         failed = [
                             {
                                 "sequence_id": sid,
-                                "prediction_type": spec.column,
+                                "prediction_type": spec.response_key,
                                 "model_name": self.model_name,
                                 "value": None,
                                 "metadata": {
@@ -1580,7 +1624,7 @@ class PredictionStage(Stage):
             candidate_ids = set(input_ids)
             for spec in self._resolved:
                 have_col = set(datastore.get_sequence_ids_with_prediction(
-                    list(candidate_ids), spec.column, self.model_name
+                    list(candidate_ids), spec.response_key, self.model_name
                 ))
                 candidate_ids &= have_col
                 if not candidate_ids:

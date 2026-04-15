@@ -587,11 +587,24 @@ class DuckDBDataStore:
 
             # Build df_new with hash across all input columns
             df_new = input_df[input_columns].copy()
-            df_new["hash"] = df_new.apply(
-                lambda row: self._hash_row(
-                    {c: row[c] for c in input_columns}
-                ),
-                axis=1,
+            # PERF-05: validate None/NaN before hashing (vectorized check)
+            for _hcol in input_columns:
+                if df_new[_hcol].isna().any():
+                    raise ValueError(
+                        f"Input column '{_hcol}' contains None/NaN values which cannot "
+                        f"be hashed for deduplication. Fill or drop these rows "
+                        f"before adding to the pipeline."
+                    )
+            # Vectorized hash: sort columns alphabetically, concatenate with \x00,
+            # then apply SHA-256. Avoids per-row dict creation of the old df.apply path.
+            _sorted_hcols = sorted(input_columns)
+            _combined = (
+                df_new[_sorted_hcols]
+                .astype(str)
+                .agg("\x00".join, axis=1)
+            )
+            df_new["hash"] = _combined.apply(
+                lambda v: hashlib.sha256(v.encode()).hexdigest()[:16]
             )
             # Set 'sequence' column: use real value if provided, else empty string
             # (column is NOT NULL in schema). Real data lives in input columns.
@@ -799,21 +812,27 @@ class DuckDBDataStore:
         _tmp = f"_pred_batch_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_tmp, df)
         try:
-            self.conn.execute(
-                f"""
-                INSERT INTO predictions (prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at)
-                SELECT prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at FROM {_tmp}
-                ON CONFLICT (sequence_id, prediction_type, model_name) DO UPDATE SET
-                    value = CASE WHEN excluded.value IS NOT NULL THEN excluded.value ELSE predictions.value END,
-                    metadata = CASE WHEN excluded.value IS NOT NULL THEN excluded.metadata ELSE predictions.metadata END,
-                    prediction_id = predictions.prediction_id
-            """
-            )
-            # PERF-02 fix: advance counter arithmetically instead of SELECT MAX()
-            # full table scan after every batch.  We pre-assigned IDs up to
-            # start_id + len(df) - 1; setting counter to start_id + len(df)
-            # guarantees no ID collisions (gaps from ON CONFLICT are harmless).
-            self._prediction_counter = start_id + len(df)
+            self.conn.begin()
+            try:
+                self.conn.execute(
+                    f"""
+                    INSERT INTO predictions (prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at)
+                    SELECT prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at FROM {_tmp}
+                    ON CONFLICT (sequence_id, prediction_type, model_name) DO UPDATE SET
+                        value = CASE WHEN excluded.value IS NOT NULL THEN excluded.value ELSE predictions.value END,
+                        metadata = CASE WHEN excluded.value IS NOT NULL THEN excluded.metadata ELSE predictions.metadata END,
+                        prediction_id = predictions.prediction_id
+                """
+                )
+                self.conn.commit()
+                # PERF-02 fix: advance counter arithmetically instead of SELECT MAX()
+                # full table scan after every batch.  We pre-assigned IDs up to
+                # start_id + len(df) - 1; setting counter to start_id + len(df)
+                # guarantees no ID collisions (gaps from ON CONFLICT are harmless).
+                self._prediction_counter = start_id + len(df)
+            except Exception:
+                self.conn.rollback()
+                raise
         finally:
             self.conn.unregister(_tmp)
 
@@ -960,6 +979,59 @@ class DuckDBDataStore:
             ],
         )
         return embedding_id
+
+    def add_embeddings_batch(self, data: list[dict]):
+        """Batch-insert embeddings in a single DuckDB statement.
+
+        Each dict must have: sequence_id (int), model_name (str),
+        embedding (np.ndarray). Optional: layer (int or None).
+
+        Significantly faster than N individual add_embedding() calls —
+        one INSERT…SELECT vs. N individual row inserts.
+        """
+        if not data:
+            return
+        start_id = self._embedding_counter
+        rows = []
+        for i, item in enumerate(data):
+            emb = item["embedding"]
+            if not isinstance(emb, np.ndarray):
+                emb = np.asarray(emb, dtype=float)
+            rows.append(
+                {
+                    "embedding_id": start_id + i,
+                    "sequence_id": int(item["sequence_id"]),
+                    "model_name": item["model_name"],
+                    "layer": item.get("layer"),
+                    "values": emb.tolist(),
+                    "dimension": len(emb),
+                    "created_at": datetime.now(),
+                }
+            )
+        df = pd.DataFrame(rows)
+        _tmp = f"_emb_batch_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_tmp, df)
+        try:
+            self.conn.begin()
+            try:
+                self.conn.execute(
+                    f"""
+                    INSERT INTO embeddings
+                        (embedding_id, sequence_id, model_name, layer, values, dimension, created_at)
+                    SELECT embedding_id, sequence_id, model_name, layer, values, dimension, created_at
+                    FROM {_tmp}
+                    ON CONFLICT (sequence_id, model_name, layer) DO UPDATE SET
+                        values = excluded.values,
+                        dimension = excluded.dimension
+                """
+                )
+                self.conn.commit()
+                self._embedding_counter = start_id + len(data)
+            except Exception:
+                self.conn.rollback()
+                raise
+        finally:
+            self.conn.unregister(_tmp)
 
     def get_embeddings_by_sequence(
         self, sequence: str, model_name: Optional[str] = None, load_data: bool = False
@@ -1655,6 +1727,61 @@ class DuckDBDataStore:
                 pass  # Corrupt or non-gzip blob — fall back to structure_str
         return record
 
+    def get_structures_for_ids(
+        self,
+        sequence_ids: list[int],
+        model_name: str,
+    ) -> dict[int, dict]:
+        """Fetch the most recent structure for each sequence_id in one query.
+
+        Returns {sequence_id: record} where record has a 'structure_str' key.
+        Replaces N individual get_structure() calls for batch structure injection.
+        """
+        if not sequence_ids:
+            return {}
+        ids_df = pd.DataFrame({"sequence_id": sequence_ids})
+        _tmp = f"_struct_ids_{next(_TEMP_TABLE_COUNTER)}"
+        self.conn.register(_tmp, ids_df)
+        try:
+            df = self.conn.execute(
+                f"""
+                WITH ranked AS (
+                    SELECT
+                        sequence_id, structure_data, structure_str, format, plddt,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY sequence_id ORDER BY created_at DESC
+                        ) AS _rn
+                    FROM structures
+                    WHERE model_name = ?
+                      AND sequence_id IN (SELECT sequence_id FROM {_tmp})
+                )
+                SELECT sequence_id, structure_data, structure_str, format, plddt
+                FROM ranked
+                WHERE _rn = 1
+            """,
+                [model_name],
+            ).df()
+        finally:
+            self.conn.unregister(_tmp)
+
+        result: dict[int, dict] = {}
+        for _, row in df.iterrows():
+            record = row.to_dict()
+            seq_id = int(record["sequence_id"])
+            data_blob = record.pop("structure_data", None)
+            if data_blob is not None:
+                try:
+                    blob_bytes = (
+                        bytes(data_blob)
+                        if not isinstance(data_blob, bytes)
+                        else data_blob
+                    )
+                    record["structure_str"] = gzip.decompress(blob_bytes).decode("utf-8")
+                except (OSError, gzip.BadGzipFile):
+                    pass
+            result[seq_id] = record
+        return result
+
     def get_structures_bulk(self, sequence_ids: list[int]) -> pd.DataFrame:
         """Fetch structures for multiple sequences, decompressing structure content.
 
@@ -2033,7 +2160,7 @@ class DuckDBDataStore:
                     for pt in prediction_types
                 ]
                 pred_cols_sql = ",\n                " + ",\n                ".join(cases)
-                pred_cte_sql = """
+                pred_cte_sql = f"""
                 _ranked_preds AS (
                     SELECT *, ROW_NUMBER() OVER (
                         PARTITION BY sequence_id, prediction_type
@@ -2041,6 +2168,7 @@ class DuckDBDataStore:
                     ) AS _rn
                     FROM predictions
                     WHERE prediction_type IS NOT NULL
+                      AND sequence_id IN (SELECT sequence_id FROM {_ws_tmp})
                 )"""
                 pred_join_sql = (
                     "LEFT JOIN _ranked_preds p ON s.sequence_id = p.sequence_id AND p._rn = 1"

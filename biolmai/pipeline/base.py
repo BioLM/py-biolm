@@ -21,6 +21,10 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 
 _logger = logging.getLogger(__name__)
 
+# ASYNC-04: prevent calling nest_asyncio.apply() more than once per process.
+# nest_asyncio is designed to be idempotent but re-patching loops adds overhead.
+_nest_asyncio_applied: bool = False
+
 
 @dataclass(frozen=True)
 class InputSchema:
@@ -1433,7 +1437,10 @@ class BasePipeline(ABC):
             # Already inside a running event loop (e.g. Jupyter).
             try:
                 import nest_asyncio
-                nest_asyncio.apply()
+                global _nest_asyncio_applied
+                if not _nest_asyncio_applied:
+                    nest_asyncio.apply()
+                    _nest_asyncio_applied = True
             except ImportError:
                 import warnings
                 warnings.warn(
