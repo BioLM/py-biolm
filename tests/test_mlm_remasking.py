@@ -202,6 +202,33 @@ class TestMLMRemasker(unittest.TestCase):
         # May have duplicates (with random generation, unlikely but possible)
         self.assertEqual(len(variants), 10)
 
+    def test_generate_variants_progressive_batching(self):
+        """ASYNC-05: verify that generate_variants fires exactly num_variants API
+        calls on the happy path (all unique), not num_variants * 3."""
+        call_count = 0
+        original_generate_variant = self.remasker.generate_variant
+
+        async def counting_generate_variant(seq, attempt_idx):
+            nonlocal call_count
+            call_count += 1
+            return await original_generate_variant(seq, attempt_idx)
+
+        self.remasker.generate_variant = counting_generate_variant
+
+        num_variants = 5
+        asyncio.run(
+            self.remasker.generate_variants(self.test_sequence, num_variants=num_variants)
+        )
+
+        # Happy path: all variants unique → exactly one batch of num_variants calls,
+        # not num_variants * 3 = 15.
+        self.assertLessEqual(
+            call_count,
+            num_variants + 2,  # +2 tolerance for any retry edge cases
+            f"Expected ~{num_variants} API calls but made {call_count} "
+            f"(old code would make {num_variants * 3})",
+        )
+
     def test_iterative_refinement(self):
         """Test iterative refinement with fitness function."""
 

@@ -537,24 +537,37 @@ class MLMRemasker:
                     )
                     return None
 
-        # Generate max_attempts total to account for duplicates and failures
-        max_attempts = num_variants * 3
-        raw_results = await asyncio.gather(
-            *[_generate_one(i) for i in range(max_attempts)]
-        )
-
+        # ASYNC-05: progressive batching — fire exactly what we need and add more
+        # only if duplicates or failures force extra attempts.  The old approach
+        # always launched num_variants * 3 tasks regardless of how many unique
+        # results the first batch produced, wasting up to 2/3 of all API calls.
+        #
+        # Strategy: each round requests exactly (num_variants - len(variants))
+        # tasks so we never over-provision by more than one batch.  A hard cap
+        # of num_variants * 3 prevents infinite loops on tiny sequence spaces.
         seen = {parent_sequence} if deduplicate else set()
         variants: list[tuple[str, dict[str, Any]]] = []
-        for item in raw_results:
-            if item is None:
-                continue
-            seq, metadata = item
-            if deduplicate and seq in seen:
-                continue
-            seen.add(seq)
-            variants.append((seq, metadata))
-            if len(variants) >= num_variants:
-                break
+        attempt_offset = 0
+        hard_cap = num_variants * 3
+
+        while len(variants) < num_variants and attempt_offset < hard_cap:
+            needed = num_variants - len(variants)
+            this_batch = min(needed, hard_cap - attempt_offset)
+            raw_results = await asyncio.gather(
+                *[_generate_one(attempt_offset + i) for i in range(this_batch)]
+            )
+            attempt_offset += this_batch
+
+            for item in raw_results:
+                if item is None:
+                    continue
+                seq, metadata = item
+                if deduplicate and seq in seen:
+                    continue
+                seen.add(seq)
+                variants.append((seq, metadata))
+                if len(variants) >= num_variants:
+                    break
 
         if len(variants) < num_variants:
             warnings.warn(
