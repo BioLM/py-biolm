@@ -142,7 +142,8 @@ docs = [
     "sphinx-click",
     "sphinx-jsonschema>=1.17.0",
 ]
-scripts = { biolmai = "biolmai.cli_entry:cli" }
+[project.scripts]
+biolmai = "biolmai.cli_entry:cli"
 
 [project.entry-points."mlflow.request_header_provider"]
 unused = "biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider"
