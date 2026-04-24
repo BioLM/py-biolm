@@ -40,8 +40,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade 'pip<25' setuptools typing-extensions
-          pip install -r requirements_docs.txt
-          pip install -e .
+          pip install -e ".[docs]"
 
       - name: Build documentation (iframe mode)
         run: |

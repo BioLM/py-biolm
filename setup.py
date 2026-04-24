@@ -10,31 +10,6 @@ with open("README.rst") as readme_file:
 with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
-requirements = [
-    "Click>=6.0",
-    "requests",
-    "httpx>=0.23.0",
-    "httpcore",
-    "h2",  # Required for HTTP/2 support
-    "synchronicity>=0.5.0; python_version >= '3.9'",
-    "synchronicity<0.5.0; python_version < '3.9'",
-    "typing_extensions; python_version < '3.9'",
-    "aiodns",
-    "aiohttp<=3.8.6; python_version < '3.12'",
-    "aiohttp>=3.9.0; python_version >= '3.12'",
-    "async-lru",
-    "aiofiles",
-    "cryptography",
-    "nest_asyncio",
-    "rich>=13.0.0",
-    "pyyaml>=5.0",
-    "jsonschema<=4.26.0"
-]
-
-test_requirements = [
-    "pytest>=3",
-]
-
 setup(
     author="BioLM",
     author_email="support@biolm.ai",
@@ -61,7 +36,6 @@ setup(
             'unused=biolmai.core.seqflow_auth:BiolmaiRequestHeaderProvider',
         ],
     },
-    install_requires=requirements,
     license="Apache Software License 2.0",
     long_description=readme + "\n\n" + history,
     include_package_data=True,
@@ -69,7 +43,6 @@ setup(
     name="biolmai",
     packages=find_packages(include=["biolmai", "biolmai.*"]),
     test_suite="tests",
-    tests_require=test_requirements,
     url="https://github.com/BioLM/py-biolm",
     version='0.4.0',
     zip_safe=False,
