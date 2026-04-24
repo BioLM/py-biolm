@@ -1,5 +1,5 @@
 #!/bin/bash
-pip install -r requirements_dev.txt
+pip install -e ".[dev]"
 make dist
 twine check dist/*
 make release
