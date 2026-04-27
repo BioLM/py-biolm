@@ -168,7 +168,7 @@ class MLMRemasker:
         if len(available_positions) < num_to_mask:
             num_to_mask = len(available_positions)
 
-        # BUG-MLM-01: guard against empty available_positions before any strategy branch
+        # guard against empty available_positions before any strategy branch
         if not available_positions:
             warnings.warn(
                 f"All positions are conserved; cannot mask any positions. "
@@ -205,7 +205,7 @@ class MLMRemasker:
             max_block_iters = max(len(available_positions) * 10, 100)
             block_iter_count = 0
 
-            # BUG-MLM-02: guard against empty available_positions before entering loop
+            # guard against empty available_positions before entering loop
             if not available_positions:
                 return []
 
@@ -537,7 +537,7 @@ class MLMRemasker:
                     )
                     return None
 
-        # ASYNC-05: progressive batching — fire exactly what we need and add more
+        # progressive batching — fire exactly what we need and add more
         # only if duplicates or failures force extra attempts.  The old approach
         # always launched num_variants * 3 tasks regardless of how many unique
         # results the first batch produced, wasting up to 2/3 of all API calls.
@@ -600,7 +600,7 @@ class MLMRemasker:
         Returns:
             List of (sequence, fitness, metadata) tuples for final population
         """
-        # BUG-MLM-04: validate keep_top_k < population_size before starting
+        # validate keep_top_k < population_size before starting
         if keep_top_k is not None and keep_top_k >= population_size:
             raise ValueError(
                 f"keep_top_k ({keep_top_k}) must be < population_size ({population_size}). "

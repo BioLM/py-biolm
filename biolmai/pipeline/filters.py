@@ -153,7 +153,7 @@ class ThresholdFilter(BaseFilter):
         return df[mask].copy()
 
     def to_sql(self, ws_table: str = "_filter_ws", model_name: Optional[str] = None) -> Optional[str]:
-        # F03: if keep_na=True and no bounds, everyone passes — return pass-all SQL immediately.
+        # if keep_na=True and no bounds, everyone passes — return pass-all SQL immediately.
         if self.keep_na and self.min_value is None and self.max_value is None:
             return f"SELECT sequence_id FROM {ws_table}"
 
@@ -543,7 +543,7 @@ class CustomFilter(BaseFilter):
         return self.func(df)
 
     def to_spec(self) -> dict:
-        # F14: raise NotImplementedError so pipeline serialization fails loudly
+        # raise NotImplementedError so pipeline serialization fails loudly
         # rather than silently storing a null dict that cannot be restored.
         raise NotImplementedError(
             f"CustomFilter '{self.name}' uses a non-serializable function and cannot "
@@ -581,7 +581,7 @@ class ConservedResidueFilter(BaseFilter):
             raise ValueError("DataFrame must have 'sequence' column")
 
         def check_conserved(seq: str) -> bool:
-            # F10: use 'is not None' so reference_length=0 is handled correctly.
+            # use 'is not None' so reference_length=0 is handled correctly.
             if self.reference_length is not None and len(seq) != self.reference_length:
                 return False
 
@@ -796,7 +796,7 @@ class ValidAminoAcidFilter(BaseFilter):
         return df[mask].copy()
 
     def to_sql(self, ws_table: str = "_filter_ws", model_name: Optional[str] = None) -> Optional[str]:
-        # F05: non-standard column may not exist on sequences table — fall back to
+        # non-standard column may not exist on sequences table — fall back to
         # DataFrame materialization so we never reference a missing column in SQL.
         if self.column != "sequence":
             return None
@@ -814,7 +814,7 @@ class ValidAminoAcidFilter(BaseFilter):
         if not re.match(r'^[A-Za-z0-9\-]+$', self.alphabet):
             return None  # Fall back to DataFrame materialization for complex alphabets
 
-        # F04: regexp_full_match() is absent in DuckDB < 0.10.0.
+        # regexp_full_match() is absent in DuckDB < 0.10.0.
         # Use length(regexp_replace(...)) = length(col) which is compatible with DuckDB 0.9+.
         # This removes all valid chars and checks the remainder is empty.
         # Build the character class directly — no re.escape() needed since alphabet

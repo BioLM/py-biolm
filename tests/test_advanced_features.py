@@ -437,5 +437,101 @@ class TestDiffMode:
         print(f"  ✓ Merged results: {len(df)} sequences with 'tm' predictions")
 
 
+class TestBranchedDAG:
+    """Tests for the C1 branched-DAG dependency-resolution fix."""
+
+    def test_get_stage_input_ws_typo_raises(self, tmp_path, datastore):
+        """A typoed depends_on must raise instead of silently using the root WS."""
+        from biolmai.pipeline.base import Stage, WorkingSet
+
+        pipeline = DataPipeline(
+            sequences=["MKLLIV", "ACDEFG"],
+            datastore=datastore,
+            output_dir=tmp_path,
+            verbose=False,
+        )
+
+        class _DummyStage(Stage):
+            async def process_ws(self, ws, datastore, **kwargs):
+                return ws, None
+
+        stage = _DummyStage(name="downstream", depends_on=["nonexistent_typo"])
+        pipeline._working_sets["other_stage"] = WorkingSet.from_ids([1, 2])
+        with pytest.raises(KeyError, match="nonexistent_typo"):
+            pipeline._get_stage_input_ws(stage, WorkingSet.from_ids([99]))
+
+    def test_get_stage_input_ws_intersect(self, tmp_path, datastore):
+        """When a stage has multiple deps, _get_stage_input_ws returns their intersection."""
+        from biolmai.pipeline.base import Stage, WorkingSet
+
+        pipeline = DataPipeline(
+            sequences=["MKLLIV"],
+            datastore=datastore,
+            output_dir=tmp_path,
+            verbose=False,
+        )
+
+        class _DummyStage(Stage):
+            async def process_ws(self, ws, datastore, **kwargs):
+                return ws, None
+
+        pipeline._working_sets["a"] = WorkingSet.from_ids([1, 2, 3, 4])
+        pipeline._working_sets["b"] = WorkingSet.from_ids([3, 4, 5])
+        stage = _DummyStage(name="downstream", depends_on=["a", "b"])
+        ws = pipeline._get_stage_input_ws(stage, WorkingSet.from_ids([0]))
+        assert ws.sequence_ids == frozenset({3, 4})
+
+
+class TestSqlInjectionGuards:
+    """S1/S2: query_results and get_merged_results reject obvious injection vectors."""
+
+    def test_query_results_rejects_semicolon(self, tmp_path, datastore):
+        pipeline = DataPipeline(
+            sequences=["AAA", "BBB"],
+            datastore=datastore,
+            output_dir=tmp_path,
+            verbose=False,
+        )
+        with pytest.raises(ValueError, match="semicolons"):
+            pipeline.query_results(sql_where="length > 0; DROP TABLE sequences")
+
+    def test_query_results_rejects_drop_kw(self, tmp_path, datastore):
+        pipeline = DataPipeline(
+            sequences=["AAA"],
+            datastore=datastore,
+            output_dir=tmp_path,
+            verbose=False,
+        )
+        with pytest.raises(ValueError, match="DROP"):
+            pipeline.query_results(sql_where="DROP TABLE sequences")
+
+    def test_get_merged_results_rejects_semicolon(self, tmp_path, datastore):
+        pipeline = DataPipeline(
+            sequences=["AAA"],
+            datastore=datastore,
+            output_dir=tmp_path,
+            diff_mode=True,
+            verbose=False,
+        )
+        with pytest.raises(ValueError, match="semicolons"):
+            pipeline.get_merged_results(sequence_filter="x > 0; DELETE FROM sequences")
+
+
+class TestDatastoreLifecycle:
+    """C2: auto-created datastores close on __del__, user-provided ones do not."""
+
+    def test_user_datastore_survives_pipeline_gc(self, tmp_path):
+        from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
+        ds = DataStore(db_path=tmp_path / "shared.db", data_dir=tmp_path / "shared")
+        ds.add_sequence("MKLLIV")
+        pipeline = DataPipeline(
+            sequences=["MKLLIV"], datastore=ds, output_dir=tmp_path, verbose=False
+        )
+        assert getattr(pipeline, "_auto_created_datastore", False) is False
+        del pipeline
+        # User-provided datastore should still be usable.
+        assert ds.add_sequence("ACDEFG") is not None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

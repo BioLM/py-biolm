@@ -346,7 +346,7 @@ class GenerationStage(Stage):
                                 }
                             )
                         else:
-                            # BUG-GEN-06 fix: log when a DSM sub-item has no sequence
+                            # log when a DSM sub-item has no sequence
                             logger.warning(
                                 "Skipping generation result item with missing or empty "
                                 "'sequence': %s",
@@ -387,7 +387,7 @@ class GenerationStage(Stage):
                                     }
                                 )
                             else:
-                                # BUG-GEN-06 fix: log when an AntiFold sample has no sequence
+                                # log when an AntiFold sample has no sequence
                                 logger.warning(
                                     "Skipping generation result item with missing or empty "
                                     "'sequence': %s",
@@ -399,7 +399,7 @@ class GenerationStage(Stage):
                     if seq:
                         sequences.append({"sequence": seq})
                     else:
-                        # BUG-GEN-06 fix: log when a flat-dict item has no sequence
+                        # log when a flat-dict item has no sequence
                         logger.warning(
                             "Skipping generation result item with missing or empty "
                             "'sequence': %s",
@@ -498,7 +498,7 @@ class GenerationStage(Stage):
                 prevent cross-run contamination (GEN-05 fix).
         """
         # ---- Resolve input values ----------------------------------------
-        # BUG-GEN-08 fix: warn clearly when structure_from_stage is set without
+        # warn clearly when structure_from_stage is set without
         # structure_from_model so the user knows all structures will be used.
         if config.structure_from_stage and not config.structure_from_model:
             warnings.warn(
@@ -637,7 +637,7 @@ class GenerationStage(Stage):
                         *[_single_run() for _ in range(n_runs)],
                         return_exceptions=True,
                     )
-                    # BUG-GEN-07 fix: filter out exceptions so one failed run does
+                    # filter out exceptions so one failed run does
                     # not cancel all parallel runs.
                     raw_list = []
                     for _i, _r in enumerate(_all_results):
@@ -976,14 +976,21 @@ class GenerationStage(Stage):
             ]
             results_list = await asyncio.gather(*tasks, return_exceptions=True)
             results = []
+            failures: list[BaseException] = []
             for i, r in enumerate(results_list):
-                if isinstance(r, Exception):
+                if isinstance(r, BaseException):
+                    failures.append(r)
                     logger.warning(
                         "Generation config %d/%d failed: %s",
                         i + 1, len(self.configs), r,
                     )
                 else:
                     results.extend(r)
+            # If every config failed, surface the first exception rather than
+            # returning an empty success — the stage produced nothing usable
+            # and silently swallowing all errors hides hard breakage.
+            if failures and not results:
+                raise failures[0]
 
         df_generated = (
             pd.DataFrame(results)
@@ -1001,7 +1008,7 @@ class GenerationStage(Stage):
         )
         initial_count = len(df_generated)
 
-        # BUG-GEN-05 fix: warn when generation produces 0 sequences so the user
+        # warn when generation produces 0 sequences so the user
         # gets an actionable message rather than silently passing nothing downstream.
         if df_generated.empty:
             warnings.warn(
@@ -1564,7 +1571,7 @@ class GenerativePipeline(BasePipeline):
         # Save original stages so the pipeline is idempotent (can be called again)
         original_stages = self.stages
 
-        # BUG-07 fix: create the pipeline_runs record BEFORE any generation stage runs,
+        # create the pipeline_runs record BEFORE any generation stage runs,
         # so that mark_stage_complete() never writes orphan stage_completions rows.
         # create_pipeline_run() is idempotent (ON CONFLICT DO UPDATE), so the later
         # call inside super().run_async() is harmless.
@@ -1630,7 +1637,7 @@ class GenerativePipeline(BasePipeline):
                     print(f"Configs: {len(gen_stage.configs)}")
                     print(f"{'='*60}")
 
-                # BUG-03 fix: pass run_id and context so generation stages have
+                # pass run_id and context so generation stages have
                 # access to PipelineContext and resume bookkeeping.
                 df_generated, result = await gen_stage.process(
                     pd.DataFrame(), self.datastore,
@@ -1660,7 +1667,7 @@ class GenerativePipeline(BasePipeline):
                     print(f"\n{result}")
                     print(f"{'='*60}")
 
-            # BUG-02 fix: warn when generation produced no sequences so the user
+            # warn when generation produced no sequences so the user
             # gets an actionable message rather than silently processing 0 inputs.
             if not all_gen_ids:
                 import warnings
@@ -1675,12 +1682,12 @@ class GenerativePipeline(BasePipeline):
             # Union of all generated IDs becomes the initial WS for downstream stages
             self._generated_ws = WorkingSet.from_ids(list(all_gen_ids)) if all_gen_ids else None
 
-            # BUG-GEN-09 fix: capture what THIS run generated before super().run_async()
+            # capture what THIS run generated before super().run_async()
             # resets internal dicts.  We restore it afterward so a second call to run()
             # always uses the fresh generation result, not a stale backup.
             _fresh_gen_ws = self._generated_ws
 
-            # BUG-01 fix: save the full pipeline definition (including GenerationStage)
+            # save the full pipeline definition (including GenerationStage)
             # BEFORE stripping gen stages from self.stages.  super().run_async() will
             # call _save_definition_and_register_columns() again with remaining_stages
             # only — we capture the full definition_id here and restore it afterward
@@ -1705,7 +1712,7 @@ class GenerativePipeline(BasePipeline):
 
             # Build the execution plan without the generation stages.
             # Strip gen stage names from depends_on so dependency resolution works.
-            # BUG-13 fix: use deepcopy so _api_client and other mutable attrs are
+            # use deepcopy so _api_client and other mutable attrs are
             # not shared between the copy and the original across repeated run() calls.
             remaining_stages = []
             for s in non_gen_stages:
@@ -1737,7 +1744,7 @@ class GenerativePipeline(BasePipeline):
             # Run remaining stages using base class (starts from _generated_ws)
             run_result = await super().run_async(**kwargs)
 
-            # BUG-GEN-09 fix: restore this run's fresh generation WS.
+            # restore this run's fresh generation WS.
             # super().run_async() resets _generated_ws to None at the top of every
             # call, so on a second run() the old backup would overwrite the new
             # generation result.  Always prefer what this run actually generated.
@@ -1806,7 +1813,7 @@ def Generate(
             "Generate() requires either parent_sequence= or structure_path= to be provided"
         )
 
-    # BUG-API-04: support list of temperatures — create one config per temperature
+    # support list of temperatures — create one config per temperature
     temps = temperature if isinstance(temperature, list) else [float(temperature)]
     item_field = "sequence" if parent_sequence is not None else "pdb"
     configs = [
@@ -1821,7 +1828,7 @@ def Generate(
     ]
 
     pipeline = GenerativePipeline(generation_configs=configs, **kwargs)
-    # BUG-API-03: ensure DuckDB connection is closed even if run() raises
+    # ensure DuckDB connection is closed even if run() raises
     try:
         pipeline.run()
         return pipeline.get_final_data()

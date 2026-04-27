@@ -59,6 +59,24 @@ class _ResolvedExtraction:
     reduction: Optional[str] = None
 
 
+_SQL_WHERE_DENYLIST = ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "EXEC")
+
+
+def _validate_sql_where(expr: str, param_name: str) -> None:
+    """Defense-in-depth check for free-text WHERE clauses passed to DuckDB.
+
+    Trusted callers only — this is a coarse blocklist (semicolons + a small
+    set of DDL/DML keywords), not a full SQL parser.  Treat the input as
+    confidential repo code, not user submissions.
+    """
+    if ";" in expr:
+        raise ValueError(f"{param_name} must not contain semicolons")
+    tokens = set(expr.strip().upper().split())
+    for kw in _SQL_WHERE_DENYLIST:
+        if kw in tokens:
+            raise ValueError(f"{param_name} must not contain {kw} statements")
+
+
 def _resolve_extractions(
     extractions: Union[str, list[Union[str, ExtractionSpec]]],
     columns: Optional[Union[str, dict[str, str]]] = None,
@@ -366,8 +384,6 @@ class PredictionStage(Stage):
         self.batch_size = batch_size
         self.skip_on_error = skip_on_error
         self._max_connections = max_connections
-        # Created lazily inside process_ws() per event loop
-        self._connection_semaphore = None
         # item_columns: maps API field name → DataFrame column name.
         # E.g. {'H': 'heavy_chain', 'L': 'light_chain'} for abodybuilder3.
         # When None, defaults to {'sequence': 'sequence'}.
@@ -511,7 +527,11 @@ class PredictionStage(Stage):
         print(f"  Cached: {cached_count}/{start_count}")
         print(f"  To compute: {len(df_uncached)} (streaming)")
 
-        # Yield cached results first using bulk fetch (single JOIN, not N queries)
+        # Yield cached results first using bulk fetch (single JOIN, not N queries).
+        # Failed-prediction rows are stored with value NULL; emitting them here
+        # would feed NaN-laden rows to a downstream filter with keep_na=True.
+        # Drop them from the cached yield — the streaming consumer should only
+        # see successful predictions.
         if cached_count > 0:
             df_cached = df[~uncached_mask].copy()
             merge_specs = self._resolved
@@ -523,53 +543,66 @@ class PredictionStage(Stage):
                 if not pred_df.empty:
                     val_map = dict(zip(pred_df["sequence_id"], pred_df["value"]))
                     df_cached[spec.column] = df_cached["sequence_id"].map(val_map)
-            yield df_cached
+            spec_cols = [s.column for s in merge_specs if s.column in df_cached.columns]
+            if spec_cols:
+                df_cached = df_cached.dropna(subset=spec_cols)
+            if not df_cached.empty:
+                yield df_cached
 
         if len(df_uncached) == 0:
             return
 
-        # R1 fix: create a local API client per call (not stored on self) so
-        # the connection pool is always shut down in the finally block.
+        # Pre-fetch upstream structures in one query per source model so
+        # streaming has the same N→1 query reduction as the batch paths.
+        struct_lookup: dict[str, dict[int, dict]] = {}
+        if self._structure_input:
+            uncached_seq_ids_for_struct = df_uncached["sequence_id"].tolist()
+            for api_field, source_model in self._structure_input.items():
+                struct_lookup[api_field] = datastore.get_structures_for_ids(
+                    uncached_seq_ids_for_struct, source_model
+                )
+
         _stream_semaphore = asyncio.Semaphore(self._max_connections)
         api = BioLMApiClient(
             self.model_name, semaphore=_stream_semaphore, retry_error_batches=True,
         )
-
-        # Batch sequences for API calls
         batch_size = self.batch_size
-
-        # Create tasks for all batches and start them immediately
-        pending_tasks = {}  # task -> (batch_df, batch_indices)
-
-        for i in range(0, len(df_uncached), batch_size):
-            batch_df = df_uncached.iloc[i : i + batch_size]
-            batch_indices = batch_df.index
-
-            if self.item_columns:
-                items = [
-                    {
-                        api_field: row[col]
-                        for api_field, col in self.item_columns.items()
-                    }
-                    for _, row in batch_df.iterrows()
-                ]
-            else:
-                items = [{"sequence": seq} for seq in batch_df["sequence"].tolist()]
-
-            # Create and start task immediately
-            if self.action == "encode":
-                task = asyncio.create_task(api.encode(items=items, params=self.params))
-            elif self.action == "score":
-                task = asyncio.create_task(api.score(items=items, params=self.params))
-            else:
-                task = asyncio.create_task(api.predict(items=items, params=self.params))
-
-            pending_tasks[task] = (batch_df, batch_indices)
-
-        # R2 fix: wrap in try/finally to cancel orphaned tasks and shut down client
-        remaining_tasks = set(pending_tasks.keys())
+        pending_tasks: dict = {}
+        remaining_tasks: set = set()
         try:
-            # Process batches as they complete (true streaming!)
+            for i in range(0, len(df_uncached), batch_size):
+                batch_df = df_uncached.iloc[i : i + batch_size]
+                batch_indices = batch_df.index
+
+                if self.item_columns:
+                    items = [
+                        {
+                            api_field: row[col]
+                            for api_field, col in self.item_columns.items()
+                        }
+                        for _, row in batch_df.iterrows()
+                    ]
+                else:
+                    items = [{"sequence": seq} for seq in batch_df["sequence"].tolist()]
+
+                if struct_lookup:
+                    for batch_idx, (_, row) in enumerate(batch_df.iterrows()):
+                        seq_id = int(row["sequence_id"])
+                        for api_field, struct_map in struct_lookup.items():
+                            struct = struct_map.get(seq_id)
+                            if struct and struct.get("structure_str"):
+                                items[batch_idx][api_field] = struct["structure_str"]
+
+                if self.action == "encode":
+                    task = asyncio.create_task(api.encode(items=items, params=self.params))
+                elif self.action == "score":
+                    task = asyncio.create_task(api.score(items=items, params=self.params))
+                else:
+                    task = asyncio.create_task(api.predict(items=items, params=self.params))
+
+                pending_tasks[task] = (batch_df, batch_indices)
+
+            remaining_tasks = set(pending_tasks.keys())
             while remaining_tasks:
                 # Wait for next batch to complete
                 done, remaining_tasks = await asyncio.wait(
@@ -627,18 +660,9 @@ class PredictionStage(Stage):
                                             )
 
                             elif self.action == "encode":
-                                if isinstance(result, dict):
-                                    extracted = self._embedding_extractor(result)
-                                    for embedding, layer in extracted:
-                                        if not isinstance(embedding, np.ndarray):
-                                            embedding = np.asarray(embedding, dtype=float)
-                                        if embedding.size > 0:
-                                            batch_emb_data.append({
-                                                "sequence_id": seq_id,
-                                                "model_name": self.model_name,
-                                                "embedding": embedding,
-                                                "layer": layer,
-                                            })
+                                batch_emb_data.extend(
+                                    self._collect_embedding_rows(seq_id, result)
+                                )
 
                         # Single batch insert per completed async task
                         if batch_data:
@@ -651,7 +675,7 @@ class PredictionStage(Stage):
 
                     except Exception as e:
                         if self.skip_on_error:
-                            # BUG-STR-02 fix: use .get() to avoid KeyError if the task
+                            # use .get() to avoid KeyError if the task
                             # was already removed from pending_tasks in the normal path.
                             _pending_entry = pending_tasks.get(completed_task)
                             pending_batch_df = _pending_entry[0] if _pending_entry is not None else None
@@ -765,6 +789,61 @@ class PredictionStage(Stage):
                 embedding = np.asarray(embedding, dtype=float)
             if embedding.size > 0:
                 datastore.add_embedding(seq_id, self.model_name, embedding, layer=layer)
+
+    def _inject_structures(
+        self,
+        datastore: DataStore,
+        items: list[dict],
+        seq_ids: list,
+    ) -> None:
+        """Mutate ``items`` in place, injecting upstream structure strings.
+
+        For each ``(api_field, source_model)`` in ``self._structure_input`` we
+        do one bulk lookup against the datastore, then attach the structure
+        string to each item that has a corresponding sequence_id.  Used by
+        ``process``, ``process_ws``, and ``process_streaming``.
+        """
+        if not self._structure_input:
+            return
+        for api_field, source_model in self._structure_input.items():
+            struct_map = datastore.get_structures_for_ids(
+                [int(s) for s in seq_ids], source_model
+            )
+            for i, seq_id in enumerate(seq_ids):
+                struct = struct_map.get(int(seq_id))
+                if struct and struct.get("structure_str"):
+                    items[i][api_field] = struct["structure_str"]
+
+    def _collect_embedding_rows(
+        self, seq_id: int, result: Any
+    ) -> list[dict]:
+        """Build the list of embedding-batch dicts for one API result.
+
+        Shared helper used by ``process``, ``process_ws``, and ``process_streaming``
+        to avoid three near-identical inline blocks.  Empty arrays produce a
+        warning rather than silent drop so the caller can investigate model
+        responses that should have produced data.
+        """
+        if not isinstance(result, dict):
+            return []
+        rows: list[dict] = []
+        for embedding, layer in self._embedding_extractor(result):
+            if not isinstance(embedding, np.ndarray):
+                embedding = np.asarray(embedding, dtype=float)
+            if embedding.size == 0:
+                logger.warning(
+                    "Stage %r received empty embedding for sequence_id=%d "
+                    "(model=%s, layer=%s) — dropping",
+                    self.name, seq_id, self.model_name, layer,
+                )
+                continue
+            rows.append({
+                "sequence_id": seq_id,
+                "model_name": self.model_name,
+                "embedding": embedding,
+                "layer": layer,
+            })
+        return rows
 
     def _store_structure(self, datastore: DataStore, seq_id: int, result: dict):
         """Store a structure string from an API result into the datastore."""
@@ -916,14 +995,6 @@ class PredictionStage(Stage):
         if len(df_uncached) > 0:
             print(f"  Calling {self.model_name}.{self.action}...")
 
-            # R1 fix: create a local API client per call so the connection pool
-            # is always shut down properly.  The client is closed in the finally
-            # block below (see end of the uncached processing branch).
-            _process_semaphore = asyncio.Semaphore(self._max_connections)
-            api = BioLMApiClient(
-                self.model_name, semaphore=_process_semaphore, retry_error_batches=True,
-            )
-
             seq_ids = df_uncached["sequence_id"].tolist()
             seq_id_to_seq = dict(
                 zip(df_uncached["sequence_id"], df_uncached["sequence"])
@@ -931,7 +1002,7 @@ class PredictionStage(Stage):
 
             # Build items list
             if self.item_columns:
-                # BUG-MC-09 fix: validate all item_columns values exist in the DataFrame.
+                # validate all item_columns values exist in the DataFrame.
                 missing_cols = [
                     col for col in self.item_columns.values()
                     if col not in df_uncached.columns
@@ -954,16 +1025,17 @@ class PredictionStage(Stage):
                     {"sequence": seq} for seq in df_uncached["sequence"].tolist()
                 ]
 
-            # PERF-03: batch-fetch structures (one query per source model, not N)
-            if self._structure_input:
-                for api_field, source_model in self._structure_input.items():
-                    struct_map = datastore.get_structures_for_ids(seq_ids, source_model)
-                    for i, seq_id in enumerate(seq_ids):
-                        struct = struct_map.get(int(seq_id))
-                        if struct and struct.get("structure_str"):
-                            all_items[i][api_field] = struct["structure_str"]
+            self._inject_structures(datastore, all_items, seq_ids)
 
-            # --- Bounded-concurrency dispatch (same pattern as process_ws) ---
+            # Defer API client creation until all synchronous prep has
+            # succeeded.  Anything above this line that raises (item-column
+            # validation, structure fetch, items construction) does so
+            # without leaking a connection pool.
+            _process_semaphore = asyncio.Semaphore(self._max_connections)
+            api = BioLMApiClient(
+                self.model_name, semaphore=_process_semaphore, retry_error_batches=True,
+            )
+
             batch_size = self.batch_size
             n_batches = (len(all_items) + batch_size - 1) // batch_size
             flight_semaphore = asyncio.Semaphore(self.max_concurrent)
@@ -988,7 +1060,7 @@ class PredictionStage(Stage):
                             results = await api.predict(
                                 items=batch_items, params=self.params
                             )
-                        # AP-04 fix: detect top-level error dict returned instead of a list.
+                        # detect top-level error dict returned instead of a list.
                         if isinstance(results, dict) and (
                             "error" in results or "status_code" in results
                         ):
@@ -1070,18 +1142,9 @@ class PredictionStage(Stage):
                                             }
                                         )
                         elif self.action == "encode":
-                            if isinstance(result, dict):
-                                extracted = self._embedding_extractor(result)
-                                for embedding, layer in extracted:
-                                    if not isinstance(embedding, np.ndarray):
-                                        embedding = np.asarray(embedding, dtype=float)
-                                    if embedding.size > 0:
-                                        batch_emb_data.append({
-                                            "sequence_id": seq_id,
-                                            "model_name": self.model_name,
-                                            "embedding": embedding,
-                                            "layer": layer,
-                                        })
+                            batch_emb_data.extend(
+                                self._collect_embedding_rows(seq_id, result)
+                            )
 
                     if batch_data:
                         datastore.add_predictions_batch(batch_data)
@@ -1113,7 +1176,7 @@ class PredictionStage(Stage):
                         raise
 
             try:
-                # BUG-CHK-01 fix: use return_exceptions=True so one failing batch
+                # use return_exceptions=True so one failing batch
                 # doesn't cancel all other in-flight tasks.
                 _legacy_results = await asyncio.gather(
                     *[_dispatch_batch(i) for i in range(n_batches)],
@@ -1130,7 +1193,7 @@ class PredictionStage(Stage):
                 print(f"  Error during prediction: {e}")
                 raise
             finally:
-                # R1 fix: always shut down the local API client
+                # always shut down the local API client
                 await api.shutdown()
 
         # --- Vectorized result merge: single JOIN query, not N individual queries ---
@@ -1257,7 +1320,7 @@ class PredictionStage(Stage):
             else:
                 # layer=None means "no specific layer requested" — only treat as cached
                 # if stored with layer IS NULL (i.e., the flat single-layer format).
-                # WS-06/AP-02 fix: previously matched ANY layer, now scoped to layer IS NULL.
+                # previously matched ANY layer, now scoped to layer IS NULL.
                 _cached_emb_ids_ws = set(
                     datastore.conn.execute(
                         "SELECT DISTINCT sequence_id FROM embeddings WHERE model_name = ? AND layer IS NULL",
@@ -1301,15 +1364,6 @@ class PredictionStage(Stage):
         if uncached_ids:
             if verbose:
                 print(f"  Calling {self.model_name}.{self.action}...")
-
-            # AP-01 fix: create a local `api` variable only — do not store on self._api_client.
-            # A new client is created per process_ws() call to avoid stale aiohttp sessions
-            # from a previous asyncio.run() call (closed event loop).
-            connection_semaphore = asyncio.Semaphore(self._max_connections)
-            api = BioLMApiClient(
-                self.model_name, semaphore=connection_semaphore, retry_error_batches=True,
-                
-            )
 
             # Fetch (id, sequence) pairs — lightweight, no full DataFrame
             id_seq_pairs = datastore.get_sequences_for_ids(uncached_ids)
@@ -1377,22 +1431,19 @@ class PredictionStage(Stage):
                     )
                 all_items = [{"sequence": p[1]} for p in id_seq_pairs]
 
-            # PERF-03: batch-fetch structures (one query per source model, not N)
-            if self._structure_input:
-                for api_field, source_model in self._structure_input.items():
-                    struct_map = datastore.get_structures_for_ids(all_seq_ids, source_model)
-                    for i, seq_id in enumerate(all_seq_ids):
-                        struct = struct_map.get(int(seq_id))
-                        if struct and struct.get("structure_str"):
-                            all_items[i][api_field] = struct["structure_str"]
+            self._inject_structures(datastore, all_items, all_seq_ids)
 
-            # --- Bounded-concurrency dispatch ---
-            # Split into pipeline batches, keep max_concurrent in flight.
+            # Defer API client creation until prep has succeeded so
+            # validation/struct-fetch failures above don't leak the pool.
+            connection_semaphore = asyncio.Semaphore(self._max_connections)
+            api = BioLMApiClient(
+                self.model_name, semaphore=connection_semaphore, retry_error_batches=True,
+            )
+
             batch_size = self.batch_size
             n_batches = (len(all_items) + batch_size - 1) // batch_size
             flight_semaphore = asyncio.Semaphore(self.max_concurrent)
 
-            # Progress bar (graceful fallback if tqdm not installed)
             try:
                 from tqdm.auto import tqdm as _tqdm_cls
             except ImportError:
@@ -1424,7 +1475,7 @@ class PredictionStage(Stage):
                             results = await api.predict(
                                 items=batch_items, params=self.params
                             )
-                        # AP-04 fix: detect top-level error dict returned instead of a list.
+                        # detect top-level error dict returned instead of a list.
                         # This happens when the API returns a single error response for the
                         # whole batch rather than per-item results.
                         if isinstance(results, dict) and (
@@ -1531,18 +1582,9 @@ class PredictionStage(Stage):
                                             }
                                         )
                         elif self.action == "encode":
-                            if isinstance(result, dict):
-                                extracted = self._embedding_extractor(result)
-                                for embedding, layer in extracted:
-                                    if not isinstance(embedding, np.ndarray):
-                                        embedding = np.asarray(embedding, dtype=float)
-                                    if embedding.size > 0:
-                                        batch_emb_data.append({
-                                            "sequence_id": seq_id,
-                                            "model_name": self.model_name,
-                                            "embedding": embedding,
-                                            "layer": layer,
-                                        })
+                            batch_emb_data.extend(
+                                self._collect_embedding_rows(seq_id, result)
+                            )
 
                     if batch_data:
                         datastore.add_predictions_batch(batch_data)
@@ -1578,7 +1620,7 @@ class PredictionStage(Stage):
                         _pbar.update(1)
 
             try:
-                # BUG-CHK-01 fix: use return_exceptions=True so one failing batch
+                # use return_exceptions=True so one failing batch
                 # doesn't cancel all other in-flight tasks — critical when
                 # skip_on_error=True (each batch handles its own exception via
                 # _dispatch_batch's except block), but also safer in general.
@@ -1613,7 +1655,7 @@ class PredictionStage(Stage):
                     print(f"  Error during prediction: {e}")
                 raise
             finally:
-                # AP-01 fix: shut down the local api client only. Do not touch self._api_client —
+                # shut down the local api client only. Do not touch self._api_client —
                 # it is dead state in process_ws() (only used in legacy process() path).
                 if api is not None:
                     await api.shutdown()
@@ -1663,7 +1705,7 @@ class PredictionStage(Stage):
                     ).df()["sequence_id"].tolist()
                 )
             else:
-                # WS-06/AP-02 fix: output gate must match cache check — scope to layer IS NULL
+                # output gate must match cache check — scope to layer IS NULL
                 # when _emb_layer is None, not match ANY layer.
                 emb_ids = set(
                     datastore.conn.execute(
@@ -1705,15 +1747,12 @@ class FilterStage(Stage):
             "requires_complete_data",
             True,  # Default: safe (batch)
         )
-        # All BaseFilter subclasses now accept model_name in to_sql().
-        self._to_sql_accepts_model_name = isinstance(filter_func, BaseFilter)
-        # ARCH-05 fix: cache for resample=False filters lives on the stage,
-        # not monkey-patched onto the datastore.
+        # Cache for resample=False filters lives on the stage, not on the datastore.
         self._cached_ws_ids: Optional[list[int]] = None
 
     def to_spec(self) -> dict:
         """Return a serializable dict for pipeline definition persistence."""
-        # F07: raw callables don't have to_spec() — fail loudly instead of AttributeError.
+        # raw callables don't have to_spec() — fail loudly instead of AttributeError.
         if not hasattr(self.filter_func, "to_spec"):
             raise NotImplementedError(
                 f"FilterStage '{self.name}' uses a raw callable filter_func and cannot "
@@ -1725,7 +1764,7 @@ class FilterStage(Stage):
             "filter_spec": self.filter_func.to_spec(),
             "depends_on": self.depends_on,
         }
-        # F11: include model_name if the stage tracks which model it filters on.
+        # include model_name if the stage tracks which model it filters on.
         if hasattr(self, "model_name") and self.model_name is not None:
             spec["model_name"] = self.model_name
         return spec
@@ -1798,6 +1837,7 @@ class FilterStage(Stage):
         # model_name from the column registry so the SQL is scoped to the correct model
         # and produces the same results as the DataFrame path (BUG-01 fix).
         sql_query = None
+        ws_table_name = "_filter_ws"
         if isinstance(self.filter_func, BaseFilter):
             col_name = getattr(self.filter_func, "column", None)
             model_name_for_sql: Optional[str] = None
@@ -1805,21 +1845,21 @@ class FilterStage(Stage):
                 entry = datastore.get_column_registry_entry(col_name)
                 if entry:
                     model_name_for_sql = entry.get("model_name")
-            # F12: use cached signature flag set at __init__ time.
-            if self._to_sql_accepts_model_name:
-                sql_query = self.filter_func.to_sql(model_name=model_name_for_sql)
-            else:
-                sql_query = self.filter_func.to_sql()
+            # Mint a unique ws_table name so two SQL filters at the same DAG
+            # level don't race on a shared registration.
+            ws_table_name = datastore.make_filter_ws_name()
+            sql_query = self.filter_func.to_sql(
+                ws_table=ws_table_name, model_name=model_name_for_sql
+            )
 
         if sql_query is not None:
-            # SQL-native path — zero materialization
             surviving_ids = datastore.execute_filter_sql(
-                list(ws.sequence_ids), sql_query
+                list(ws.sequence_ids), sql_query, ws_table_name=ws_table_name
             )
             ws_out = WorkingSet.from_ids(surviving_ids)
         else:
             # DataFrame-based path — required for non-SQL filters
-            # F08: if resample=False and already have a working set cached, respect it.
+            # if resample=False and already have a working set cached, respect it.
             _resample = getattr(self.filter_func, "resample", True)
             if not _resample and self._cached_ws_ids is not None:
                 cached_ids = self._cached_ws_ids
@@ -1830,7 +1870,7 @@ class FilterStage(Stage):
             else:
                 df = datastore.materialize_working_set(ws)
                 df_filtered = self.filter_func(df).copy()
-                # F06: raw callable filters must return a DataFrame with sequence_id.
+                # raw callable filters must return a DataFrame with sequence_id.
                 if not isinstance(self.filter_func, BaseFilter):
                     if "sequence_id" not in df_filtered.columns:
                         raise ValueError(
@@ -1844,7 +1884,7 @@ class FilterStage(Stage):
                     if not _resample:
                         self._cached_ws_ids = list(ws_out.sequence_ids)
                 else:
-                    # WS-18 fix: raise instead of silently passing all sequences through.
+                    # raise instead of silently passing all sequences through.
                     raise RuntimeError(
                         f"Filter stage '{self.name}': materialized DataFrame is missing "
                         "'sequence_id' column after filtering. The filter function must "
@@ -1940,7 +1980,7 @@ class CofoldingPredictionStage(Stage):
         self.static_entities = static_entities or []
         self.params = params or {}
         self.batch_size = batch_size
-        # AP-10: item_columns maps API field names → DataFrame column names.
+        # item_columns maps API field names → DataFrame column names.
         # When None, defaults to reading row["sequence"] for the primary chain.
         self.item_columns = item_columns
         self._api_client = None
@@ -1982,7 +2022,7 @@ class CofoldingPredictionStage(Stage):
         computed = 0
         df = df.copy()
 
-        # AP-08 fix: skip already-cached sequences to avoid redundant API calls.
+        # skip already-cached sequences to avoid redundant API calls.
         if "sequence_id" in df.columns:
             all_input_ids = df["sequence_id"].tolist()
             cached_ids = set(
@@ -1995,7 +2035,7 @@ class CofoldingPredictionStage(Stage):
                 if kwargs.get("verbose", True):
                     print(f"  CofoldingStage '{self.name}': {len(cached_set)} sequences already cached, skipping.")
 
-        # AP-09 fix: create client with semaphore; shut it down in finally.
+        # create client with semaphore; shut it down in finally.
         api = None
         try:
             api = BioLMApiClient(
@@ -2066,7 +2106,7 @@ class CofoldingPredictionStage(Stage):
         input_count = len(ws)
         computed = 0
 
-        # AP-08 fix: skip already-cached sequences.
+        # skip already-cached sequences.
         input_ids = list(ws.sequence_ids)
         uncached_ids = set(
             datastore.get_uncached_sequence_ids(input_ids, self.prediction_type, self.model_name)
@@ -2080,7 +2120,7 @@ class CofoldingPredictionStage(Stage):
 
         id_seq_pairs = datastore.get_sequences_for_ids(ids_to_process)
 
-        # AP-09 fix: create client with semaphore and shut it down in finally.
+        # create client with semaphore and shut it down in finally.
         api = None
         try:
             api = BioLMApiClient(
@@ -2091,7 +2131,7 @@ class CofoldingPredictionStage(Stage):
 
             for i in range(0, len(id_seq_pairs), self.batch_size):
                 chunk = id_seq_pairs[i : i + self.batch_size]
-                # AP-10: if item_columns is set, fetch row dicts with required columns.
+                # if item_columns is set, fetch row dicts with required columns.
                 if self.item_columns:
                     col_names = list(self.item_columns.values())
                     chunk_ids = [sid for sid, _seq in chunk]
@@ -2307,7 +2347,7 @@ class ClusteringStage(Stage):
         result = clusterer.cluster(sequences, embeddings)
 
         # Add cluster assignments to output DataFrame
-        # WS-12 fix: reset_index so positional indexing via iloc is safe,
+        # reset_index so positional indexing via iloc is safe,
         # then use iloc to avoid label-based loc mismatches on filtered DataFrames.
         df = df.reset_index(drop=True).copy()
         df["cluster_id"] = result.cluster_ids
@@ -2340,7 +2380,7 @@ class ClusteringStage(Stage):
         datastore.set_pipeline_metadata(f"clustering_{self.name}", meta)
 
         # Store per-sequence assignments for resume support
-        # AP-12 fix: key by int(seq_id) not by sequence string (avoids duplicate key
+        # key by int(seq_id) not by sequence string (avoids duplicate key
         # collisions for sequences that appear more than once in the input).
         seq_ids = df["sequence_id"].tolist() if "sequence_id" in df.columns else list(range(len(sequences)))
         assignments = {
@@ -2390,7 +2430,7 @@ class ClusteringStage(Stage):
             if batch:
                 datastore.add_predictions_batch(batch)
 
-            # WS-13 fix: also store is_centroid as a separate prediction column
+            # also store is_centroid as a separate prediction column
             if "is_centroid" in batch_df.columns:
                 centroid_batch = [
                     {
@@ -2468,9 +2508,9 @@ class DataPipeline(BasePipeline):
 
         if self.input_sequences is None:
             # resume=True + no sequences: pull existing IDs from DuckDB directly.
-            # BUG-15 fix: use SELECT * to capture multi-column inputs (heavy_chain,
+            # use SELECT * to capture multi-column inputs (heavy_chain,
             # light_chain, etc.) rather than hardcoding sequence_id + sequence only.
-            # WS-17 fix: warn that shared databases will load ALL sequences without run_id scoping.
+            # warn that shared databases will load ALL sequences without run_id scoping.
             import warnings
             warnings.warn(
                 "DataPipeline(sequences=None, resume=True) loads all sequences from the database. "
@@ -2488,7 +2528,7 @@ class DataPipeline(BasePipeline):
                 )
             return all_rows_df
 
-        # BUG-API-07 fix: raise early if the user passed an empty list.
+        # raise early if the user passed an empty list.
         if isinstance(self.input_sequences, list) and len(self.input_sequences) == 0:
             raise ValueError(
                 "sequences list is empty. Provide at least one sequence."
@@ -2566,7 +2606,7 @@ class DataPipeline(BasePipeline):
                     f"{sorted(ds_extra)}). Use a fresh datastore or provide "
                     "input_columns matching the existing schema."
                 )
-            # BUG-MC-07 fix: when both pipelines use multi-column mode, also
+            # when both pipelines use multi-column mode, also
             # verify the *same set* of columns is used.  A mismatch would silently
             # produce wrong hashes and leave sequences forever uncached.
             if self.input_columns is not None and ds_extra:
@@ -2708,13 +2748,7 @@ class DataPipeline(BasePipeline):
         """
 
         if sequence_filter:
-            # S1 fix: reject SQL injection vectors
-            if ";" in sequence_filter:
-                raise ValueError("sequence_filter must not contain semicolons")
-            _upper = sequence_filter.strip().upper()
-            for _kw in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "EXEC"):
-                if _kw in _upper.split():
-                    raise ValueError(f"sequence_filter must not contain {_kw} statements")
+            _validate_sql_where(sequence_filter, "sequence_filter")
             query += f" WHERE {sequence_filter}"
 
         # Execute and load only requested data (columnar scan - fast!)
@@ -2852,13 +2886,7 @@ class DataPipeline(BasePipeline):
             ...     columns=['tm', 'plddt']
             ... )
         """
-        # S1 fix: reject SQL injection vectors
-        if ";" in sql_where:
-            raise ValueError("sql_where must not contain semicolons")
-        _upper = sql_where.strip().upper()
-        for _kw in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "EXEC"):
-            if _kw in _upper.split():
-                raise ValueError(f"sql_where must not contain {_kw} statements")
+        _validate_sql_where(sql_where, "sql_where")
 
         # Build efficient DuckDB query
         query = f"""
@@ -3353,7 +3381,7 @@ class SingleStepPipeline(DataPipeline):
         embedding_extractor=None,
         **kwargs,
     ):
-        # WS-15 fix: validate extractions before calling add_prediction() so the
+        # validate extractions before calling add_prediction() so the
         # error message is actionable at the SingleStepPipeline level.
         if action in ("predict", "score") and extractions is None:
             raise ValueError(
@@ -3402,7 +3430,7 @@ def Predict(
     Example:
         >>> df = Predict('temberture-regression', sequences=['MKTAYIAKQRQ'], extractions='prediction')
     """
-    # BUG-API-01 fix: pass extractions through to SingleStepPipeline/PredictionStage.
+    # pass extractions through to SingleStepPipeline/PredictionStage.
     pipeline = SingleStepPipeline(
         model_name=model_name,
         action="predict",
@@ -3442,17 +3470,20 @@ def Embed(
     """
     params = {"layer": layer} if layer is not None else None
 
-    # UX-01 fix: auto-detect the response key based on model name
+    # Auto-detect the embedding response key from a per-family prefix list.
+    # Substring matching is too loose ("esm" matches esmfold, which doesn't
+    # return embeddings); a prefix allowlist keeps misclassifications visible.
     if key is None:
         _mn = model_name.lower()
-        if "ablang" in _mn:
+        _esm_prefixes = ("esm2", "esm1v", "esm1b", "esmc", "esm-2", "esm-1v")
+        if _mn.startswith("ablang"):
             key = "seqcoding"
-        elif "esm" in _mn:
+        elif any(_mn.startswith(p) for p in _esm_prefixes):
             key = "embeddings"
         else:
             key = "embedding"
 
-    # EMBED-02: create an explicit datastore so the connection stays open after
+    # create an explicit datastore so the connection stays open after
     # run() completes.  When no datastore is provided, run_async() closes the
     # auto-created one in its finally block — before we can call
     # get_embeddings_bulk().  By passing our own datastore we set
@@ -3478,7 +3509,7 @@ def Embed(
 
     ds = _owned_ds if _owned_ds is not None else user_ds
 
-    # WS-21 fix: pass layer= to EmbeddingSpec so cache check and storage use the correct layer.
+    # pass layer= to EmbeddingSpec so cache check and storage use the correct layer.
     pipeline = SingleStepPipeline(
         model_name=model_name,
         action="encode",

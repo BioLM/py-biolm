@@ -221,11 +221,12 @@ class TestMLMRemasker(unittest.TestCase):
         )
 
         # Happy path: all variants unique → exactly one batch of num_variants calls,
-        # not num_variants * 3 = 15.
-        self.assertLessEqual(
+        # not num_variants * 3 = 15.  Tighten to assertEqual so a regression
+        # that re-introduces over-provisioning fails the test.
+        self.assertEqual(
             call_count,
-            num_variants + 2,  # +2 tolerance for any retry edge cases
-            f"Expected ~{num_variants} API calls but made {call_count} "
+            num_variants,
+            f"Expected exactly {num_variants} API calls but made {call_count} "
             f"(old code would make {num_variants * 3})",
         )
 

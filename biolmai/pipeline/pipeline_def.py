@@ -278,7 +278,7 @@ def stage_from_spec(spec: dict) -> "Stage":
 
     stype = spec.get("type")
 
-    # BUG-6 fix: detect specs that were stored with a serialization error flag and
+    # detect specs that were stored with a serialization error flag and
     # raise a clear, actionable error instead of trying to reconstruct a broken stage.
     if spec.get("_serialization_error"):
         err_msg = spec.get("_serialization_error_msg", "unknown error")
@@ -302,24 +302,8 @@ def stage_from_spec(spec: dict) -> "Stage":
         action = spec.get("action", "predict")
         emb_extractor = _embedding_extractor_from_spec(spec.get("embedding_extractor"))
 
-        # Build extractions + columns from resolved list (for __init__ call).
-        # BUG-5 fix: if resolved is empty for an encode stage this is expected —
-        # emit a clearer message than the generic ValueError from _resolve_extractions.
-        if resolved and action in ("predict", "score"):
-            extractions = [r.response_key for r in resolved]
-            columns = {r.response_key: r.column for r in resolved}
-        elif not resolved and action in ("predict", "score"):
-            raise ValueError(
-                f"PredictionStage '{spec.get('name', '?')}' (action='{action}') "
-                "has no 'resolved' extractions in its stored spec.  The spec may be "
-                "incomplete.  Re-create the stage manually and call add_stage()."
-            )
-        else:
-            # encode/score without resolved list — normal for embedding stages
-            extractions = None
-            columns = None
-
-        # C6 fix: reconstruct structure_output, structure_input, matrix_extraction
+        # Reconstruct structure_output / structure_input / matrix_extraction
+        # before deciding whether the stage is "scalar-extraction-shaped".
         structure_output = None
         so_spec = spec.get("structure_output")
         if so_spec:
@@ -343,6 +327,25 @@ def stage_from_spec(spec: dict) -> "Stage":
                 mutation_key=mx_spec.get("mutation_key"),
                 value_key=mx_spec.get("value_key"),
             )
+
+        # Build extractions + columns from resolved list (for __init__ call).
+        # A stage with no resolved scalar extractions is valid when it produces
+        # only structures or matrix predictions (structure_output / matrix_extraction)
+        # — don't reject those as "incomplete".
+        produces_non_scalar = structure_output is not None or matrix_extraction is not None
+        if resolved and action in ("predict", "score"):
+            extractions = [r.response_key for r in resolved]
+            columns = {r.response_key: r.column for r in resolved}
+        elif not resolved and action in ("predict", "score") and not produces_non_scalar:
+            raise ValueError(
+                f"PredictionStage '{spec.get('name', '?')}' (action='{action}') "
+                "has no 'resolved' extractions in its stored spec and produces no "
+                "structure or matrix output.  Re-create the stage manually and "
+                "call add_stage()."
+            )
+        else:
+            extractions = None
+            columns = None
 
         stage = PredictionStage(
             name=spec["name"],
@@ -476,7 +479,7 @@ def pipeline_from_definition(
     if datastore is not None:
         stages_specs = _resolve_blobs(stages_specs, datastore)
 
-    # BUG-3 fix: if no run_id supplied, look up the most recent run for this
+    # if no run_id supplied, look up the most recent run for this
     # definition so that resume finds already-completed stages correctly.
     if run_id is None and datastore is not None:
         # PD-04: when definition_id is None, warn that multiple definitions sharing

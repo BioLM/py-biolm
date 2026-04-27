@@ -18,10 +18,11 @@ import logging
 import math
 import re as _re
 import warnings
-
-logger = logging.getLogger(__name__)
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 import duckdb
@@ -129,6 +130,7 @@ class DuckDBDataStore:
 
         # Initialize schema
         self._init_schema()
+        self._maybe_migrate_hashes_v2()
 
     def _init_schema(self):
         """Initialize DuckDB tables backed by Parquet files."""
@@ -185,7 +187,7 @@ class DuckDBDataStore:
         )
 
         # Embeddings table — arrays stored inline as FLOAT[] (no per-file Parquet overhead)
-        # EMBD-01: UNIQUE(sequence_id, model_name, layer) to enable ON CONFLICT upsert
+        # UNIQUE(sequence_id, model_name, layer) to enable ON CONFLICT upsert
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS embeddings (
@@ -375,7 +377,7 @@ class DuckDBDataStore:
 
         # Sequence attributes table — stores extra per-sequence columns from
         # the input DataFrame (e.g. heavy_chain, light_chain for antibody models).
-        # REG-03: UNIQUE(sequence_id, attr_name) is enforced via PRIMARY KEY (same semantics).
+        # UNIQUE(sequence_id, attr_name) is enforced via PRIMARY KEY (same semantics).
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sequence_attributes (
@@ -474,6 +476,82 @@ class DuckDBDataStore:
         """Create hash of sequence for deduplication."""
         return hashlib.sha256(sequence.encode()).hexdigest()[:32]
 
+    @contextmanager
+    def _transaction(self):
+        """Wrap a block in begin/commit/rollback so a partial INSERT can't
+        leak partially-written rows on error."""
+        self.conn.begin()
+        try:
+            yield
+            self.conn.commit()
+        except BaseException:
+            self.conn.rollback()
+            raise
+
+    def _maybe_migrate_hashes_v2(self) -> None:
+        """Widen legacy 16-char hashes to 32 chars (C9 backward-compat).
+
+        Without this, a DB written by a pre-C9 version stores 16-char hashes
+        and post-C9 lookups produce 32-char keys that miss every row, leaving
+        sequences silently re-added as duplicates.  Idempotent — checks a
+        version key in pipeline_metadata so subsequent opens are a no-op.
+        """
+        try:
+            row = self.conn.execute(
+                "SELECT value FROM pipeline_metadata WHERE key = ?",
+                ["hash_schema_version"],
+            ).fetchone()
+            if row and str(row[0]) >= "2":
+                return
+        except Exception:
+            return  # Table not ready yet; safe to retry on next open
+
+        try:
+            short = self.conn.execute(
+                "SELECT COUNT(*) FROM sequences WHERE hash IS NOT NULL AND LENGTH(hash) < 32"
+            ).fetchone()
+        except Exception:
+            return
+
+        if short and short[0] > 0:
+            # Single-column path — most common, easy to recompute.
+            sequence_rows = self.conn.execute(
+                "SELECT sequence_id, sequence FROM sequences "
+                "WHERE LENGTH(hash) < 32 AND COALESCE(sequence, '') != ''"
+            ).fetchall()
+            for sid, seq in sequence_rows:
+                new_hash = self._hash_sequence(seq)
+                self.conn.execute(
+                    "UPDATE sequences SET hash = ? WHERE sequence_id = ?",
+                    [new_hash, sid],
+                )
+            # Multi-column rows (sequence='') are left at 16 chars — recomputing
+            # would require iterating the dynamic input columns and is rare;
+            # callers see at most one extra duplicate row per legacy multi-col
+            # input.  Log for visibility.
+            try:
+                multi_col_left = self.conn.execute(
+                    "SELECT COUNT(*) FROM sequences "
+                    "WHERE LENGTH(hash) < 32 AND COALESCE(sequence, '') = ''"
+                ).fetchone()
+                if multi_col_left and multi_col_left[0] > 0:
+                    logger.warning(
+                        "Hash schema migration: %d multi-column rows still hold "
+                        "16-char hashes.  Re-adding identical multi-column inputs "
+                        "may insert duplicates until you re-run with sequence text.",
+                        multi_col_left[0],
+                    )
+            except Exception:
+                pass
+
+        try:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO pipeline_metadata (key, value) VALUES (?, ?)",
+                ["hash_schema_version", "2"],
+            )
+        except Exception:
+            pass
+
     @staticmethod
     def _hash_row(values: dict[str, str]) -> str:
         """Hash multiple column values for multi-column deduplication.
@@ -495,7 +573,7 @@ class DuckDBDataStore:
                 )
             parts.append(str(val))
         payload = "\x00".join(parts)
-        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+        return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
     def ensure_input_columns(self, columns: list[str]):
         """Ensure the ``sequences`` table has all the given columns.
@@ -587,7 +665,7 @@ class DuckDBDataStore:
 
             # Build df_new with hash across all input columns
             df_new = input_df[input_columns].copy()
-            # PERF-05: validate None/NaN before hashing (vectorized check)
+            # validate None/NaN before hashing (vectorized check)
             for _hcol in input_columns:
                 if df_new[_hcol].isna().any():
                     raise ValueError(
@@ -595,17 +673,15 @@ class DuckDBDataStore:
                         f"be hashed for deduplication. Fill or drop these rows "
                         f"before adding to the pipeline."
                     )
-            # Vectorized hash: sort columns alphabetically, concatenate with \x00,
-            # then apply SHA-256. Avoids per-row dict creation of the old df.apply path.
             _sorted_hcols = sorted(input_columns)
             _combined = (
                 df_new[_sorted_hcols]
                 .astype(str)
                 .agg("\x00".join, axis=1)
             )
-            df_new["hash"] = _combined.apply(
-                lambda v: hashlib.sha256(v.encode()).hexdigest()[:16]
-            )
+            df_new["hash"] = [
+                hashlib.sha256(v.encode()).hexdigest()[:32] for v in _combined
+            ]
             # Set 'sequence' column: use real value if provided, else empty string
             # (column is NOT NULL in schema). Real data lives in input columns.
             if "sequence" in input_columns:
@@ -643,7 +719,7 @@ class DuckDBDataStore:
                     df_to_insert["created_at"] = datetime.now()
 
                     # Build column list for INSERT
-                    # SQL-05: second defense-in-depth _validate_column_name check
+                    # second defense-in-depth _validate_column_name check
                     base_cols = ["sequence_id", "sequence", "length", "hash", "created_at"]
                     extra = [c for c in input_columns if c not in base_cols and c != "sequence"]
                     for _c in extra:
@@ -654,14 +730,14 @@ class DuckDBDataStore:
 
                     _insert_tmp = f"_seq_insert_{next(_TEMP_TABLE_COUNTER)}"
                     self.conn.register(_insert_tmp, df_to_insert)
-                    # TXN-01: wrap INSERT + SELECT-back in an explicit transaction
+                    # wrap INSERT + SELECT-back in an explicit transaction
                     try:
                         self.conn.begin()
                         self.conn.execute(
                             f"INSERT INTO sequences ({col_list}) SELECT {sel_list} FROM {_insert_tmp}"
                         )
                         self.conn.commit()
-                        # BUG-AR-09: resync counter from DB after commit to handle any gaps.
+                        # resync counter from DB after commit to handle any gaps.
                         # Counter represents "next available ID", so set to MAX + 1.
                         max_id_row = self.conn.execute(
                             "SELECT MAX(sequence_id) FROM sequences"
@@ -730,7 +806,7 @@ class DuckDBDataStore:
                 # Batch insert (vectorized!) - specify column order explicitly
                 _legacy_insert_tmp = f"_seq_insert_{next(_TEMP_TABLE_COUNTER)}"
                 self.conn.register(_legacy_insert_tmp, df_to_insert)
-                # TXN-01: wrap INSERT + SELECT-back in an explicit transaction
+                # wrap INSERT + SELECT-back in an explicit transaction
                 try:
                     self.conn.begin()
                     self.conn.execute(
@@ -740,7 +816,7 @@ class DuckDBDataStore:
                     """
                     )
                     self.conn.commit()
-                    # BUG-AR-09: resync counter from DB after commit to handle any gaps.
+                    # resync counter from DB after commit to handle any gaps.
                     # Counter represents "next available ID", so set to MAX + 1.
                     max_id_row = self.conn.execute(
                         "SELECT MAX(sequence_id) FROM sequences"
@@ -812,8 +888,7 @@ class DuckDBDataStore:
         _tmp = f"_pred_batch_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_tmp, df)
         try:
-            self.conn.begin()
-            try:
+            with self._transaction():
                 self.conn.execute(
                     f"""
                     INSERT INTO predictions (prediction_id, sequence_id, model_name, prediction_type, value, metadata, created_at)
@@ -824,15 +899,10 @@ class DuckDBDataStore:
                         prediction_id = predictions.prediction_id
                 """
                 )
-                self.conn.commit()
-                # PERF-02 fix: advance counter arithmetically instead of SELECT MAX()
-                # full table scan after every batch.  We pre-assigned IDs up to
-                # start_id + len(df) - 1; setting counter to start_id + len(df)
-                # guarantees no ID collisions (gaps from ON CONFLICT are harmless).
+                # We pre-assigned IDs up to start_id + len(df) - 1; setting
+                # counter to start_id + len(df) avoids ID collisions even
+                # when ON CONFLICT skipped some rows.
                 self._prediction_counter = start_id + len(df)
-            except Exception:
-                self.conn.rollback()
-                raise
         finally:
             self.conn.unregister(_tmp)
 
@@ -958,7 +1028,7 @@ class DuckDBDataStore:
         embedding_id = self._embedding_counter
         self._embedding_counter += 1
 
-        # EMBD-01: ON CONFLICT DO UPDATE to handle re-insertion of the same embedding
+        # ON CONFLICT DO UPDATE to handle re-insertion of the same embedding
         self.conn.execute(
             """
             INSERT INTO embeddings
@@ -1012,8 +1082,7 @@ class DuckDBDataStore:
         _tmp = f"_emb_batch_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_tmp, df)
         try:
-            self.conn.begin()
-            try:
+            with self._transaction():
                 self.conn.execute(
                     f"""
                     INSERT INTO embeddings
@@ -1025,11 +1094,7 @@ class DuckDBDataStore:
                         dimension = excluded.dimension
                 """
                 )
-                self.conn.commit()
                 self._embedding_counter = start_id + len(data)
-            except Exception:
-                self.conn.rollback()
-                raise
         finally:
             self.conn.unregister(_tmp)
 
@@ -1206,7 +1271,7 @@ class DuckDBDataStore:
         sampling_params_json = json.dumps(sampling_params) if sampling_params else None
 
         metadata_id = self._generation_metadata_counter
-        # TXN-03: ON CONFLICT (sequence_id, run_id) DO NOTHING to prevent duplicate rows
+        # ON CONFLICT (sequence_id, run_id) DO NOTHING to prevent duplicate rows
         self.conn.execute(
             """
             INSERT INTO generation_metadata
@@ -1330,7 +1395,7 @@ class DuckDBDataStore:
         pred_cols_sql = ""
         pred_cte_sql = ""
         if include_predictions and prediction_types:
-            # SQL-04: validate prediction_type values; skip any that fail
+            # validate prediction_type values; skip any that fail
             import logging as _logging
             _valid_pts = []
             for pt in prediction_types:
@@ -1443,7 +1508,7 @@ class DuckDBDataStore:
         if not sequence_ids:
             return {}
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _emb_tmp = f"_emb_bulk_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_emb_tmp, ids_df)
         try:
@@ -1460,7 +1525,7 @@ class DuckDBDataStore:
         finally:
             self.conn.unregister(_emb_tmp)
 
-        # EMBD-02: use itertuples() for faster iteration than iterrows()
+        # use itertuples() for faster iteration than iterrows()
         result: dict[int, np.ndarray] = {}
         for r in df.itertuples(index=False):
             vals = r.values
@@ -1527,10 +1592,15 @@ class DuckDBDataStore:
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _check_tmp = f"_check_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_check_tmp, ids_df)
         try:
+            # A row is uncached if either (a) no prediction row exists at all,
+            # or (b) one exists with NULL value AND metadata.status != 'failed'
+            # (i.e. an interrupted/partial write — retry it).  Rows explicitly
+            # marked failed by skip_on_error are kept as cached so we don't
+            # endlessly retry sequences the API can't handle.
             result = self.conn.execute(
                 f"""
                 SELECT DISTINCT c.sequence_id
@@ -1540,6 +1610,8 @@ class DuckDBDataStore:
                     AND p.prediction_type = ?
                     AND p.model_name = ?
                 WHERE p.prediction_id IS NULL
+                   OR (p.value IS NULL
+                       AND COALESCE(json_extract_string(p.metadata, '$.status'), '') != 'failed')
             """,
                 [prediction_type, model_name],
             ).fetchall()
@@ -1564,7 +1636,7 @@ class DuckDBDataStore:
         if not sequence_ids:
             return pd.DataFrame(columns=["sequence_id", "value", "metadata"])
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _bulk_tmp = f"_bulk_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_bulk_tmp, ids_df)
         try:
@@ -1591,7 +1663,7 @@ class DuckDBDataStore:
         if not sequences:
             return 0
         hashes_df = pd.DataFrame({"hash": [self._hash_sequence(s) for s in sequences]})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _count_tmp = f"_count_hashes_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_count_tmp, hashes_df)
         try:
@@ -1765,8 +1837,7 @@ class DuckDBDataStore:
             self.conn.unregister(_tmp)
 
         result: dict[int, dict] = {}
-        for _, row in df.iterrows():
-            record = row.to_dict()
+        for record in df.to_dict("records"):
             seq_id = int(record["sequence_id"])
             data_blob = record.pop("structure_data", None)
             if data_blob is not None:
@@ -1806,7 +1877,7 @@ class DuckDBDataStore:
                 ]
             )
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _struct_tmp = f"_struct_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_struct_tmp, ids_df)
         try:
@@ -2117,7 +2188,7 @@ class DuckDBDataStore:
         self._refresh_extra_columns()
 
         ids_df = pd.DataFrame({"sequence_id": list(ws.sequence_ids)})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _ws_tmp = f"_ws_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_ws_tmp, ids_df)
         try:
@@ -2141,7 +2212,7 @@ class DuckDBDataStore:
             pred_join_sql = ""
             pred_cte_sql = ""
             if include_predictions and prediction_types:
-                # SQL-04: validate prediction_type values; skip any that fail
+                # validate prediction_type values; skip any that fail
                 import logging as _logging
                 _valid_pts = []
                 for pt in prediction_types:
@@ -2225,7 +2296,7 @@ class DuckDBDataStore:
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _has_pred_tmp = f"_has_pred_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_has_pred_tmp, ids_df)
         try:
@@ -2263,7 +2334,7 @@ class DuckDBDataStore:
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _seq_for_ids_tmp = f"_seq_for_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_seq_for_ids_tmp, ids_df)
         try:
@@ -2279,22 +2350,37 @@ class DuckDBDataStore:
             self.conn.unregister(_seq_for_ids_tmp)
         return [(r[0], r[1]) for r in rows]
 
+    def make_filter_ws_name(self) -> str:
+        """Mint a unique ``_filter_ws_<n>`` table name for one filter execution.
+
+        Required when SQL-native filters can run in parallel at the same DAG
+        level — sharing the canonical ``_filter_ws`` registration would let
+        two stages clobber each other's working set.
+        """
+        return f"_filter_ws_{next(_TEMP_TABLE_COUNTER)}"
+
     def execute_filter_sql(
         self,
         sequence_ids: list[int],
         sql_query: str,
+        ws_table_name: str = "_filter_ws",
     ) -> list[int]:
         """Execute a filter SQL query and return surviving sequence IDs.
 
         The *sql_query* must be a complete ``SELECT`` statement that returns
-        ``sequence_id`` values.  It may reference the registered table
-        ``_filter_ws`` (which contains the input *sequence_ids*) to scope
-        results to the current working set.
+        ``sequence_id`` values and JOINs against *ws_table_name* (which
+        contains the input *sequence_ids*) to scope to the working set.
+
+        Pass a unique *ws_table_name* (use :meth:`make_filter_ws_name`) when
+        running multiple SQL-native filters concurrently — the default
+        ``_filter_ws`` name races otherwise.
 
         Args:
-            sequence_ids: Input sequence IDs (registered as ``_filter_ws``).
-            sql_query: Complete SQL SELECT returning ``sequence_id`` values,
-                JOINed with ``_filter_ws`` to scope to the working set.
+            sequence_ids: Input sequence IDs.
+            sql_query: Complete SQL SELECT returning ``sequence_id`` values.
+            ws_table_name: Name to register the working-set IDs under.  Must
+                match the ``ws_table=`` argument passed to the filter's
+                ``to_sql()``.
 
         Returns:
             List of sequence_ids that survive the filter.
@@ -2302,7 +2388,6 @@ class DuckDBDataStore:
         Raises:
             ValueError: If sql_query is not a single SELECT statement.
         """
-        # SQL-01: defensive validation — only allow single SELECT statements
         stripped = sql_query.strip()
         if not stripped.upper().startswith("SELECT"):
             raise ValueError("Filter SQL must be a single SELECT statement")
@@ -2312,15 +2397,11 @@ class DuckDBDataStore:
         if not sequence_ids:
             return []
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        _tmp_ws = f"_filter_ws_{next(_TEMP_TABLE_COUNTER)}"
-        self.conn.register(_tmp_ws, ids_df)
-        # Also register under the canonical name that filter to_sql() uses
-        self.conn.register("_filter_ws", ids_df)
+        self.conn.register(ws_table_name, ids_df)
         try:
             result = self.conn.execute(sql_query).fetchall()
         finally:
-            self.conn.unregister("_filter_ws")
-            self.conn.unregister(_tmp_ws)
+            self.conn.unregister(ws_table_name)
         return [r[0] for r in result]
 
     def store_sequence_attributes(
@@ -2348,7 +2429,7 @@ class DuckDBDataStore:
         _attr_tmp = f"_attr_batch_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_attr_tmp, df)
         try:
-            # REG-03: use DuckDB ON CONFLICT DO UPDATE SET (INSERT OR REPLACE is SQLite syntax)
+            # use DuckDB ON CONFLICT DO UPDATE SET (INSERT OR REPLACE is SQLite syntax)
             self.conn.execute(
                 f"""
                 INSERT INTO sequence_attributes (sequence_id, attr_name, attr_value)
@@ -2453,7 +2534,7 @@ class DuckDBDataStore:
         for col in columns:
             _validate_column_name(col)
         ids_df = pd.DataFrame({"sequence_id": sequence_ids})
-        # REG-01: unique temp name to avoid concurrent coroutine collision
+        # unique temp name to avoid concurrent coroutine collision
         _col_ids_tmp = f"_col_ids_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_col_ids_tmp, ids_df)
         try:
@@ -2473,7 +2554,7 @@ class DuckDBDataStore:
             sid = int(row[0])
             result[sid] = {col: row[i + 1] for i, col in enumerate(columns)}
 
-        # BUG-MC-04: Warn if any returned rows have NULL in the requested extra columns.
+        # Warn if any returned rows have NULL in the requested extra columns.
         # This can happen when sequences were originally added without those columns.
         # We do NOT drop these rows — they may be intentionally sparse — but downstream
         # API calls will receive empty/None fields which is almost never desired.
@@ -2617,7 +2698,7 @@ class DuckDBDataStore:
 
     def get_column_registry_entry(self, column_name: str) -> Optional[dict]:
         """Return the registry entry for a column, or None if not registered."""
-        # BUG-AR-16: ORDER BY registered_at DESC so we get the most recently registered
+        # ORDER BY registered_at DESC so we get the most recently registered
         # entry by insertion time, not by lexicographic sort of definition_id (a content hash).
         row = self.conn.execute(
             "SELECT model_name, action, definition_id, stage_name "
@@ -2648,7 +2729,7 @@ class DuckDBDataStore:
         Safe to call multiple times — subsequent calls are no-ops.
         Called automatically by ``__exit__`` and ``__del__``.
         """
-        # BUG-CHK-04: guard against double-close and missing attribute
+        # guard against double-close and missing attribute
         if hasattr(self, "conn") and self.conn is not None:
             try:
                 self.conn.close()

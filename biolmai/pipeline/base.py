@@ -21,7 +21,7 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 
 _logger = logging.getLogger(__name__)
 
-# ASYNC-04: prevent calling nest_asyncio.apply() more than once per process.
+# prevent calling nest_asyncio.apply() more than once per process.
 # nest_asyncio is designed to be idempotent but re-patching loops adds overhead.
 _nest_asyncio_applied: bool = False
 
@@ -366,6 +366,11 @@ class BasePipeline(ABC):
         self.stage_results: dict[str, StageResult] = {}
         # WorkingSet is now primary inter-stage transport
         self._working_sets: dict[str, WorkingSet] = {}
+        # Final merged working set at end of run() — authoritative for
+        # get_final_data() so branched DAGs return the correct sink instead
+        # of self.stages[-1] (which is just the last-added, not last-executed).
+        self._final_ws: Optional[WorkingSet] = None
+        self._final_df: Optional[pd.DataFrame] = None
         # Legacy: kept for backward compat (populated lazily by get_final_data)
         self._stage_data: dict[str, pd.DataFrame] = {}
 
@@ -466,7 +471,7 @@ class BasePipeline(ABC):
             try:
                 stages_specs.append(s.to_spec())
             except NotImplementedError as exc:
-                # BUG-6 fix: mark the spec as partially serializable so that
+                # mark the spec as partially serializable so that
                 # from_db() / pipeline_from_definition() can surface a clear error
                 # rather than silently reconstructing an incomplete pipeline.
                 stages_specs.append(
@@ -571,7 +576,7 @@ class BasePipeline(ABC):
         # Build dependency graph
         stage_map = {s.name: s for s in self.stages}
 
-        # BUG-DEP-01: validate all depends_on references exist before sorting.
+        # validate all depends_on references exist before sorting.
         # Without this check, a typo in depends_on silently drops the dependency
         # and the stage runs in an incorrect (too-early) level.
         for s in self.stages:
@@ -613,7 +618,7 @@ class BasePipeline(ABC):
                     ):
                         in_degree[other_stage.name] -= 1
 
-        # BUG-WS-02: validate that no stage in a level depends on another stage
+        # validate that no stage in a level depends on another stage
         # in the same level — that would create an intra-level circular dependency
         # that is silently undetectable by the standard topological sort above.
         for level in levels:
@@ -661,7 +666,7 @@ class BasePipeline(ABC):
             if isinstance(stage, PredictionStage):
                 if getattr(stage, "action", None) == "encode":
                     # Encode stages write to the embeddings table, not predictions.
-                    # WS-09: scope by layer when EmbeddingSpec(layer=N) is set so
+                    # scope by layer when EmbeddingSpec(layer=N) is set so
                     # that reloading does not confuse embeddings from different layers
                     # stored for the same model.
                     try:
@@ -727,7 +732,7 @@ class BasePipeline(ABC):
                 return WorkingSet.from_ids(candidate_ids)
 
             elif isinstance(stage, FilterStage):
-                # BUG-9: get_filter_results is already scoped by run_id.
+                # get_filter_results is already scoped by run_id.
                 # Intersect with ws_input to guard against stale IDs if the
                 # input set has shrunk since the filter originally ran.
                 passed_ids = self.datastore.get_filter_results(self.run_id, stage.name)
@@ -739,7 +744,7 @@ class BasePipeline(ABC):
                 return WorkingSet.from_ids(candidate_ids)
 
             elif isinstance(stage, ClusteringStage):
-                # BUG-4 fix: ClusteringStage doesn't filter — it annotates
+                # ClusteringStage doesn't filter — it annotates
                 # sequences with cluster assignments stored in pipeline_metadata.
                 # On resume, verify the assignments key exists (proving this
                 # stage completed), then return ws_input unchanged so the
@@ -787,25 +792,27 @@ class BasePipeline(ABC):
     def _get_stage_input_ws(self, stage: Stage, ws_initial: WorkingSet) -> WorkingSet:
         """Resolve the correct input WorkingSet for a stage based on depends_on.
 
-        C1 fix: in a branched DAG, each stage should receive the output of its
-        declared dependencies, not the global ws_current.
-
         - No dependencies → use the initial (root) working set
         - One dependency → use that dependency's stored output
         - Multiple dependencies → intersect all dependency outputs
+
+        Raises if a declared dependency name is missing from ``_working_sets``
+        — silently falling back to the root would silently substitute the
+        wrong dataset for the stage on a typo.
         """
         deps = stage.depends_on if hasattr(stage, "depends_on") else []
         if not deps:
             return ws_initial
 
-        dep_sets = []
-        for dep_name in deps:
-            if dep_name in self._working_sets:
-                dep_sets.append(self._working_sets[dep_name])
+        missing = [d for d in deps if d not in self._working_sets]
+        if missing:
+            known = sorted(self._working_sets.keys())
+            raise KeyError(
+                f"Stage {stage.name!r} declared depends_on={list(deps)!r} but "
+                f"{missing!r} have no recorded output. Known stages: {known!r}."
+            )
 
-        if not dep_sets:
-            return ws_initial
-
+        dep_sets = [self._working_sets[d] for d in deps]
         result = dep_sets[0]
         for ws in dep_sets[1:]:
             result = result.intersect(ws)
@@ -824,7 +831,7 @@ class BasePipeline(ABC):
             _logger.warning(
                 "Stage '%s' received empty WorkingSet — skipping", stage.name
             )
-            # WS-03: mark the stage complete even when skipped so that resume
+            # mark the stage complete even when skipped so that resume
             # logic correctly identifies it as already processed on future runs.
             _empty_stage_id = f"{self.run_id}_{stage.name}"
             if self.datastore:
@@ -898,7 +905,7 @@ class BasePipeline(ABC):
                 print(f"Depends on: {', '.join(stage.depends_on)}")
 
         # Execute stage — all stages implement process_ws().
-        # BUG-16 note: run_id, context, and verbose are passed as explicit keyword
+        # note: run_id, context, and verbose are passed as explicit keyword
         # arguments so stages can declare them in their process_ws() signature
         # rather than relying on **kwargs swallowing them silently.  All stage
         # implementations should declare: process_ws(self, ws, datastore, *,
@@ -946,10 +953,10 @@ class BasePipeline(ABC):
         self._stage_data = {}
         self.status = "running"
         self.start_time = time.time()
-        # BUG-2 fix: reset end_time so a re-run after failure doesn't retain
+        # reset end_time so a re-run after failure doesn't retain
         # the previous run's end timestamp.
         self.end_time = None
-        # WS-11: clear the filter-WS cache on each FilterStage so a second
+        # clear the filter-WS cache on each FilterStage so a second
         # run() call doesn't reuse stale cached results from the previous run.
         for stage in self.stages:
             if hasattr(stage, "_cached_ws_ids"):
@@ -1045,7 +1052,7 @@ class BasePipeline(ABC):
                         df_out = await self._execute_stage_streaming(
                             stage, next_stage, df_current
                         )
-                        # BUG-09 fix: prediction stage WS = all inputs (pre-filter);
+                        # prediction stage WS = all inputs (pre-filter);
                         # filter stage WS = survivors (post-filter).  Using the same
                         # post-filter WS for both caused incorrect resume cache keys.
                         ws_pred = (
@@ -1067,7 +1074,7 @@ class BasePipeline(ABC):
                         processed_stages.add(next_stage.name)
                     else:
                         # BATCHING: WorkingSet path
-                        # C1 fix: resolve input from declared dependencies, not global ws_current
+                        # resolve input from declared dependencies, not global ws_current
                         ws_stage_input = self._get_stage_input_ws(stage, ws_current)
                         ws_out, result = await self._execute_stage_ws(
                             stage, ws_stage_input
@@ -1079,7 +1086,7 @@ class BasePipeline(ABC):
                 else:
                     # Multiple stages in level - execute in parallel
 
-                    # WS-02: mixed merge modes within a single level have undefined
+                    # mixed merge modes within a single level have undefined
                     # semantics — a prediction stage outputs a (possibly larger) union
                     # while a filter stage outputs a (possibly smaller) intersection.
                     # Applying both simultaneously makes the final merged set ambiguous.
@@ -1105,7 +1112,7 @@ class BasePipeline(ABC):
                         )
                         for stage in level_stages
                     ]
-                    # BUG-CHK-06 fix: use return_exceptions=True so that a failure
+                    # use return_exceptions=True so that a failure
                     # in one parallel stage does not cancel all other in-flight stages
                     # via asyncio.gather()'s default cancellation behaviour.
                     # After gathering, we check for exceptions and re-raise the first.
@@ -1158,11 +1165,10 @@ class BasePipeline(ABC):
                     else:
                         ws_current = WorkingSet(frozenset())
 
-                    # C1 fix: each stage's working set is preserved as its own
-                    # output (set in the loop above).  ws_current is updated to
-                    # the merged result for the linear chain fallback.
-                    # _get_stage_input_ws resolves dependencies from individual
-                    # stage outputs, not from ws_current.
+                    # ws_current now holds the merged level result; per-stage
+                    # outputs were already saved to _working_sets as each task
+                    # completed, so a child stage's _get_stage_input_ws() can
+                    # still see the un-merged WorkingSet of its specific dependency.
 
             self.status = "completed"
             self.end_time = time.time()
@@ -1172,6 +1178,7 @@ class BasePipeline(ABC):
             # so get_final_data() works even after the auto-created datastore is closed.
             if self.stages and ws_current is not None:
                 last_name = self.stages[-1].name
+                self._final_ws = ws_current
                 try:
                     self._final_df = self.datastore.materialize_working_set(ws_current)
                     self._stage_data[last_name] = self._final_df
@@ -1450,7 +1457,7 @@ class BasePipeline(ABC):
                     RuntimeWarning,
                     stacklevel=2,
                 )
-                # WS-16: if nest_asyncio is not installed and we are inside a
+                # if nest_asyncio is not installed and we are inside a
                 # running event loop, loop.run_until_complete() will deadlock.
                 # Raise a clear, actionable error rather than hanging silently.
                 if loop.is_running():
@@ -1491,32 +1498,32 @@ class BasePipeline(ABC):
     def get_final_data(self) -> pd.DataFrame:
         """Get the final output DataFrame.
 
-        Materializes from the last stage's WorkingSet via DuckDB.
-        Falls back to legacy _stage_data if WorkingSet is not available.
+        Materializes from the merged final WorkingSet via DuckDB.  In a
+        branched DAG the last-added stage is not necessarily the last
+        executed sink, so we prefer ``_final_ws`` (set at end of run()).
         """
-        if not self._working_sets and not self._stage_data:
+        if not self._working_sets and not self._stage_data and self._final_df is None:
             raise RuntimeError("Pipeline has not been run yet")
 
-        # WS-07: guard against IndexError when no stages are defined.
         if not self.stages:
             raise RuntimeError("No stages defined in this pipeline.")
 
-        last_stage_name = self.stages[-1].name
-
-        # Primary path: materialize from WorkingSet via DuckDB.
-        # If the datastore connection has been closed (auto-created datastores are
-        # closed after run() completes), fall through to the cached _stage_data which
-        # was populated before closure.
         datastore_alive = (
             self.datastore is not None
             and getattr(self.datastore, "conn", None) is not None
         )
+
+        if self._final_ws is not None and datastore_alive:
+            return self.datastore.materialize_working_set(self._final_ws)
+
+        if self._final_df is not None:
+            return self._final_df
+
+        last_stage_name = self.stages[-1].name
         if last_stage_name in self._working_sets and datastore_alive:
             ws = self._working_sets[last_stage_name]
             return self.datastore.materialize_working_set(ws)
 
-        # Fallback: cached DataFrame saved before datastore was closed, or legacy
-        # _stage_data populated by the streaming path.
         return self._stage_data.get(last_stage_name, pd.DataFrame())
 
     # ------------------------------------------------------------------
