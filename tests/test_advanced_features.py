@@ -516,6 +516,23 @@ class TestSqlInjectionGuards:
         with pytest.raises(ValueError, match="semicolons"):
             pipeline.get_merged_results(sequence_filter="x > 0; DELETE FROM sequences")
 
+    @pytest.mark.parametrize("attack", [
+        "1=1 OR (SELECT count(*) FROM read_csv_auto('/etc/passwd')) > 0",
+        "1=1 OR (SELECT 1 FROM read_parquet('/etc/passwd'))",
+        "ATTACH '/etc/passwd' AS evil",
+        "1=1 UNION SELECT name FROM information_schema.tables",
+        "INSERT/**/INTO foo VALUES (1)",          # comment-bypass
+        "1=1 -- ; DROP TABLE sequences",          # SQL-comment-bypass
+        "PRAGMA table_info('sequences')",
+        "LOAD 'evil.duckdb_extension'",
+    ])
+    def test_query_results_rejects_known_attacks(self, tmp_path, datastore, attack):
+        pipeline = DataPipeline(
+            sequences=["AAA"], datastore=datastore, output_dir=tmp_path, verbose=False,
+        )
+        with pytest.raises(ValueError):
+            pipeline.query_results(sql_where=attack)
+
 
 class TestDatastoreLifecycle:
     """C2: auto-created datastores close on __del__, user-provided ones do not."""

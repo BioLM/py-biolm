@@ -38,7 +38,7 @@ test_requirements = [
 setup(
     author="BioLM",
     author_email="support@biolm.ai",
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -62,6 +62,22 @@ setup(
         ],
     },
     install_requires=requirements,
+    extras_require={
+        "pipeline": [
+            "pandas>=1.3.0,<3",
+            "numpy>=1.20,<3",
+            "tqdm>=4.60.0",
+            "matplotlib>=3.3.0",
+            "seaborn>=0.11.0",
+            "scikit-learn>=1.0",
+            "umap-learn>=0.5.0",
+            "biotite>=0.34.0",
+            "biopython>=1.78",
+            "scipy>=1.7.0",
+            "duckdb>=0.9.0,<2",
+            "pyarrow>=10.0.0",
+        ],
+    },
     license="Apache Software License 2.0",
     long_description=readme + "\n\n" + history,
     include_package_data=True,

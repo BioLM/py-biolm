@@ -11,7 +11,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -59,22 +59,82 @@ class _ResolvedExtraction:
     reduction: Optional[str] = None
 
 
-_SQL_WHERE_DENYLIST = ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "EXEC")
+class PipelineAPIAuthError(RuntimeError):
+    """Raised when the BioLM API returns 401/402 (auth/billing) during a stage.
+
+    These errors are not retriable per-item — every batch will hit the same
+    failure — so the pipeline fails fast instead of producing a silent empty
+    result.  ``skip_on_error=True`` does NOT swallow this; callers always see
+    an unambiguous failure with the upstream error payload.
+    """
+
+    def __init__(self, status_code: int, payload: Any, model_name: str):
+        self.status_code = status_code
+        self.payload = payload
+        self.model_name = model_name
+        msg = (
+            f"BioLM API returned {status_code} for model {model_name!r}. "
+            f"Pipeline is failing fast because retrying per-item would amplify "
+            f"this auth/billing error.  Upstream payload: {payload!r}"
+        )
+        super().__init__(msg)
+
+
+_FATAL_API_STATUS_CODES = frozenset({401, 402, 403})
+
+
+def _maybe_raise_fatal_api_error(result: Any, model_name: str) -> None:
+    """Raise PipelineAPIAuthError if *result* is a BioLM error dict with a
+    fatal-class status code (auth/billing/forbidden).  Per-item-level retry
+    won't help — short-circuit to a typed exception."""
+    if not isinstance(result, dict):
+        return
+    sc = result.get("status_code")
+    if sc in _FATAL_API_STATUS_CODES:
+        raise PipelineAPIAuthError(int(sc), result, model_name)
+
+
+# SQL keyword denylist for free-text WHERE clauses.  This is defense-in-depth
+# only — DO NOT pass untrusted user input to query_results / get_merged_results.
+# DuckDB has powerful built-ins (ATTACH, COPY, read_csv_auto, read_parquet,
+# read_json_auto, glob, PRAGMA, INSTALL, LOAD) that can read arbitrary files
+# off disk or attach external databases; we block them here as a safety net,
+# but the only actually safe input is one constructed by the SDK consumer.
+_SQL_WHERE_DENY_KEYWORDS = (
+    # DDL/DML
+    "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE", "EXEC",
+    # DuckDB extensions / file/network access
+    "ATTACH", "DETACH", "COPY", "PRAGMA", "INSTALL", "LOAD", "EXPORT", "IMPORT",
+    # Functions that touch the filesystem or remote URLs
+    "READ_CSV", "READ_CSV_AUTO", "READ_JSON", "READ_JSON_AUTO", "READ_PARQUET",
+    "READ_TEXT", "READ_BLOB", "GLOB", "PARQUET_SCAN", "ICEBERG_SCAN", "DELTA_SCAN",
+    # Data exfiltration / cross-origin
+    "UNION", "INTERSECT", "EXCEPT",
+)
 
 
 def _validate_sql_where(expr: str, param_name: str) -> None:
     """Defense-in-depth check for free-text WHERE clauses passed to DuckDB.
 
-    Trusted callers only — this is a coarse blocklist (semicolons + a small
-    set of DDL/DML keywords), not a full SQL parser.  Treat the input as
-    confidential repo code, not user submissions.
+    This is **not** a sandbox — DuckDB exposes too many file-system entrypoints
+    for a keyword blocklist to be airtight.  Use only with input you control.
+    Untrusted input must be parameterized at the call site (DuckDB ``?``
+    placeholders) or rejected before reaching this layer.
     """
     if ";" in expr:
         raise ValueError(f"{param_name} must not contain semicolons")
-    tokens = set(expr.strip().upper().split())
-    for kw in _SQL_WHERE_DENYLIST:
-        if kw in tokens:
-            raise ValueError(f"{param_name} must not contain {kw} statements")
+    if "--" in expr or "/*" in expr or "*/" in expr:
+        raise ValueError(f"{param_name} must not contain SQL comment markers")
+    upper = expr.upper()
+    # Substring match (not token-split) so `INSERT/**/INTO`, `IN/*x*/SERT`,
+    # `read_csv_auto(...)`, `ATTACH '...'` are all caught.
+    for kw in _SQL_WHERE_DENY_KEYWORDS:
+        if kw in upper:
+            raise ValueError(
+                f"{param_name} must not contain SQL keyword {kw!r}.  "
+                f"This API accepts only column-level boolean expressions; "
+                f"pass values via parameter substitution instead of inline SQL."
+            )
 
 
 def _resolve_extractions(
@@ -370,7 +430,7 @@ class PredictionStage(Stage):
         item_columns: Optional[dict[str, str]] = None,
         extractions: Optional[Union[str, list[Union[str, ExtractionSpec]]]] = None,
         columns: Optional[Union[str, dict[str, str]]] = None,
-        embedding_extractor: Optional[Union[EmbeddingSpec, callable]] = None,
+        embedding_extractor: Optional[Union[EmbeddingSpec, Callable[[dict], Any]]] = None,
         structure_output: Optional[StructureSpec] = None,
         structure_input: Optional[dict[str, str]] = None,
         matrix_extraction: Optional[MatrixExtractionSpec] = None,
@@ -615,6 +675,7 @@ class PredictionStage(Stage):
                         # Some models (e.g. esmc score with 1-item batch) return a bare
                         # dict instead of a list — wrap it so the per-result loop works.
                         if isinstance(results, dict):
+                            _maybe_raise_fatal_api_error(results, self.model_name)
                             results = [results]
                         pending_batch_df, batch_indices = pending_tasks[completed_task]
                         out_df = pending_batch_df.copy()
@@ -626,6 +687,7 @@ class PredictionStage(Stage):
                         for (_, row), result in zip(pending_batch_df.iterrows(), results):
                             seq_id = int(row["sequence_id"])
                             idx = row.name
+                            _maybe_raise_fatal_api_error(result, self.model_name)
 
                             if self.action in ("predict", "score"):
                                 if isinstance(result, dict):
@@ -673,6 +735,11 @@ class PredictionStage(Stage):
                         # Yield batch immediately!
                         yield out_df
 
+                    except PipelineAPIAuthError:
+                        # Auth/billing failures aren't survivable — every batch
+                        # would hit the same upstream error.  Bubble out even
+                        # when skip_on_error=True.
+                        raise
                     except Exception as e:
                         if self.skip_on_error:
                             # use .get() to avoid KeyError if the task
@@ -1064,6 +1131,7 @@ class PredictionStage(Stage):
                         if isinstance(results, dict) and (
                             "error" in results or "status_code" in results
                         ):
+                            _maybe_raise_fatal_api_error(results, self.model_name)
                             logger.warning(
                                 "API returned error dict for batch %d: %s", batch_idx, results
                             )
@@ -1079,6 +1147,7 @@ class PredictionStage(Stage):
                             and "error" in result
                             and "status_code" in result
                         ):
+                            _maybe_raise_fatal_api_error(result, self.model_name)
                             err = result["error"]
                             err_str = str(err)
                             seq = seq_id_to_seq.get(seq_id, "?")
@@ -1151,6 +1220,8 @@ class PredictionStage(Stage):
                     if batch_emb_data:
                         datastore.add_embeddings_batch(batch_emb_data)
 
+                except PipelineAPIAuthError:
+                    raise
                 except Exception as e:
                     # Bug D fix: mark only THIS batch's sequences as failed (not all uncached).
                     if self.skip_on_error:
@@ -1514,6 +1585,7 @@ class PredictionStage(Stage):
                             and "error" in result
                             and "status_code" in result
                         ):
+                            _maybe_raise_fatal_api_error(result, self.model_name)
                             err = result["error"]
                             err_str = str(err)
                             seq = seq_id_to_seq.get(seq_id, "?")
@@ -1591,6 +1663,8 @@ class PredictionStage(Stage):
                     if batch_emb_data:
                         datastore.add_embeddings_batch(batch_emb_data)
 
+                except PipelineAPIAuthError:
+                    raise
                 except Exception as e:
                     if self.skip_on_error:
                         print(f"  Error in batch {batch_idx} (skipped): {e}")
@@ -1738,7 +1812,7 @@ class FilterStage(Stage):
         filter_func: Filter function or BaseFilter instance
     """
 
-    def __init__(self, name: str, filter_func: Union[BaseFilter, callable], **kwargs):
+    def __init__(self, name: str, filter_func: Union["BaseFilter", Callable[..., Any]], **kwargs):
         super().__init__(name=name, **kwargs)
         self.filter_func = filter_func
         # Check if filter requires complete data (for streaming)
@@ -3187,7 +3261,7 @@ class DataPipeline(BasePipeline):
 
     def add_filter(
         self,
-        filter_func: Union[BaseFilter, callable],
+        filter_func: Union["BaseFilter", Callable[..., Any]],
         stage_name: Optional[str] = None,
         depends_on: Optional[list[str]] = None,
         **kwargs,
@@ -3454,7 +3528,9 @@ def Embed(
     Convenience function for generating embeddings.
 
     Args:
-        model_name: BioLM model name (e.g., 'esm2')
+        model_name: BioLM model name (e.g., ``'esm2-8m'``, ``'esm2-650m'``,
+            ``'ablang2'``).  See ``biolmai.list_models()`` for the full slugged
+            list — the family name alone (``'esm2'``) is not a valid endpoint.
         sequences: Input sequences
         layer: Optional layer number
         key: Response dict key containing embeddings. Auto-detected if None:
@@ -3466,7 +3542,7 @@ def Embed(
         DataFrame with 'sequence', 'sequence_id', and 'embedding' columns
 
     Example:
-        >>> df = Embed('esm2', sequences=['MKTAYIAKQRQ', 'MKLAVID'])
+        >>> df = Embed('esm2-8m', sequences=['MKTAYIAKQRQ', 'MKLAVID'])
     """
     params = {"layer": layer} if layer is not None else None
 
@@ -3489,6 +3565,7 @@ def Embed(
     # get_embeddings_bulk().  By passing our own datastore we set
     # _auto_created_datastore=False, keeping the connection alive.
     user_ds = kwargs.pop("datastore", None)
+    _tmpdir: Optional[str] = None
     if user_ds is None:
         import tempfile as _tempfile
 
@@ -3531,5 +3608,11 @@ def Embed(
     finally:
         if _owned_ds is not None:
             _owned_ds.close()
+        # Clean up the auto-created temp directory now that embeddings are
+        # materialized into the returned DataFrame.  Without this, every
+        # Embed() call leaks a `biolm_embed_*` dir under the system temp.
+        if _tmpdir is not None:
+            import shutil as _shutil
+            _shutil.rmtree(_tmpdir, ignore_errors=True)
 
     return df

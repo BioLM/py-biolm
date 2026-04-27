@@ -64,7 +64,6 @@ The pipeline is designed to be the **orchestration layer** for protein ML experi
 The high-level user experience is intentionally simple:
 
 ```python
-# From PIPELINE_QUICKSTART.md
 pipeline = DataPipeline(sequences=my_sequences)
 
 pipeline.add_prediction("temberture-regression",

@@ -80,9 +80,27 @@ class DuckDBDataStore:
 
     def __init__(
         self,
-        db_path: Union[str, Path] = "pipeline.duckdb",
-        data_dir: Union[str, Path] = "./pipeline_data",
+        db_path: Union[str, Path, None] = None,
+        data_dir: Union[str, Path, None] = None,
     ):
+        # Default DB lives in ~/.biolmai/pipelines/, NOT the current working
+        # directory.  The previous default (`./pipeline.duckdb`) caused
+        # accidental git commits and dropped sensitive sequence data into
+        # whatever folder the user happened to launch Python from.  Callers
+        # who want a project-local DB should pass `db_path="./my.duckdb"`
+        # explicitly.
+        if db_path is None:
+            default_root = Path.home() / ".biolmai" / "pipelines"
+            default_root.mkdir(parents=True, exist_ok=True)
+            db_path = default_root / "default.duckdb"
+            warnings.warn(
+                f"DuckDBDataStore using default db_path={db_path!s}.  "
+                f"Sequences and predictions will persist here across runs; "
+                f"pass an explicit db_path= to control the location.",
+                stacklevel=2,
+            )
+        if data_dir is None:
+            data_dir = Path(db_path).resolve().parent / (Path(db_path).stem + "_data")
         self.db_path = Path(db_path).resolve()
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -767,7 +785,24 @@ class DuckDBDataStore:
         if not sequences:
             return []
 
-        # Create DataFrame for incoming batch
+        # Validate inputs before hashing — None/NaN/non-string inputs would
+        # raise an opaque TypeError from `len()` or `.encode()`.  Check up
+        # front and report the offending row indices.
+        bad: list[int] = []
+        for i, s in enumerate(sequences):
+            if s is None or not isinstance(s, str):
+                bad.append(i)
+            elif s == "":
+                bad.append(i)
+        if bad:
+            preview = bad[:5]
+            tail = "..." if len(bad) > 5 else ""
+            raise ValueError(
+                f"add_sequences_batch received {len(bad)} invalid 'sequence' "
+                f"values (None / empty / non-string) at row index(es) "
+                f"{preview}{tail}.  Drop or fill these rows before calling."
+            )
+
         df_new = pd.DataFrame(
             {
                 "sequence": sequences,

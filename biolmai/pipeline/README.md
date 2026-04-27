@@ -438,7 +438,6 @@ pipeline.add_cofolding_prediction(
     ],
     params={"recycling_steps": 3, "sampling_steps": 20},
     batch_size=1,
-    depends_on=["filter_top50"],
 )
 ```
 
