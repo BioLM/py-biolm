@@ -450,7 +450,7 @@ def pipeline_from_definition(
         datastore: Open DuckDB datastore to attach to the pipeline.
         run_id: Run ID to resume (``None`` = look up the most recent run for this
             definition, or generate a fresh one if no prior runs exist).
-            BUG-3 fix: when resuming via ``from_db()``, we must reuse the existing
+            when resuming via ``from_db()``, we must reuse the existing
             run_id so that ``stage_id = f"{run_id}_{stage_name}"`` matches the
             stage_completions rows written by the previous run.  Passing a new
             run_id causes all stages to appear incomplete and re-run.
@@ -526,7 +526,7 @@ def pipeline_from_definition(
         pipeline = DataPipeline(sequences=None, resume=True, **kwargs)
     elif pipeline_type == "GenerativePipeline":
         # GenerativePipeline passes **kwargs to BasePipeline which does not
-        # accept input_columns — convert to input_schema here (BUG-11 fix).
+        # accept input_columns — convert to input_schema here.
         # PD-16: pass resume=True explicitly (not buried in **kwargs).
         gp_kwargs = dict(kwargs)
         if "input_columns" in gp_kwargs:

@@ -642,7 +642,7 @@ class BasePipeline(ABC):
     ) -> Optional[WorkingSet]:
         """Reconstruct a stage's WorkingSet from the datastore (for resume).
 
-        BUG-9 fix: All reload paths scope to the current run by intersecting
+        All reload paths scope to the current run by intersecting
         with ``ws_input``.  ``ws_input`` is already run-scoped (built from
         ``_get_initial_data()`` which only inserts/returns the current run's
         sequences).  The FilterStage path additionally scopes by ``run_id``
@@ -761,7 +761,7 @@ class BasePipeline(ABC):
                 return ws_input
 
             elif isinstance(stage, CofoldingPredictionStage):
-                # Co-folding results are stored in the structures table (BUG-06 fix).
+                # Co-folding results are stored in the structures table.
                 try:
                     struct_ids = set(
                         self.datastore.conn.execute(
@@ -1238,7 +1238,7 @@ class BasePipeline(ABC):
         Only FilterStage is supported as a streaming target.  Streaming to a
         PredictionStage is intentionally disabled: _execute_stage_streaming()
         only handles FilterStage, and allowing PredictionStage here would cause
-        chunks to be silently dropped (BUG-04 fix).
+        chunks to be silently dropped.
         """
         from biolmai.pipeline.data import FilterStage
 

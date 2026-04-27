@@ -94,8 +94,13 @@ async def test_api_request_with_access_refresh_tokens():
             err_payload = result[0].get("error") if isinstance(result[0], dict) else None
             err_code = result[0].get("code") if isinstance(result[0], dict) else None
             err_status = result[0].get("status_code") if isinstance(result[0], dict) else None
+            # Codes match modal_api/views.py:405-422 in biolm_web (the
+            # production backend).  Adding `monthly_cap_reached` /
+            # `quota_exceeded` / `rate_limited` for forward compatibility.
             if err_status in (402, 429) or err_code in (
                 "lifetime_cap_reached",
+                "budget_limit_reached",
+                "payment_past_due",
                 "monthly_cap_reached",
                 "quota_exceeded",
                 "rate_limited",

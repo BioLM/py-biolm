@@ -99,7 +99,7 @@ from biolmai.pipeline.filters import RankingFilter
 config = DirectGenerationConfig(
     model_name="protein-mpnn",
     item_field="pdb",
-    structure_path="my_protein.pdb",
+    structure_path="my_protein.pdb",   # supply your own PDB file
     params={"batch_size": 100, "temperature": 0.3},
 )
 

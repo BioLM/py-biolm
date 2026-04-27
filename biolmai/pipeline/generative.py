@@ -1077,7 +1077,7 @@ class GenerationStage(Stage):
                 if pred_rows:
                     datastore.add_predictions_batch(pred_rows)
 
-            # Store generation metadata in one batched INSERT (BUG-10 fix: replaces N+1 loop)
+            # Store generation metadata in one batched INSERT
             run_id = kwargs.get("run_id", "")
             meta_rows = []
             for seq_id, row in zip(seq_ids, df_generated.itertuples(index=False)):
@@ -1762,7 +1762,7 @@ class GenerativePipeline(BasePipeline):
                 if name not in self.stage_results:
                     self.stage_results[name] = res
 
-            # Restore pipeline_runs.definition_id to the full definition (BUG-01 fix)
+            # Restore pipeline_runs.definition_id to the full definition
             # and update .config to include generation stages (GEN2-01 fix).
             _conn_alive = (
                 self.datastore is not None

@@ -72,10 +72,16 @@ class PipelineAPIAuthError(RuntimeError):
         self.status_code = status_code
         self.payload = payload
         self.model_name = model_name
+        # Surface only the customer-meaningful fields in the message text
+        # (full payload is preserved on `self.payload` for programmatic access).
+        if isinstance(payload, dict):
+            short = {k: payload[k] for k in ("error", "code") if k in payload}
+        else:
+            short = payload
         msg = (
             f"BioLM API returned {status_code} for model {model_name!r}. "
             f"Pipeline is failing fast because retrying per-item would amplify "
-            f"this auth/billing error.  Upstream payload: {payload!r}"
+            f"this auth/billing error.  Upstream: {short!r}"
         )
         super().__init__(msg)
 
@@ -192,7 +198,7 @@ def _resolve_extractions(
     else:
         raise TypeError(f"columns must be str, dict, or None, got {type(columns)}")
 
-    # BUG-A07 fix: validate that all keys in columns dict appear in extractions.
+    # validate that all keys in columns dict appear in extractions.
     if isinstance(columns, dict):
         extraction_keys = {key for key, _ in specs}
         unrecognized = [k for k in columns if k not in extraction_keys]
@@ -209,7 +215,7 @@ def _resolve_extractions(
         column = col_map.get(response_key, response_key)
         resolved.append(_ResolvedExtraction(response_key, column, reduction))
 
-    # BUG-A04 fix: check for duplicate response_key values.
+    # check for duplicate response_key values.
     seen_keys: dict[str, int] = {}
     for i, spec in enumerate(resolved):
         if spec.response_key in seen_keys:
@@ -797,14 +803,14 @@ class PredictionStage(Stage):
             return None
         if isinstance(val, (int, float)):
             return float(val)
-        # BUG-A01 fix: numpy arrays are not lists; check for both.
+        # numpy arrays are not lists; check for both.
         if isinstance(val, (list, np.ndarray)) and (
             len(val) > 0 if hasattr(val, '__len__') else True
         ):
             # Array value — apply reduction only when the user explicitly requested one.
             # spec.reduction=None means "expect a scalar"; return None for array values
             # so the caller can surface an informative error rather than silently
-            # collapsing the array to a mean the user didn't ask for (BUG-04 fix).
+            # collapsing the array to a mean the user didn't ask for.
             if spec.reduction is None:
                 return None
             try:
@@ -1268,7 +1274,7 @@ class PredictionStage(Stage):
                 await api.shutdown()
 
         # --- Vectorized result merge: single JOIN query, not N individual queries ---
-        # Copy so we don't mutate the caller's DataFrame (BUG-09 fix)
+        # Copy so we don't mutate the caller's DataFrame
         df = df.copy()
         if self.action in ("predict", "score"):
             # Determine which prediction_types to merge
@@ -1909,7 +1915,7 @@ class FilterStage(Stage):
         # Determine execution path: SQL-native or DataFrame-based.
         # For prediction-backed filters (ThresholdFilter, RankingFilter), look up the
         # model_name from the column registry so the SQL is scoped to the correct model
-        # and produces the same results as the DataFrame path (BUG-01 fix).
+        # and produces the same results as the DataFrame path.
         sql_query = None
         ws_table_name = "_filter_ws"
         if isinstance(self.filter_func, BaseFilter):
@@ -2489,7 +2495,7 @@ class ClusteringStage(Stage):
         # Use prediction_type=self.name (the stage name) rather than the fixed string
         # "cluster_id" — this makes each ClusteringStage produce a uniquely-named
         # column in the materialized DataFrame and prevents MAX() pivot ambiguity
-        # when two clustering stages coexist in the same pipeline (BUG-05 fix).
+        # when two clustering stages coexist in the same pipeline.
         if "cluster_id" in df_out.columns and "sequence_id" in df_out.columns:
             batch_df = df_out[["sequence_id", "cluster_id", "is_centroid"]].dropna(subset=["cluster_id"])
             batch = [

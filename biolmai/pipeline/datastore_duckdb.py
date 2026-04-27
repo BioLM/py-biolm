@@ -31,7 +31,7 @@ import pandas as pd
 
 _SAFE_COL_RE = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-# Module-level counter for unique temp table names (BUG-14 fix: id() can be reused by GC)
+# Module-level counter for unique temp table names can be reused by GC)
 import itertools as _itertools
 _TEMP_TABLE_COUNTER = _itertools.count()
 
@@ -482,7 +482,7 @@ class DuckDBDataStore:
                 self._extra_columns.add(col_name)
 
     def _refresh_extra_columns(self) -> None:
-        """Re-read extra sequence columns from the DB (BUG-06: cross-process staleness)."""
+        """Re-read extra sequence columns from the DB."""
         cols_info = self.conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'sequences'"
         ).fetchall()
@@ -919,7 +919,7 @@ class DuckDBDataStore:
 
         # Use a monotonically-increasing counter for the temp table name so that
         # if Python GC reuses a DataFrame's memory address (id(df)) between coroutine
-        # suspensions, we still get a unique name (BUG-14 fix).
+        # suspensions, we still get a unique name.
         _tmp = f"_pred_batch_{next(_TEMP_TABLE_COUNTER)}"
         self.conn.register(_tmp, df)
         try:
@@ -1212,7 +1212,7 @@ class DuckDBDataStore:
     ):
         """Mark stage as complete (or failed/skipped).
 
-        BUG-13 fix: uses INSERT ... ON CONFLICT DO NOTHING so that a stage that
+        uses INSERT ... ON CONFLICT DO NOTHING so that a stage that
         was already marked 'completed' does not get its completed_at timestamp
         overwritten on resume.  Only truly new rows are inserted.
         """
@@ -1336,7 +1336,7 @@ class DuckDBDataStore:
         return metadata_id
 
     def add_generation_metadata_batch(self, rows: list[dict]) -> None:
-        """Batch-insert generation metadata — one DuckDB round-trip (BUG-10 fix).
+        """Batch-insert generation metadata — one DuckDB round-trip.
 
         Each dict in *rows* must have at minimum ``sequence_id`` and ``model_name``.
         Optional fields: ``temperature``, ``top_k``, ``top_p``,
@@ -1411,7 +1411,7 @@ class DuckDBDataStore:
         Returns:
             Wide-format DataFrame: one row per sequence, one column per prediction type.
         """
-        # Refresh _extra_columns from DB (guards against cross-process staleness, BUG-06)
+        # Refresh _extra_columns from DB (guards against cross-process staleness)
         self._refresh_extra_columns()
 
         # Determine which prediction types to pivot
@@ -1460,7 +1460,7 @@ class DuckDBDataStore:
             )"""
 
         # Build generation metadata join.
-        # Use MAX() aggregation so multi-run sequences produce one row each (BUG-12 fix).
+        # Use MAX() aggregation so multi-run sequences produce one row each.
         # GEN-10: scope to run_id when provided to avoid pulling metadata from prior runs.
         gen_join_sql = ""
         gen_cols_sql = ""
@@ -1490,7 +1490,7 @@ class DuckDBDataStore:
         )
         # group_extra intentionally empty: generation metadata columns now use MAX()
         # aggregation and do not require GROUP BY, preserving one-row-per-sequence
-        # guarantee even when n_runs > 1 (BUG-12 fix).
+        # guarantee even when n_runs > 1.
         group_extra = ""
 
         # Discover all columns on sequences table for SELECT — use cached set
@@ -2219,7 +2219,7 @@ class DuckDBDataStore:
         if not ws:
             return pd.DataFrame(columns=["sequence_id", "sequence", "length"])
 
-        # Refresh _extra_columns from DB (guards against cross-process staleness, BUG-06)
+        # Refresh _extra_columns from DB (guards against cross-process staleness)
         self._refresh_extra_columns()
 
         ids_df = pd.DataFrame({"sequence_id": list(ws.sequence_ids)})
@@ -2689,7 +2689,7 @@ class DuckDBDataStore:
     def get_latest_run_id(self, definition_id: Optional[str] = None) -> Optional[str]:
         """Return the run_id of the most recent pipeline run.
 
-        BUG-3 fix: ``from_db()`` must reuse the existing run_id so that resume
+        ``from_db()`` must reuse the existing run_id so that resume
         can find already-completed stages.  A new run_id means no stages are
         marked complete, causing everything to re-run.
 

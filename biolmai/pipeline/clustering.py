@@ -126,7 +126,7 @@ class SequenceClusterer:
         """
         n = len(sequences)
 
-        # BUG-GEN-03 fix: validate n_clusters before calling sklearn — otherwise
+        # validate n_clusters before calling sklearn — otherwise
         # sklearn raises a cryptic error deep inside fit_predict.
         if self.n_clusters is not None and self.n_clusters > n:
             raise ValueError(
@@ -155,7 +155,6 @@ class SequenceClusterer:
         else:
             raise ValueError(
                 f"Unknown similarity_metric '{self.similarity_metric}'. "
-                # TODO: implement sequence-to-sequence similarity metrics (Hamming, edit distance, etc.)
                 "Only 'embedding' is currently supported."
             )
 
@@ -176,7 +175,7 @@ class SequenceClusterer:
 
         # Compute metrics (skip for very large datasets to save time)
         silhouette = None
-        davies_bouldin = None  # TODO: implement using embedding feature vectors (sklearn requires feature matrix, not distance matrix)
+        davies_bouldin = None
 
         if len(set(cluster_ids)) > 1 and n < LARGE_DATASET_THRESHOLD:
             try:
@@ -198,9 +197,6 @@ class SequenceClusterer:
             davies_bouldin_score=davies_bouldin,
             cluster_sizes=cluster_sizes,
         )
-
-    # TODO: implement _compute_hamming_distances() for sequence-to-sequence clustering
-    # Planned: vectorized pairwise Hamming with max_sample + sampling support
 
     def _compute_embedding_distances(self, embeddings: np.ndarray) -> np.ndarray:
         """Compute pairwise Euclidean distances between embeddings."""
@@ -242,7 +238,7 @@ class SequenceClusterer:
         )
         cluster_ids = dbscan.fit_predict(distance_matrix)
 
-        # BUG-GEN-04 fix: warn when all points are noise so the user knows to
+        # warn when all points are noise so the user knows to
         # adjust eps or min_samples rather than silently getting an empty result.
         unique_labels = set(cluster_ids)
         if unique_labels == {-1}:
@@ -374,9 +370,6 @@ class DiversityAnalyzer:
 
         return float(avg_entropy)
 
-    # TODO: implement pairwise_distance_stats() using embedding distances (not Hamming)
-    # Planned: accept embeddings array, compute Euclidean/cosine pairwise stats with max_sample support
-
     @staticmethod
     def motif_diversity(
         sequences: list[str], k: int = 3
@@ -409,8 +402,6 @@ class DiversityAnalyzer:
             "most_common": kmer_counts.most_common(5),
         }
 
-    # TODO: implement sequence_identity_matrix() using embedding cosine similarity instead of character comparison
-
     @classmethod
     def compute_all_metrics(
         cls, sequences: list[str], max_sample: Optional[int] = 10000
@@ -432,7 +423,6 @@ class DiversityAnalyzer:
                 len(set(sequences)) / len(sequences) if sequences else 0
             ),
             "shannon_entropy": cls.shannon_entropy(sequences),
-            # TODO: add pairwise_distances using embedding distances once pairwise_distance_stats() is implemented
             "motif_diversity_3mer": cls.motif_diversity(sequences, k=3),
             "motif_diversity_5mer": cls.motif_diversity(sequences, k=5),
         }

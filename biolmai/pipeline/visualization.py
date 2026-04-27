@@ -34,7 +34,7 @@ def plot_pipeline_funnel(
     Example:
         >>> plot_pipeline_funnel(pipeline.stage_results)
     """
-    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    # matplotlib imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -46,7 +46,7 @@ def plot_pipeline_funnel(
     fig, ax = plt.subplots(figsize=figsize)
 
     stages = list(stage_results.keys())
-    # BUG-GEN-02: Defensive access — StageResult may be missing input_count/output_count
+    # Defensive access — StageResult may be missing input_count/output_count
     input_counts = [getattr(r, 'input_count', None) or 0 for r in stage_results.values()]
     output_counts = [getattr(r, 'output_count', None) or 0 for r in stage_results.values()]
 
@@ -95,7 +95,7 @@ def plot_distribution(
     Example:
         >>> plot_distribution(df, 'tm', title='Tm Distribution')
     """
-    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    # matplotlib imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -108,7 +108,7 @@ def plot_distribution(
 
     data = df[column].dropna()
 
-    # BUG-VIZ-01: Guard against all-NaN column producing a silent empty plot
+    # Guard against all-NaN column producing a silent empty plot
     if data.empty:
         raise ValueError(
             f"No valid (non-NaN) data in column '{column}'. "
@@ -163,7 +163,7 @@ def plot_scatter(
     Example:
         >>> plot_scatter(df, 'tm', 'plddt', color_col='temperature')
     """
-    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    # matplotlib imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -212,7 +212,7 @@ def plot_correlation_matrix(
     Example:
         >>> plot_correlation_matrix(df, columns=['tm', 'plddt', 'solubility'])
     """
-    # BUG-GEN-01: matplotlib/seaborn imported lazily to avoid blocking imports when not installed
+    # matplotlib/seaborn imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
         import seaborn as sns
@@ -259,7 +259,7 @@ def plot_temperature_scan(
     Example:
         >>> plot_temperature_scan(df, 'tm', temperature_col='temperature')
     """
-    # BUG-GEN-01: matplotlib/seaborn imported lazily to avoid blocking imports when not installed
+    # matplotlib/seaborn imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
         import seaborn as sns
@@ -269,7 +269,7 @@ def plot_temperature_scan(
             "Install them with: pip install matplotlib seaborn"
         ) from e
 
-    # BUG-VIZ-02: Guard against missing temperature column before accessing it
+    # Guard against missing temperature column before accessing it
     if temperature_col not in df.columns:
         raise ValueError(
             f"Column '{temperature_col}' not found in DataFrame. "
@@ -324,7 +324,7 @@ def plot_embedding_pca(
         >>> embeddings = np.array([...])  # Load from datastore
         >>> plot_embedding_pca(embeddings, labels=df['temperature'])
     """
-    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    # matplotlib imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -420,7 +420,7 @@ def plot_embedding_umap(
         >>> embeddings = np.array([...])  # Load from datastore
         >>> plot_embedding_umap(embeddings, labels=df['temperature'])
     """
-    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    # matplotlib imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -485,7 +485,7 @@ def plot_sequence_diversity(
     Example:
         >>> plot_sequence_diversity(df, reference_sequence='MKTAYIAKQRQ')
     """
-    # BUG-GEN-01: matplotlib imported lazily to avoid blocking imports when not installed
+    # matplotlib imported lazily to avoid blocking imports when not installed
     try:
         import matplotlib.pyplot as plt
     except ImportError:
