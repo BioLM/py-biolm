@@ -20,6 +20,16 @@ from biolmai.io import (
     load_json,
     to_json,
 )
+
+# Pipeline system (optional dependency).  Don't crash `import biolmai` when
+# the [pipeline] extra is not installed — the pipeline namespace will simply
+# be unavailable until the user runs `pip install biolmai[pipeline]`.
+try:
+    from biolmai import pipeline
+    _HAS_PIPELINE = True
+except ImportError:
+    _HAS_PIPELINE = False
+
 from typing import Optional, Union, List, Any
 
 __all__ = [
@@ -50,6 +60,8 @@ __all__ = [
     'load_json',
     'to_json',
 ]
+if _HAS_PIPELINE:
+    __all__.append('pipeline')
 
 
 def biolm(

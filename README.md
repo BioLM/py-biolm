@@ -1,5 +1,28 @@
 # Python SDK for BioLM API
 
+## Pipeline framework (optional)
+
+`biolmai` ships an optional declarative pipeline system for protein-engineering
+workflows: chain `add_prediction` / `add_filter` / `add_clustering` calls,
+get DuckDB-backed caching, resumability, branched DAG execution, and a
+`WorkingSet` transport that scales to ~1M sequences as 28 MB of integers.
+
+```shell
+pip install 'biolmai[pipeline]'
+```
+
+```python
+from biolmai.pipeline import DataPipeline, ThresholdFilter
+
+pipeline = DataPipeline(sequences=my_sequences)
+pipeline.add_prediction("temberture-regression", extractions="prediction", columns="tm")
+pipeline.add_filter(ThresholdFilter("tm", min_value=48.0))
+pipeline.run()
+df = pipeline.get_final_data()
+```
+
+Full docs: [`biolmai/pipeline/README.md`](biolmai/pipeline/README.md) · architecture: [`biolmai/pipeline/PIPELINE_VISION_AND_ARCHITECTURE.md`](biolmai/pipeline/PIPELINE_VISION_AND_ARCHITECTURE.md).
+
 ## Development
 
 First, set up the Python environment using `pyenv`:
