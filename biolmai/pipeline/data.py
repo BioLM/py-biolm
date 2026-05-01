@@ -1261,6 +1261,12 @@ class PredictionStage(Stage):
                 )
                 _first_legacy_exc = None
                 for _lr in _legacy_results:
+                    # PipelineAPIAuthError (401/402/403) is fatal regardless of
+                    # skip_on_error — auth/billing failures must surface, not
+                    # silently produce empty results.
+                    if isinstance(_lr, PipelineAPIAuthError):
+                        _first_legacy_exc = _lr
+                        break
                     if isinstance(_lr, Exception) and not self.skip_on_error:
                         _first_legacy_exc = _lr
                         break
@@ -1558,6 +1564,9 @@ class PredictionStage(Stage):
                         if isinstance(results, dict) and (
                             "error" in results or "status_code" in results
                         ):
+                            # 401/402/403 must surface as PipelineAPIAuthError so the
+                            # post-gather loop can re-raise even when skip_on_error=True.
+                            _maybe_raise_fatal_api_error(results, self.model_name)
                             logger.warning(
                                 "API returned error dict for batch %d: %s", batch_idx, results
                             )
@@ -1714,8 +1723,14 @@ class PredictionStage(Stage):
                 # When skip_on_error=True, _dispatch_batch never re-raises, so any
                 # Exception in gather_results means it propagated from outside the
                 # try/except in _dispatch_batch (unexpected error).
+                # PipelineAPIAuthError (401/402/403) is fatal regardless of
+                # skip_on_error — auth/billing failures must surface, not silently
+                # produce empty results.
                 first_exc = None
                 for gr in gather_results:
+                    if isinstance(gr, PipelineAPIAuthError):
+                        first_exc = gr
+                        break
                     if isinstance(gr, Exception):
                         if not self.skip_on_error:
                             first_exc = gr

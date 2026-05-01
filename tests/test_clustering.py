@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("duckdb")
 
 import unittest
+import warnings
 
 import numpy as np
 
@@ -43,14 +44,56 @@ class TestSequenceClusterer(unittest.TestCase):
         self.assertEqual(result.n_clusters, 3)
         self.assertEqual(len(result.centroids), 3)
 
-    def test_dbscan_clustering(self):
-        """Test DBSCAN clustering with embeddings."""
-        clusterer = SequenceClusterer(method="dbscan", eps=5.0, min_samples=2, similarity_metric="embedding")
-        result = clusterer.cluster(self.sequences, embeddings=self.embeddings)
+    def test_dbscan_clustering_forms_real_clusters(self):
+        """Test DBSCAN clustering with embeddings that form real (non-noise) clusters.
+
+        Two tight groups are placed far apart so DBSCAN finds at least one
+        real cluster (label != -1).  eps=2.0 is comfortably larger than the
+        within-cluster spread (~0.1) and much smaller than the between-cluster
+        distance (10*sqrt(64) ≈ 80), so no UserWarning should be emitted.
+        """
+        np.random.seed(42)
+        n_dim = 64
+        # Group A: 4 points near the origin
+        group_a = np.random.randn(4, n_dim) * 0.1
+        # Group B: 4 points near [10, 10, …]
+        group_b = np.random.randn(4, n_dim) * 0.1 + 10.0
+        embeddings = np.vstack([group_a, group_b])
+        sequences = self.sequences  # 7 seqs; we use only the 8 embeddings rows
+        # Use 8 sequences to match the 8 embeddings
+        sequences_8 = self.sequences + ["GGGGGGGGGG"]  # pad to 8
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # any UserWarning becomes an error
+            clusterer = SequenceClusterer(
+                method="dbscan", eps=2.0, min_samples=2, similarity_metric="embedding"
+            )
+            result = clusterer.cluster(sequences_8, embeddings=embeddings)
 
         self.assertIsInstance(result, ClusteringResult)
-        self.assertEqual(len(result.cluster_ids), len(self.sequences))
-        self.assertTrue(result.n_clusters >= 1)
+        self.assertEqual(len(result.cluster_ids), len(sequences_8))
+        # Must contain at least one real cluster (label != -1)
+        non_noise = {cid for cid in result.cluster_ids if cid != -1}
+        self.assertGreater(len(non_noise), 0, "Expected at least one real cluster, got all noise")
+        self.assertGreaterEqual(result.n_clusters, 1)
+
+    def test_dbscan_all_noise_warns(self):
+        """Test that DBSCAN emits a UserWarning when all points are noise.
+
+        eps=0.001 is far smaller than any pairwise distance between the random
+        embeddings in setUp, so every point becomes noise (label=-1).
+        """
+        np.random.seed(42)
+        embeddings = np.random.randn(len(self.sequences), 64)
+
+        with pytest.warns(UserWarning, match="0 valid clusters"):
+            clusterer = SequenceClusterer(
+                method="dbscan", eps=0.001, min_samples=2, similarity_metric="embedding"
+            )
+            result = clusterer.cluster(self.sequences, embeddings=embeddings)
+
+        self.assertIsInstance(result, ClusteringResult)
+        self.assertEqual(set(result.cluster_ids), {-1}, "All points should be noise")
 
     def test_hierarchical_clustering(self):
         """Test hierarchical clustering with embeddings."""

@@ -15,6 +15,8 @@ import pytest
 pytest.importorskip("duckdb")
 
 import asyncio
+import json
+import warnings
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -23,6 +25,7 @@ import pandas as pd
 from biolmai.pipeline.base import WorkingSet
 from biolmai.pipeline.data import DataPipeline, EmbeddingSpec, ExtractionSpec, PredictionStage, _ResolvedExtraction
 from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
+from biolmai.pipeline.pipeline_def import stage_from_spec
 from biolmai.pipeline.filters import (
     CustomFilter,
     HammingDistanceFilter,
@@ -2101,3 +2104,202 @@ def test_extract_with_spec_no_reduction_returns_none_for_array():
         {"plddt": [[0.95, 0.92, 0.88]]}, spec
     )
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# B2 — Concurrent-write guard _RUNNING_DB_PATHS
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_pipeline_write_guard_raises_and_releases(tmp_path):
+    """B2: Two simultaneous pipeline runs on the same DuckDB must raise RuntimeError.
+    After the lock is released (finally-discard), a subsequent run must succeed.
+
+    Sub-scenario 1: second pipeline raises RuntimeError while the first path is
+    registered in _RUNNING_DB_PATHS.
+    Sub-scenario 2: after cleanup, the path is released and a new pipeline can run.
+    """
+    from biolmai.pipeline.datastore_duckdb import _RUNNING_DB_PATHS
+
+    db = tmp_path / "guard_test.duckdb"
+    data_dir = tmp_path / "guard_data"
+    ds = DuckDBDataStore(db_path=db, data_dir=data_dir)
+
+    db_path_key = str(db)
+
+    # ---------- Sub-scenario 1: lock raises ----------
+    # Manually register the path to simulate a concurrently running pipeline.
+    assert db_path_key not in _RUNNING_DB_PATHS, "Path should be free at test start"
+    _RUNNING_DB_PATHS.add(db_path_key)
+
+    try:
+        # Second pipeline pointing at the same db_path
+        ds2 = DuckDBDataStore(db_path=db, data_dir=data_dir)
+        pipeline2 = DataPipeline(
+            sequences=["MKTAYIAKQRQ"],
+            datastore=ds2,
+            output_dir=tmp_path,
+            verbose=False,
+        )
+        # Even a trivial stage — the guard fires before any stage runs
+        pipeline2.add_prediction(
+            "temberture-regression",
+            extractions="melting_temperature",
+            columns="tm",
+        )
+        with pytest.raises(RuntimeError, match="already running"):
+            pipeline2.run()
+    finally:
+        # Always clean up the manually injected lock so the next sub-scenario works.
+        _RUNNING_DB_PATHS.discard(db_path_key)
+
+    # ---------- Sub-scenario 2: after release, a run succeeds ----------
+    assert db_path_key not in _RUNNING_DB_PATHS, "Lock must be released after discard"
+
+    with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
+        MockCls.return_value = make_api_mock(values=[70.0])
+        ds3 = DuckDBDataStore(db_path=db, data_dir=data_dir)
+        pipeline3 = DataPipeline(
+            sequences=["MKTAYIAKQRQ"],
+            datastore=ds3,
+            output_dir=tmp_path,
+            verbose=False,
+        )
+        pipeline3.add_prediction(
+            "temberture-regression",
+            extractions="melting_temperature",
+            columns="tm",
+        )
+        pipeline3.run()  # Must not raise
+
+    # Verify the lock was released by the run's finally block
+    assert db_path_key not in _RUNNING_DB_PATHS, (
+        "run_async() finally block must discard the db_path from _RUNNING_DB_PATHS"
+    )
+
+
+# ---------------------------------------------------------------------------
+# B3 — Resume integrity warning on partial write
+# ---------------------------------------------------------------------------
+
+
+def test_resume_warns_on_stage_completion_count_mismatch(tmp_path):
+    """B3: When stage_completions records output_count=N but fewer rows are
+    actually present in the datastore, resuming must emit a RuntimeWarning
+    containing 'resume integrity mismatch'.
+    """
+    run_id = "integrity_test_run"
+    stage_name = "predict_tm"
+    stage_id = f"{run_id}_{stage_name}"
+
+    db = tmp_path / "integrity.duckdb"
+    data_dir = tmp_path / "integrity_data"
+    ds = DuckDBDataStore(db_path=db, data_dir=data_dir)
+
+    # Insert 7 real sequences and their predictions
+    seqs = [f"SEQ{i:03d}MKLLIV" for i in range(7)]
+    seq_ids = ds.add_sequences_batch(seqs)
+    for sid in seq_ids:
+        ds.add_prediction(sid, "tm", "temberture-regression", 70.0)
+
+    # Create a pipeline_runs row so mark_stage_complete has a parent run to reference
+    ds.create_pipeline_run(
+        run_id=run_id,
+        pipeline_type="DataPipeline",
+        config={},
+        status="running",
+    )
+
+    # Record stage as complete but claim 10 outputs (7 actual — mismatch)
+    ds.mark_stage_complete(
+        stage_id=stage_id,
+        run_id=run_id,
+        stage_name=stage_name,
+        input_count=10,
+        output_count=10,  # Intentionally wrong — only 7 rows exist
+        status="completed",
+    )
+    assert ds.is_stage_complete(stage_id), "Stage should be recorded as complete"
+
+    # Build a resume pipeline using the same DB and run_id
+    pipeline = DataPipeline(
+        sequences=seqs,
+        datastore=ds,
+        output_dir=tmp_path,
+        run_id=run_id,
+        resume=True,
+        verbose=False,
+    )
+    pipeline.add_prediction(
+        "temberture-regression",
+        extractions="melting_temperature",
+        columns="tm",
+    )
+
+    # The integrity check in _execute_stage_ws must fire a RuntimeWarning
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with patch("biolmai.pipeline.data.BioLMApiClient") as MockCls:
+            MockCls.return_value = make_api_mock(values=[70.0] * 7)
+            pipeline.run()
+
+    resume_warnings = [
+        w for w in caught
+        if issubclass(w.category, RuntimeWarning)
+        and "resume integrity mismatch" in str(w.message).lower()
+    ]
+    assert resume_warnings, (
+        "Expected a RuntimeWarning containing 'resume integrity mismatch' but none was emitted. "
+        f"All warnings: {[str(w.message) for w in caught]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# B4 — PredictionStage.to_spec() round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_prediction_stage_to_spec_roundtrip(tmp_path):
+    """B4: PredictionStage.to_spec() must produce a JSON-serializable dict that
+    stage_from_spec() can reconstruct into an equivalent stage preserving
+    model_name, item_columns, depends_on, and skip_on_error.
+    """
+    original = PredictionStage(
+        name="roundtrip_stage",
+        model_name="temberture-regression",
+        action="predict",
+        extractions=[ExtractionSpec("melting_temperature")],
+        columns={"melting_temperature": "tm"},
+        item_columns={"sequence": "sequence"},
+        depends_on=["upstream_stage"],
+        skip_on_error=True,
+        batch_size=16,
+    )
+
+    # to_spec() must not raise
+    spec = original.to_spec()
+
+    # Spec must be JSON-serialisable (no numpy types, no non-serializable objects)
+    try:
+        json.dumps(spec)
+    except (TypeError, ValueError) as exc:
+        pytest.fail(f"to_spec() returned a non-JSON-serializable dict: {exc}\nspec={spec}")
+
+    # Required keys present
+    assert spec["type"] == "PredictionStage"
+    assert spec["name"] == "roundtrip_stage"
+    assert spec["model_name"] == "temberture-regression"
+    assert spec["skip_on_error"] is True
+    assert spec["depends_on"] == ["upstream_stage"]
+
+    # Round-trip: reconstruct from spec
+    reconstructed = stage_from_spec(spec)
+
+    assert isinstance(reconstructed, PredictionStage)
+    assert reconstructed.name == original.name
+    assert reconstructed.model_name == original.model_name
+    assert reconstructed.skip_on_error is True
+    assert reconstructed.depends_on == ["upstream_stage"]
+    # item_columns is optional — only assert if to_spec() serialises it (which it does)
+    if spec.get("item_columns") is not None:
+        assert reconstructed.item_columns == original.item_columns

@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, patch
 import pandas as pd
 import pytest
 
-from biolmai.pipeline.data import DataPipeline, FilterStage, PredictionStage
+from biolmai.pipeline.base import WorkingSet
+from biolmai.pipeline.data import DataPipeline, FilterStage, PipelineAPIAuthError, PredictionStage
 from biolmai.pipeline.datastore import DataStore
 from biolmai.pipeline.filters import ThresholdFilter
 
@@ -548,6 +549,126 @@ class TestDatastoreLifecycle:
         del pipeline
         # User-provided datastore should still be usable.
         assert ds.add_sequence("ACDEFG") is not None
+
+
+# ---------------------------------------------------------------------------
+# B1 — PipelineAPIAuthError fail-fast bypasses skip_on_error
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineAPIAuthError:
+    """B1: 401/402 API responses must raise PipelineAPIAuthError even when
+    skip_on_error=True.  auth/billing failures are not per-item — every
+    subsequent batch will hit the same upstream error, so the pipeline must
+    fail fast rather than silently producing an empty result."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_401_raises_even_with_skip_on_error_true(self, datastore):
+        """401 Unauthorized must bubble out of process() regardless of skip_on_error."""
+        stage = PredictionStage(
+            name="test_auth_401",
+            model_name="temberture-regression",
+            action="predict",
+            extractions="melting_temperature",
+            columns="tm",
+            skip_on_error=True,  # This must NOT swallow PipelineAPIAuthError
+        )
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ", "ACDEFGHIKLM"]})
+
+        auth_error_payload = {
+            "status_code": 401,
+            "error": "Unauthorized",
+            "code": "auth_failed",
+        }
+
+        class UnauthorizedMockClient:
+            async def predict(self, items, params=None):
+                # Simulate API returning a top-level error dict for 401
+                return auth_error_payload
+
+            async def shutdown(self):
+                pass
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=UnauthorizedMockClient()):
+            with pytest.raises(PipelineAPIAuthError) as exc_info:
+                await stage.process(df, datastore)
+
+        assert exc_info.value.status_code == 401
+        assert "temberture-regression" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_auth_error_402_raises_even_with_skip_on_error_true(self, datastore):
+        """402 billing-cap must bubble out of process() regardless of skip_on_error."""
+        stage = PredictionStage(
+            name="test_auth_402",
+            model_name="temberture-regression",
+            action="predict",
+            extractions="melting_temperature",
+            columns="tm",
+            skip_on_error=True,  # This must NOT swallow PipelineAPIAuthError
+        )
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ", "ACDEFGHIKLM"]})
+
+        billing_error_payload = {
+            "status_code": 402,
+            "error": "Billing cap exceeded",
+            "code": "billing_cap",
+        }
+
+        class BillingCapMockClient:
+            async def predict(self, items, params=None):
+                # Simulate API returning a top-level error dict for 402
+                return billing_error_payload
+
+            async def shutdown(self):
+                pass
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=BillingCapMockClient()):
+            with pytest.raises(PipelineAPIAuthError) as exc_info:
+                await stage.process(df, datastore)
+
+        assert exc_info.value.status_code == 402
+        assert "temberture-regression" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_auth_error_raises_in_process_ws_modern_path(self, datastore):
+        """The modern process_ws() path has its own asyncio.gather with the same
+        skip_on_error gate as legacy process(); auth errors must surface here too.
+        Without this test, the second gather site at data.py:1708-1730 silently
+        swallows PipelineAPIAuthError when skip_on_error=True."""
+        stage = PredictionStage(
+            name="test_auth_ws_401",
+            model_name="temberture-regression",
+            action="predict",
+            extractions="melting_temperature",
+            columns="tm",
+            skip_on_error=True,
+        )
+
+        seq_ids = [datastore.add_sequence(s) for s in ("MKTAYIAKQRQ", "ACDEFGHIKLM")]
+        ws = WorkingSet(sequence_ids=frozenset(seq_ids))
+
+        auth_error_payload = {
+            "status_code": 401,
+            "error": "Unauthorized",
+            "code": "auth_failed",
+        }
+
+        class UnauthorizedMockClient:
+            async def predict(self, items, params=None):
+                return auth_error_payload
+
+            async def shutdown(self):
+                pass
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=UnauthorizedMockClient()):
+            with pytest.raises(PipelineAPIAuthError) as exc_info:
+                await stage.process_ws(ws, datastore, run_id="test-run", verbose=False)
+
+        assert exc_info.value.status_code == 401
+        assert "temberture-regression" in str(exc_info.value)
 
 
 if __name__ == "__main__":

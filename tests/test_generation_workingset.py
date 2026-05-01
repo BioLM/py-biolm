@@ -509,3 +509,56 @@ class TestWorkingSetProperties:
 
         combined = ws1.union(ws2)
         assert len(combined) == 2
+
+
+# ---------------------------------------------------------------------------
+# A4.  _extract_sequences 4-format unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestExtractSequences:
+    """A4 — _extract_sequences handles the four documented response formats."""
+
+    def test_extract_sequences_bare_dict(self):
+        """Single bare dict (MPNN with unwrap_single=True) → list of one dict."""
+        raw = {"sequence": "MKTAY"}
+        result = GenerationStage._extract_sequences(raw)
+        assert len(result) == 1
+        assert result[0]["sequence"] == "MKTAY"
+
+    def test_extract_sequences_flat_list_mpnn(self):
+        """Flat list (MPNN, multiple results) → both sequences extracted."""
+        raw = [{"sequence": "MKTAY"}, {"sequence": "MKLLIV"}]
+        result = GenerationStage._extract_sequences(raw)
+        seqs = [r["sequence"] for r in result]
+        assert "MKTAY" in seqs
+        assert "MKLLIV" in seqs
+        assert len(result) == 2
+
+    def test_extract_sequences_antifold_nested(self):
+        """AntiFold nested format: heavy+light → sequence joined with ':'.
+
+        The resulting dicts must include sequence='EVQLVES:DIQMTQS',
+        heavy_chain='EVQLVES', and light_chain='DIQMTQS'.
+        """
+        raw = [
+            {
+                "sequences": [
+                    {"heavy": "EVQLVES", "light": "DIQMTQS", "score": 0.9}
+                ]
+            }
+        ]
+        result = GenerationStage._extract_sequences(raw)
+        assert len(result) == 1
+        rec = result[0]
+        assert rec["sequence"] == "EVQLVES:DIQMTQS"
+        assert rec["heavy_chain"] == "EVQLVES"
+        assert rec["light_chain"] == "DIQMTQS"
+
+    def test_extract_sequences_dsm_double_nested(self):
+        """DSM double-nested format: [[{sequence, log_prob}]] → flat list."""
+        raw = [[{"sequence": "MKTAY", "log_prob": -1.2}]]
+        result = GenerationStage._extract_sequences(raw)
+        assert len(result) == 1
+        assert result[0]["sequence"] == "MKTAY"
+        assert result[0]["log_prob"] == -1.2
