@@ -212,7 +212,14 @@ class TestPR101Regressions:
         """DuckDBDataStore() with no args must place the DB under HOME, not CWD.
 
         Redirects HOME to tmp_path to avoid polluting ~/.biolmai/.
-        Even with a redirected HOME the path must not start with CWD.
+
+        We can't use a "not str(db_path).startswith(str(cwd))" check because on
+        CI tmp_path is created under CWD. Instead we assert the structural
+        invariants that the regression we're guarding against (placing the DB
+        at "./pipeline.duckdb" relative to CWD) would violate:
+          * the path is anchored to (patched) HOME, not CWD
+          * the path matches the .biolmai/pipelines/<name>.duckdb pattern
+          * the filename is not "pipeline.duckdb" (the old buggy default)
         """
         # Redirect HOME so we don't touch the real ~/.biolmai directory.
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -223,18 +230,26 @@ class TestPR101Regressions:
             with pytest.warns(UserWarning) as warning_info:
                 store = DuckDBDataStore()
             try:
-                db_path = store.db_path
+                db_path = Path(store.db_path)
 
-                # Must be under (redirected) home
+                # Must be under (patched) HOME — proves anchoring is to home,
+                # not to CWD (the regression we're guarding against).
                 expected_root = tmp_path / ".biolmai"
                 assert str(db_path).startswith(str(expected_root)), (
                     f"db_path {db_path!r} should start with {expected_root!r}"
                 )
 
-                # Must NOT be under CWD
-                cwd = Path.cwd()
-                assert not str(db_path).startswith(str(cwd)), (
-                    f"db_path {db_path!r} must not be under CWD {cwd!r}"
+                # Structural pattern: <home>/.biolmai/pipelines/<name>.duckdb
+                assert db_path.parent.name == "pipelines", (
+                    f"db_path {db_path!r} parent should be 'pipelines'"
+                )
+                assert db_path.parent.parent.name == ".biolmai", (
+                    f"db_path {db_path!r} grandparent should be '.biolmai'"
+                )
+                # Regression guard: the old buggy default was "./pipeline.duckdb"
+                # at CWD root. Even if anchoring broke, we'd notice this filename.
+                assert db_path.name != "pipeline.duckdb", (
+                    f"db_path {db_path!r} uses the old buggy filename"
                 )
 
                 # Warning message must mention the path or ~/.biolmai
