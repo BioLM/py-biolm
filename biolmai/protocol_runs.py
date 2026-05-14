@@ -256,7 +256,7 @@ class ProtocolRun:
             Download response dict from the API.
         """
         return self._client._get(
-            f"runs/{self.run_id}/download/", params={"format": format}
+            f"runs/{self.run_id}/download/", params={"output": format}
         )
 
     def download_files(
@@ -291,7 +291,7 @@ class ProtocolRun:
                 rows=list(range(1, 11)),  # first 10 rows
             )
         """
-        params: Dict[str, Any] = {"format": "urls"}
+        params: Dict[str, Any] = {"output": "urls"}
         if columns:
             params["columns"] = ",".join(columns)
         if rows:
