@@ -8,6 +8,7 @@ from biolmai.biolmai import BioLM
 from biolmai.models import Model, predict, encode, generate
 from biolmai.protocols import Protocol
 from biolmai.finetune import Finetune
+from biolmai.protocol_runs import ProtocolClient, ProtocolRun, ProtocolRunError, ProtocolNotFoundError
 from biolmai.workspaces import Workspace
 from biolmai.volumes import Volume
 from biolmai.examples import get_example, list_models
@@ -45,6 +46,12 @@ __all__ = [
     'Finetune',
     'Workspace',
     'Volume',
+    # Protocol Submission API
+    'ProtocolClient',
+    'ProtocolRun',
+    'ProtocolRunError',
+    'ProtocolNotFoundError',
+    'run_protocol',
     # Convenience functions
     'predict',
     'encode',
@@ -64,6 +71,60 @@ __all__ = [
 ]
 if _HAS_PIPELINE:
     __all__.append('pipeline')
+
+
+def run_protocol(
+    slug: str,
+    inputs: dict,
+    *,
+    run_name: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    poll_interval: float = 5.0,
+    timeout: float = 3600.0,
+    show_progress: bool = True,
+) -> dict:
+    """Submit a BioLM protocol run and block until results are ready.
+
+    One-liner convenience wrapper around :class:`ProtocolClient`.
+
+    Args:
+        slug: Protocol slug (e.g. ``"antibody-optimization"``).
+        inputs: Dict of input field values. Use
+            ``ProtocolClient().get(slug)["inputs_schema"]`` to discover required fields.
+        run_name: Optional human-readable label.
+        api_key: BioLM API token. Reads ``BIOLMAI_TOKEN`` env var if not provided.
+        base_url: Override API base domain (default ``https://biolm.ai``).
+        poll_interval: Seconds between progress polls (default 5).
+        timeout: Max seconds to wait before raising :class:`TimeoutError` (default 3600).
+        show_progress: Print progress updates to stdout (default True).
+
+    Returns:
+        The results payload (``return_json``) from the completed run.
+
+    Raises:
+        :class:`ProtocolRunError`: If the run fails or is cancelled.
+        :class:`TimeoutError`: If ``timeout`` is exceeded.
+
+    Example::
+
+        import biolmai
+
+        results = biolmai.run_protocol(
+            "antibody-optimization",
+            inputs={"sequence": "MKTAYIAKQRQ", "n_rounds": 3},
+        )
+        print(results["designed_sequences"])
+    """
+    client = ProtocolClient(api_key=api_key, base_url=base_url)
+    return client.run_and_wait(
+        slug,
+        inputs,
+        run_name=run_name,
+        poll_interval=poll_interval,
+        timeout=timeout,
+        show_progress=show_progress,
+    )
 
 
 def biolm(
