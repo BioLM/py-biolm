@@ -20,15 +20,15 @@ Usage::
         run_name="my first run",
     )
 
-    # Option A — block until complete
+    # Option A — block until complete, then download results
     run.wait()
-    print(run.results())
+    path = run.download(output_dir="./results")  # saves ALY_xxx_results.csv.zip
 
-    # Option B — one-liner
-    results = client.run_and_wait("antibody-optimization", inputs={"sequence": "MKTAYIAKQRQ"})
+    # Option B — one-liner (returns run detail dict)
+    detail = client.run_and_wait("antibody-optimization", inputs={"sequence": "MKTAYIAKQRQ"})
 
-    # Download structure files after completion
-    paths = run.download_files(output_dir="./structures", columns=["designed_pdb"])
+    # Download the compressed results file
+    path = run.download(output_dir="./results", file_type="jsonl")
 """
 
 import json
@@ -118,25 +118,20 @@ class ProtocolRun:
         return self
 
     def progress(self) -> Dict[str, Any]:
-        """Return a live progress snapshot for this run.
+        """Return the current status and WebSocket channel for this run.
 
-        Reads from the same event log as the browser console's live view.
+        For live progress events (log lines, task statuses, per-step updates),
+        subscribe to the WebSocket channel returned in ``channel_id`` — the
+        same channel the browser console uses.
 
         Returns:
             Dict with keys:
 
             - ``status`` — current run status
-            - ``progress_pct`` — 0–100 integer, or ``None`` if not yet available
-            - ``tasks`` — list of per-task dicts (``name``, ``status``,
-              ``completed_subtasks``, ``total_subtasks``, ``failed_subtasks``)
-            - ``log_lines`` — last 50 log lines (newest last)
-            - ``result_row_count`` — rows emitted so far, or ``None``
+            - ``channel_id`` — WebSocket pub/sub channel for live events
+              (e.g. ``telemetry_ALY_...``). Connect to ``/ws/`` and subscribe.
         """
         return self._client._get(f"runs/{self.run_id}/progress/")
-
-    def log_lines(self) -> List[str]:
-        """Convenience wrapper — returns the latest log lines from :meth:`progress`."""
-        return self.progress().get("log_lines", [])
 
     # ------------------------------------------------------------------
     # Blocking wait
@@ -170,7 +165,7 @@ class ProtocolRun:
             print(run.results())
         """
         deadline = time.monotonic() + timeout
-        last_pct: Optional[int] = None
+        last_status: Optional[str] = None
 
         while True:
             if time.monotonic() > deadline:
@@ -181,8 +176,9 @@ class ProtocolRun:
 
             try:
                 snap = self.progress()
+                self.status = snap.get("status", self.status)
             except Exception:
-                # Network blip — refresh plain status and retry
+                # Network blip — fall back to detail endpoint for status
                 try:
                     self.refresh()
                 except Exception:
@@ -190,18 +186,9 @@ class ProtocolRun:
                 time.sleep(poll_interval)
                 continue
 
-            self.status = snap.get("status", self.status)
-            pct: Optional[int] = snap.get("progress_pct")
-            tasks: List[Dict] = snap.get("tasks", [])
-
-            if show_progress and pct != last_pct:
-                running = [t["name"] for t in tasks if t.get("status") == "running"]
-                if pct is not None:
-                    suffix = f" — {running[0]}" if running else ""
-                    print(f"  [{self.run_id}] {pct:>3}%{suffix}")
-                elif running:
-                    print(f"  [{self.run_id}] running: {', '.join(running)}")
-                last_pct = pct
+            if show_progress and self.status != last_status:
+                print(f"  [{self.run_id}] {self.status}")
+                last_status = self.status
 
             if self.status in ("succeeded", "failed", "cancelled"):
                 break
@@ -228,16 +215,19 @@ class ProtocolRun:
     # ------------------------------------------------------------------
 
     def results(self) -> Dict[str, Any]:
-        """Fetch the full run detail including the results payload.
+        """Fetch the run detail (status, timestamps, failure info).
+
+        The actual result data (CSV/JSONL rows) is in the download stream —
+        use :meth:`download` to save the compressed results file locally.
 
         Returns:
             Dict with keys:
 
             - ``run_id``, ``protocol_slug``, ``protocol_version``
             - ``status``
-            - ``results`` — the ``return_json`` from the server (may be large)
+            - ``results`` — mapped output fields (may be empty if no response_mapping)
             - ``failure_error`` — error message if failed, else ``None``
-            - ``workflow_started_at``, ``workflow_ended_at``, ``expires_at``
+            - ``workflow_started_at``, ``workflow_ended_at``
         """
         return self._client._get(f"runs/{self.run_id}/")
 
@@ -245,81 +235,80 @@ class ProtocolRun:
     # Downloads
     # ------------------------------------------------------------------
 
-    def download(self, format: str = "json") -> Dict[str, Any]:
-        """Fetch the download response for this run.
+    def download(
+        self,
+        output_dir: Union[str, Path] = ".",
+        file_type: str = "csv",
+        overwrite: bool = False,
+    ) -> Path:
+        """Download the compressed results file for this run.
+
+        Streams the results zip (CSV or JSONL) directly from the server and
+        saves it to ``output_dir``.
 
         Args:
-            format: ``"json"`` (default) returns ``results`` inline.
-                    ``"urls"`` returns presigned R2 URLs for structure files.
+            output_dir: Directory to save the file. Created if it does not exist.
+                Default ``"."`` (current directory).
+            file_type: ``"csv"`` (default) or ``"jsonl"``. Selects which
+                compressed results file to download.
+            overwrite: Re-download if the file already exists. Default ``False``.
 
         Returns:
-            Download response dict from the API.
+            :class:`pathlib.Path` to the downloaded zip file.
+
+        Raises:
+            :class:`ProtocolRunError`: If the run has not yet succeeded or the
+                download fails.
+
+        Example::
+
+            path = run.download(output_dir="./results")
+            # path → PosixPath('./results/ALY_xxx_results.csv.zip')
         """
-        return self._client._get(
-            f"runs/{self.run_id}/download/", params={"output": format}
-        )
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        dest = out / f"{self.run_id}_results.{file_type}.zip"
+
+        if dest.exists() and not overwrite:
+            return dest
+
+        url = self._client._url(f"runs/{self.run_id}/download/")
+        params = {"file_type": file_type}
+        with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as http:
+            with http.stream(
+                "GET", url, headers=self._client._headers(), params=params
+            ) as resp:
+                if resp.status_code == 400:
+                    raise ProtocolRunError(
+                        f"Run {self.run_id} is not complete — cannot download yet."
+                    )
+                if not resp.is_success:
+                    raise ProtocolRunError(
+                        f"Download failed: {resp.status_code} {resp.text[:200]}"
+                    )
+                with dest.open("wb") as f:
+                    for chunk in resp.iter_bytes(chunk_size=65536):
+                        f.write(chunk)
+
+        return dest
 
     def download_files(
         self,
         output_dir: Union[str, Path] = ".",
-        columns: Optional[List[str]] = None,
-        rows: Optional[List[int]] = None,
+        file_type: str = "csv",
         overwrite: bool = False,
-    ) -> List[Path]:
-        """Download structure files (PDB/CIF) to a local directory.
-
-        Fetches presigned R2 download URLs for the specified columns and rows,
-        then saves each file as ``{output_dir}/{row}_{column}.{ext}``.
+    ) -> Path:
+        """Alias for :meth:`download` — downloads the compressed results file.
 
         Args:
-            output_dir: Directory to save files. Created if it does not exist.
-                Default ``"."`` (current directory).
-            columns: Structure column names to download, e.g. ``["pdb", "designed_pdb"]``.
-                Defaults to auto-detecting structure columns from the results.
-            rows: 1-based row numbers to download. Defaults to all rows up to 500.
-            overwrite: Re-download files that already exist. Default ``False``.
+            output_dir: Directory to save the file. Default ``"."``.
+            file_type: ``"csv"`` (default) or ``"jsonl"``.
+            overwrite: Re-download if already exists. Default ``False``.
 
         Returns:
-            List of :class:`pathlib.Path` objects for every file that was written
-            (or already existed when ``overwrite=False``).
-
-        Example::
-
-            paths = run.download_files(
-                output_dir="./structures",
-                columns=["designed_pdb"],
-                rows=list(range(1, 11)),  # first 10 rows
-            )
+            :class:`pathlib.Path` to the downloaded zip file.
         """
-        params: Dict[str, Any] = {"output": "urls"}
-        if columns:
-            params["columns"] = ",".join(columns)
-        if rows:
-            params["rows"] = ",".join(str(r) for r in rows)
-
-        url_data = self._client._get(f"runs/{self.run_id}/download/", params=params)
-        urls: Dict[str, Dict] = url_data.get("urls", {})
-        if not urls:
-            return []
-
-        out = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
-
-        downloaded: List[Path] = []
-        with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as http:
-            for row_str, col_map in urls.items():
-                for col, info in col_map.items():
-                    ext = "cif" if "cif" in col else "pdb"
-                    dest = out / f"{row_str}_{col}.{ext}"
-                    if dest.exists() and not overwrite:
-                        downloaded.append(dest)
-                        continue
-                    resp = http.get(info["url"])
-                    resp.raise_for_status()
-                    dest.write_bytes(resp.content)
-                    downloaded.append(dest)
-
-        return downloaded
+        return self.download(output_dir=output_dir, file_type=file_type, overwrite=overwrite)
 
     # ------------------------------------------------------------------
     # Cancel
@@ -680,7 +669,8 @@ class ProtocolClient:
             show_progress: Print progress updates (default True).
 
         Returns:
-            The ``results`` payload (``return_json``) from the completed run.
+            Run detail dict (``run_id``, ``status``, timestamps, etc.).
+            For the actual result rows, call ``run.download()`` after this returns.
 
         Raises:
             :class:`ProtocolRunError`: If the run fails or is cancelled.
@@ -688,14 +678,12 @@ class ProtocolClient:
 
         Example::
 
-            results = client.run_and_wait(
-                "antibody-optimization",
-                inputs={"sequence": "MKTAYIAKQRQ", "n_rounds": 5},
-            )
-            print(results["designed_sequences"])
+            run = client.submit("antibody-optimization", inputs={"sequence": "MKTAYIAKQRQ"})
+            run.wait()
+            path = run.download(output_dir="./results")  # saves the CSV zip
         """
         run = self.submit(slug, inputs, run_name=run_name)
         if show_progress:
             print(f"Submitted: {run.run_id}  [{slug}]")
         run.wait(poll_interval=poll_interval, timeout=timeout, show_progress=show_progress)
-        return run.results().get("results", {})
+        return run.results()
