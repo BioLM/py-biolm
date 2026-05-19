@@ -31,9 +31,10 @@ Usage::
     path = run.download(output_dir="./results", file_type="jsonl")
 """
 
+import io
 import json
 import os
-import time
+import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -164,53 +165,90 @@ class ProtocolRun:
             run.wait(poll_interval=10, timeout=7200)
             print(run.results())
         """
-        deadline = time.monotonic() + timeout
-        last_status: Optional[str] = None
+        # Fetch channel_id for this run (single HTTP call — not a poll loop)
+        snap = self.progress()
+        self.status = snap.get("status", self.status)
+        channel_id = snap.get("channel_id", f"telemetry_{self.run_id}")
 
-        while True:
-            if time.monotonic() > deadline:
-                raise TimeoutError(
-                    f"Protocol run {self.run_id} did not complete within {timeout:.0f}s. "
-                    "Increase timeout= or poll manually with run.progress()."
-                )
-
-            try:
-                snap = self.progress()
-                self.status = snap.get("status", self.status)
-            except Exception:
-                # Network blip — fall back to detail endpoint for status
-                try:
-                    self.refresh()
-                except Exception:
-                    pass
-                time.sleep(poll_interval)
-                continue
-
+        if self.status in ("succeeded", "failed", "cancelled"):
             if show_progress:
                 pct = snap.get("progress_pct")
                 pct_str = f" {pct}%" if pct is not None else ""
                 print(f"  [{self.run_id}] {self.status}{pct_str}")
-                last_status = self.status
+            self._check_terminal()
+            return self
 
-            if self.status in ("succeeded", "failed", "cancelled"):
-                break
+        domain = self._client._base.replace("https://", "").replace("http://", "").split("/")[0]
+        ws_url = f"wss://{domain}/ws/telemetry/{channel_id}/"
 
-            time.sleep(poll_interval)
+        self._listen_ws(ws_url, show_progress=show_progress, timeout=timeout)
 
+        self._check_terminal()
+        if show_progress:
+            print(f"  [{self.run_id}] complete ✓")
+        return self
+
+    def _listen_ws(self, ws_url: str, show_progress: bool = True, timeout: float = 3600.0) -> None:
+        """Connect to the telemetry WebSocket and block until this run reaches a terminal state.
+
+        Extracted as a separate method so tests can patch it without async machinery.
+        """
+        try:
+            import asyncio
+            import websockets
+        except ImportError:
+            raise ImportError(
+                "websockets is required for run.wait(). "
+                "Install it: pip install websockets"
+            )
+
+        async def _listen():
+            extra_headers = list(self._client._headers().items())
+            async with websockets.connect(
+                ws_url,
+                additional_headers=extra_headers,
+                open_timeout=_DEFAULT_TIMEOUT,
+                close_timeout=10,
+                ping_interval=8,
+                ping_timeout=5,
+            ) as ws:
+                async for raw in ws:
+                    data = json.loads(raw) if isinstance(raw, str) else raw
+                    env = data.get("data", data) if isinstance(data, dict) else {}
+                    payload = env.get("payload", env)
+                    status = payload.get("status") or env.get("status")
+                    pct = payload.get("progress_pct") or env.get("progress_pct")
+                    if status:
+                        self.status = status
+                    if show_progress:
+                        pct_str = f" {pct}%" if pct is not None else ""
+                        print(f"  [{self.run_id}] {self.status}{pct_str}")
+                    if self.status in ("succeeded", "failed", "cancelled"):
+                        return
+
+        try:
+            asyncio.run(_listen())
+        except Exception as exc:
+            try:
+                self.refresh()
+            except Exception:
+                pass
+            if self.status not in ("succeeded", "failed", "cancelled"):
+                raise ProtocolRunError(
+                    f"WebSocket connection lost for run {self.run_id}: {exc}. "
+                    f"Last known status: {self.status}"
+                ) from exc
+
+    def _check_terminal(self) -> None:
+        """Raise if status is failed or cancelled."""
         if self.status == "failed":
             try:
                 detail = self._client._get(f"runs/{self.run_id}/").get("failure_error") or "unknown error"
             except Exception:
                 detail = "unknown error"
             raise ProtocolRunError(f"Protocol run {self.run_id} failed: {detail}")
-
         if self.status == "cancelled":
             raise ProtocolRunError(f"Protocol run {self.run_id} was cancelled.")
-
-        if show_progress:
-            print(f"  [{self.run_id}] complete ✓")
-
-        return self
 
     # ------------------------------------------------------------------
     # Results
@@ -297,76 +335,63 @@ class ProtocolRun:
     def download_files(
         self,
         output_dir: Union[str, Path] = ".",
-        columns: Optional[List[str]] = None,
+        file_type: str = "csv",
         overwrite: bool = False,
-    ) -> List[Path]:
-        """Download individual output files via presigned URLs.
-
-        Fetches the per-row / per-column URL manifest from the server and
-        downloads each file to ``output_dir``.  Files are named
-        ``{row_id}_{column_name}{ext}`` where the extension is inferred from
-        the presigned URL.
+    ) -> Path:
+        """Alias for :meth:`download` — downloads the compressed results file.
 
         Args:
-            output_dir: Directory to save files. Created if it does not exist.
-            columns: Optional list of column names to download.  If ``None``
-                (default) all columns are downloaded.
-            overwrite: Re-download files that already exist. Default ``False``.
+            output_dir: Directory to save the file. Default ``"."``.
+            file_type: ``"csv"`` (default) or ``"jsonl"``.
+            overwrite: Re-download if already exists. Default ``False``.
 
         Returns:
-            List of :class:`pathlib.Path` objects for every file (including
-            ones that were already present when ``overwrite=False``).
+            :class:`pathlib.Path` to the downloaded zip file.
+        """
+        return self.download(output_dir=output_dir, file_type=file_type, overwrite=overwrite)
 
-        Raises:
-            :class:`ProtocolRunError`: If fetching the URL manifest fails.
+    def to_dataframe(
+        self,
+        output_dir: Union[str, Path] = ".",
+        overwrite: bool = False,
+    ):
+        """Download the results zip and parse it into a :class:`pandas.DataFrame`.
+
+        Downloads the CSV zip (if not already cached) then reads the first CSV
+        file inside it.  Requires ``pandas`` — install via
+        ``pip install biolmai[pipeline]``.
+
+        Args:
+            output_dir: Where to cache the downloaded zip. Default ``"."``.
+            overwrite: Re-download even if the zip already exists.
+
+        Returns:
+            :class:`pandas.DataFrame` with one row per result record.
 
         Example::
 
-            paths = run.download_files("./structures", columns=["pdb"])
+            df = run.to_dataframe(output_dir="./results")
+            print(df.head())
         """
-        out = Path(output_dir)
-        out.mkdir(parents=True, exist_ok=True)
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError(
+                "pandas is required for run.to_dataframe(). "
+                "Install it: pip install biolmai[pipeline]"
+            )
 
-        url = self._client._url(f"runs/{self.run_id}/download/")
-        paths: List[Path] = []
+        zip_path = self.download(output_dir=output_dir, file_type="csv", overwrite=overwrite)
 
-        with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as http:
-            # 1. Fetch the URL manifest for this run
-            manifest_resp = http.get(url, headers=self._client._headers())
-            if not manifest_resp.is_success:
+        with zipfile.ZipFile(zip_path) as zf:
+            csv_names = [n for n in zf.namelist() if n.endswith(".csv")]
+            if not csv_names:
                 raise ProtocolRunError(
-                    f"Failed to fetch download URLs for run {self.run_id}: "
-                    f"{manifest_resp.status_code}"
+                    f"No CSV file found inside {zip_path.name}. "
+                    "Try run.download(file_type='jsonl') for JSONL output."
                 )
-            urls_by_row: dict = manifest_resp.json().get("urls", {})
-
-            if not urls_by_row:
-                return []
-
-            # 2. Download each (row, column) file
-            for row_id, cols in urls_by_row.items():
-                for col_name, url_info in cols.items():
-                    if columns is not None and col_name not in columns:
-                        continue
-                    file_url = url_info["url"] if isinstance(url_info, dict) else url_info
-                    # Infer file extension from the presigned URL path (before query string)
-                    ext = Path(file_url.split("?")[0]).suffix
-                    dest = out / f"{row_id}_{col_name}{ext}"
-
-                    if dest.exists() and not overwrite:
-                        paths.append(dest)
-                        continue
-
-                    file_resp = http.get(file_url)
-                    if not file_resp.is_success:
-                        raise ProtocolRunError(
-                            f"Failed to download {col_name} for row {row_id}: "
-                            f"{file_resp.status_code}"
-                        )
-                    dest.write_bytes(file_resp.content)
-                    paths.append(dest)
-
-        return paths
+            with zf.open(csv_names[0]) as f:
+                return pd.read_csv(io.TextIOWrapper(f, encoding="utf-8"))
 
     # ------------------------------------------------------------------
     # Cancel
