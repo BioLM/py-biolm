@@ -147,7 +147,8 @@ class ProtocolRun:
         """Block until this run reaches a terminal state.
 
         Args:
-            poll_interval: Seconds between progress polls. Default ``5``.
+            poll_interval: Unused — progress is tracked via WebSocket. Kept for
+                backwards-compatibility. Default ``5``.
             timeout: Maximum seconds to wait before raising
                 :class:`TimeoutError`. Default ``3600`` (1 hour).
             show_progress: Print progress lines to stdout. Default ``True``.
@@ -226,8 +227,24 @@ class ProtocolRun:
                     if self.status in ("succeeded", "failed", "cancelled"):
                         return
 
+        # Apply nest_asyncio if called from within a running event loop (e.g. Jupyter)
         try:
-            asyncio.run(_listen())
+            asyncio.get_running_loop()
+            import nest_asyncio
+            nest_asyncio.apply()
+        except RuntimeError:
+            pass  # No running loop — asyncio.run() will work normally
+
+        try:
+            asyncio.run(asyncio.wait_for(_listen(), timeout=timeout))
+        except asyncio.TimeoutError:
+            try:
+                self.refresh()
+            except Exception:
+                pass
+            raise TimeoutError(
+                f"Protocol run {self.run_id} did not complete within {timeout:.0f}s."
+            )
         except Exception as exc:
             try:
                 self.refresh()
@@ -448,10 +465,10 @@ class ProtocolClient:
         )
         print(results)
 
-        # Submit async, then download structure files
+        # Submit async, then download results
         run = client.submit("structure-prediction", inputs={"sequence": "MKLL..."})
         run.wait()
-        run.download_files("./structures", columns=["pdb"])
+        path = run.download(output_dir="./structures")
     """
 
     def __init__(

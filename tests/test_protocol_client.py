@@ -24,6 +24,7 @@ Tests are grouped into three classes:
 import io
 import os
 import time
+import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -452,6 +453,20 @@ class TestProtocolRun:
     # wait()
     # ------------------------------------------------------------------
 
+    def test_wait_already_terminal_skips_ws(self):
+        """wait() does not call _listen_ws() when run is already in a terminal state at entry."""
+        run, _ = self._make_run()
+
+        progress_snap = {"status": "succeeded", "channel_id": "telemetry_abc"}
+
+        with patch.object(run, "progress", return_value=progress_snap), \
+             patch.object(run, "_listen_ws") as mock_ws:
+            result = run.wait(show_progress=False)
+
+        mock_ws.assert_not_called()
+        assert result is run
+        assert run.status == "succeeded"
+
     def test_wait_via_ws_until_succeeded(self):
         """wait() calls progress() once for channel_id, then _listen_ws(), returns self."""
         run, _ = self._make_run()
@@ -542,6 +557,45 @@ class TestProtocolRun:
         captured = capsys.readouterr()
         assert _RUN_ID in captured.out
         assert "25" in captured.out
+
+    # ------------------------------------------------------------------
+    # to_dataframe()
+    # ------------------------------------------------------------------
+
+    def test_to_dataframe_happy_path(self, tmp_path):
+        """to_dataframe() downloads the zip, parses the CSV, and returns a DataFrame."""
+        run, _ = self._make_run(status="succeeded")
+        zip_path = tmp_path / f"{_RUN_ID}_results.csv.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("results.csv", "sequence,score\nMKTAY,0.9\nMKLAY,0.7\n")
+
+        with patch.object(run, "download", return_value=zip_path):
+            df = run.to_dataframe(output_dir=str(tmp_path))
+
+        assert list(df.columns) == ["sequence", "score"]
+        assert len(df) == 2
+        assert df["sequence"].tolist() == ["MKTAY", "MKLAY"]
+
+    def test_to_dataframe_no_pandas(self, tmp_path):
+        """to_dataframe() raises ImportError with helpful message when pandas is missing."""
+        import sys
+
+        run, _ = self._make_run(status="succeeded")
+
+        with patch.dict(sys.modules, {"pandas": None}):
+            with pytest.raises(ImportError, match="pandas"):
+                run.to_dataframe(output_dir=str(tmp_path))
+
+    def test_to_dataframe_no_csv_in_zip(self, tmp_path):
+        """to_dataframe() raises ProtocolRunError when the zip contains no CSV file."""
+        run, _ = self._make_run(status="succeeded")
+        zip_path = tmp_path / f"{_RUN_ID}_results.csv.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("results.jsonl", '{"sequence": "MKTAY"}\n')
+
+        with patch.object(run, "download", return_value=zip_path):
+            with pytest.raises(ProtocolRunError, match="No CSV"):
+                run.to_dataframe(output_dir=str(tmp_path))
 
     # ------------------------------------------------------------------
     # download_files() — simple alias for download()
