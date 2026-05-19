@@ -186,8 +186,10 @@ class ProtocolRun:
                 time.sleep(poll_interval)
                 continue
 
-            if show_progress and self.status != last_status:
-                print(f"  [{self.run_id}] {self.status}")
+            if show_progress:
+                pct = snap.get("progress_pct")
+                pct_str = f" {pct}%" if pct is not None else ""
+                print(f"  [{self.run_id}] {self.status}{pct_str}")
                 last_status = self.status
 
             if self.status in ("succeeded", "failed", "cancelled"):
@@ -295,20 +297,76 @@ class ProtocolRun:
     def download_files(
         self,
         output_dir: Union[str, Path] = ".",
-        file_type: str = "csv",
+        columns: Optional[List[str]] = None,
         overwrite: bool = False,
-    ) -> Path:
-        """Alias for :meth:`download` — downloads the compressed results file.
+    ) -> List[Path]:
+        """Download individual output files via presigned URLs.
+
+        Fetches the per-row / per-column URL manifest from the server and
+        downloads each file to ``output_dir``.  Files are named
+        ``{row_id}_{column_name}{ext}`` where the extension is inferred from
+        the presigned URL.
 
         Args:
-            output_dir: Directory to save the file. Default ``"."``.
-            file_type: ``"csv"`` (default) or ``"jsonl"``.
-            overwrite: Re-download if already exists. Default ``False``.
+            output_dir: Directory to save files. Created if it does not exist.
+            columns: Optional list of column names to download.  If ``None``
+                (default) all columns are downloaded.
+            overwrite: Re-download files that already exist. Default ``False``.
 
         Returns:
-            :class:`pathlib.Path` to the downloaded zip file.
+            List of :class:`pathlib.Path` objects for every file (including
+            ones that were already present when ``overwrite=False``).
+
+        Raises:
+            :class:`ProtocolRunError`: If fetching the URL manifest fails.
+
+        Example::
+
+            paths = run.download_files("./structures", columns=["pdb"])
         """
-        return self.download(output_dir=output_dir, file_type=file_type, overwrite=overwrite)
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        url = self._client._url(f"runs/{self.run_id}/download/")
+        paths: List[Path] = []
+
+        with httpx.Client(timeout=_DOWNLOAD_TIMEOUT) as http:
+            # 1. Fetch the URL manifest for this run
+            manifest_resp = http.get(url, headers=self._client._headers())
+            if not manifest_resp.is_success:
+                raise ProtocolRunError(
+                    f"Failed to fetch download URLs for run {self.run_id}: "
+                    f"{manifest_resp.status_code}"
+                )
+            urls_by_row: dict = manifest_resp.json().get("urls", {})
+
+            if not urls_by_row:
+                return []
+
+            # 2. Download each (row, column) file
+            for row_id, cols in urls_by_row.items():
+                for col_name, url_info in cols.items():
+                    if columns is not None and col_name not in columns:
+                        continue
+                    file_url = url_info["url"] if isinstance(url_info, dict) else url_info
+                    # Infer file extension from the presigned URL path (before query string)
+                    ext = Path(file_url.split("?")[0]).suffix
+                    dest = out / f"{row_id}_{col_name}{ext}"
+
+                    if dest.exists() and not overwrite:
+                        paths.append(dest)
+                        continue
+
+                    file_resp = http.get(file_url)
+                    if not file_resp.is_success:
+                        raise ProtocolRunError(
+                            f"Failed to download {col_name} for row {row_id}: "
+                            f"{file_resp.status_code}"
+                        )
+                    dest.write_bytes(file_resp.content)
+                    paths.append(dest)
+
+        return paths
 
     # ------------------------------------------------------------------
     # Cancel
@@ -686,4 +744,4 @@ class ProtocolClient:
         if show_progress:
             print(f"Submitted: {run.run_id}  [{slug}]")
         run.wait(poll_interval=poll_interval, timeout=timeout, show_progress=show_progress)
-        return run.results()
+        return run.results().get("results", {})
