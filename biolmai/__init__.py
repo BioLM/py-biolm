@@ -78,7 +78,6 @@ def run_protocol(
     run_name: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
-    poll_interval: float = 5.0,
     timeout: float = 3600.0,
     show_progress: bool = True,
 ) -> dict:
@@ -93,7 +92,6 @@ def run_protocol(
         run_name: Optional human-readable label.
         api_key: BioLM API token. Reads ``BIOLMAI_TOKEN`` env var if not provided.
         base_url: Override API base domain (default ``https://biolm.ai``).
-        poll_interval: Seconds between progress polls (default 5).
         timeout: Max seconds to wait before raising :class:`TimeoutError` (default 3600).
         show_progress: Print progress updates to stdout (default True).
 
@@ -119,7 +117,6 @@ def run_protocol(
         slug,
         inputs,
         run_name=run_name,
-        poll_interval=poll_interval,
         timeout=timeout,
         show_progress=show_progress,
     )
