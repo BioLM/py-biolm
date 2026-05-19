@@ -8,6 +8,13 @@ a context manager, so the mock hierarchy is:
     mock_http.get.return_value   / .post.return_value / .delete.return_value
         .status_code, .is_success, .text, .json(), .content
 
+Integration tests (bottom of file):
+    TestProtocolClientIntegration — hits a real BioLM server with a real token.
+    Skipped unless BIOLMAI_TOKEN and BIOLMAI_BASE_DOMAIN are set.
+    Run with:
+        BIOLMAI_TOKEN=sk-... BIOLMAI_BASE_DOMAIN=http://localhost:7777 \\
+            pytest tests/test_protocol_client.py::TestProtocolClientIntegration -v
+
 Tests are grouped into three classes:
     TestProtocolClient  — auth + list / get / submit / get_run / run_and_wait
     TestProtocolRun     — wait / progress / results / download_files / cancel / refresh
@@ -445,189 +452,111 @@ class TestProtocolRun:
     # wait()
     # ------------------------------------------------------------------
 
-    def test_wait_polls_until_succeeded(self):
-        """wait() keeps polling progress() until status is 'succeeded', then returns self."""
+    def test_wait_via_ws_until_succeeded(self):
+        """wait() calls progress() once for channel_id, then _listen_ws(), returns self."""
         run, _ = self._make_run()
 
-        progress_calls = [
-            {"status": "running", "progress_pct": 50, "tasks": []},
-            {"status": "succeeded", "progress_pct": 100, "tasks": []},
-        ]
+        progress_snap = {"status": "running", "progress_pct": 50, "channel_id": "telemetry_abc"}
 
-        with patch.object(run, "progress", side_effect=progress_calls), \
-             patch("time.sleep"):
-            result = run.wait(poll_interval=0.001, show_progress=False)
+        def fake_listen(ws_url, show_progress=True, timeout=3600.0):
+            run.status = "succeeded"
+
+        with patch.object(run, "progress", return_value=progress_snap), \
+             patch.object(run, "_listen_ws", side_effect=fake_listen):
+            result = run.wait(show_progress=False)
 
         assert result is run
         assert run.status == "succeeded"
 
     def test_wait_raises_on_failed(self):
-        """wait() raises ProtocolRunError when the run transitions to 'failed'."""
+        """wait() raises ProtocolRunError when progress() returns a failed status."""
         run, _ = self._make_run()
 
-        progress_snap = {"status": "failed", "progress_pct": None, "tasks": []}
+        progress_snap = {"status": "failed", "channel_id": "telemetry_abc"}
         detail_resp = _mock_response(200, {"run_id": _RUN_ID, "status": "failed", "failure_error": "OOM"})
         mock_cls, _ = _patch_httpx_client("get", detail_resp)
 
         with patch.object(run, "progress", return_value=progress_snap), \
-             patch("time.sleep"), \
              patch("httpx.Client", mock_cls):
             with pytest.raises(ProtocolRunError, match="failed"):
-                run.wait(poll_interval=0.001, show_progress=False)
+                run.wait(show_progress=False)
 
     def test_wait_raises_on_cancelled(self):
-        """wait() raises ProtocolRunError when the run is cancelled."""
+        """wait() raises ProtocolRunError when progress() returns a cancelled status."""
         run, _ = self._make_run()
 
-        progress_snap = {"status": "cancelled", "progress_pct": None, "tasks": []}
+        progress_snap = {"status": "cancelled", "channel_id": "telemetry_abc"}
 
-        with patch.object(run, "progress", return_value=progress_snap), \
-             patch("time.sleep"):
+        with patch.object(run, "progress", return_value=progress_snap):
             with pytest.raises(ProtocolRunError, match="cancelled"):
-                run.wait(poll_interval=0.001, show_progress=False)
+                run.wait(show_progress=False)
 
-    def test_wait_timeout(self):
-        """wait() raises TimeoutError when the deadline is reached before completion."""
+    def test_wait_ws_loss_raises(self):
+        """wait() raises ProtocolRunError if _listen_ws raises before terminal status."""
         run, _ = self._make_run()
 
-        # Always return 'running'
-        progress_snap = {"status": "running", "progress_pct": 10, "tasks": []}
+        progress_snap = {"status": "running", "channel_id": "telemetry_abc"}
 
-        # Use a real short timeout; patch time.sleep so the loop doesn't actually wait,
-        # but time.monotonic() must advance naturally for the deadline to trigger.
-        call_count = {"n": 0}
-
-        def fake_sleep(_):
-            call_count["n"] += 1
-            if call_count["n"] > 50:
-                # Safety valve: force time forward via monkeypatching if loop is stuck
-                raise RuntimeError("sleep called too many times in test")
+        def fake_listen(ws_url, show_progress=True, timeout=3600.0):
+            raise ProtocolRunError(
+                f"WebSocket connection lost for run {run.run_id}: connection refused. "
+                "Last known status: running"
+            )
 
         with patch.object(run, "progress", return_value=progress_snap), \
-             patch("time.sleep", fake_sleep):
-            with pytest.raises(TimeoutError):
-                run.wait(poll_interval=0.0, timeout=0.0, show_progress=False)
+             patch.object(run, "_listen_ws", side_effect=fake_listen):
+            with pytest.raises(ProtocolRunError, match="WebSocket connection lost"):
+                run.wait(show_progress=False)
 
     def test_wait_no_progress_output(self, capsys):
         """wait(show_progress=False) prints nothing to stdout."""
         run, _ = self._make_run()
 
-        progress_calls = [
-            {"status": "running", "progress_pct": 30, "tasks": []},
-            {"status": "succeeded", "progress_pct": 100, "tasks": []},
-        ]
+        progress_snap = {"status": "running", "channel_id": "telemetry_abc"}
 
-        with patch.object(run, "progress", side_effect=progress_calls), \
-             patch("time.sleep"):
-            run.wait(poll_interval=0.001, show_progress=False)
+        def fake_listen(ws_url, show_progress=True, timeout=3600.0):
+            run.status = "succeeded"
+
+        with patch.object(run, "progress", return_value=progress_snap), \
+             patch.object(run, "_listen_ws", side_effect=fake_listen):
+            run.wait(show_progress=False)
 
         captured = capsys.readouterr()
         assert captured.out == ""
 
     def test_wait_prints_progress(self, capsys):
-        """wait(show_progress=True) prints the run_id and progress percentage."""
+        """wait(show_progress=True) passes show_progress=True into _listen_ws."""
         run, _ = self._make_run()
 
-        progress_calls = [
-            {"status": "running", "progress_pct": 25, "tasks": [{"name": "step1", "status": "running"}]},
-            {"status": "succeeded", "progress_pct": 100, "tasks": []},
-        ]
+        progress_snap = {"status": "running", "progress_pct": 25, "channel_id": "telemetry_abc"}
 
-        with patch.object(run, "progress", side_effect=progress_calls), \
-             patch("time.sleep"):
-            run.wait(poll_interval=0.001, show_progress=True)
+        def fake_listen(ws_url, show_progress=True, timeout=3600.0):
+            if show_progress:
+                print(f"  [{run.run_id}] running 25%")
+            run.status = "succeeded"
+
+        with patch.object(run, "progress", return_value=progress_snap), \
+             patch.object(run, "_listen_ws", side_effect=fake_listen):
+            run.wait(show_progress=True)
 
         captured = capsys.readouterr()
         assert _RUN_ID in captured.out
         assert "25" in captured.out
 
     # ------------------------------------------------------------------
-    # download_files()
+    # download_files() — simple alias for download()
     # ------------------------------------------------------------------
 
-    def test_download_files_fetches_and_saves(self, tmp_path):
-        """download_files() fetches presigned URLs and writes files to tmp_path."""
+    def test_download_files_is_alias_for_download(self, tmp_path):
+        """download_files() calls download() with the same args and returns its result."""
         run, _ = self._make_run(status="succeeded")
+        expected_path = tmp_path / f"{_RUN_ID}_results.csv.zip"
 
-        url_payload = {
-            "urls": {
-                "1": {
-                    "designed_pdb": {"url": "https://storage.example.com/row1_pdb.pdb"}
-                }
-            }
-        }
+        with patch.object(run, "download", return_value=expected_path) as mock_dl:
+            result = run.download_files(output_dir=str(tmp_path), file_type="csv", overwrite=False)
 
-        # First GET: download endpoint → url_payload
-        # Second GET: presigned URL → file content
-        url_resp = _mock_response(200, url_payload)
-        file_content = b"ATOM 1 CA ALA A 1 ..."
-        file_resp = _mock_response(200, content=file_content)
-
-        mock_cls = MagicMock()
-        mock_http = MagicMock()
-        mock_cls.return_value.__enter__.return_value = mock_http
-        mock_cls.return_value.__exit__.return_value = False
-
-        # _get() opens one httpx.Client; download_files() opens another httpx.Client
-        # Both are patched via the same mock_cls but we need sequential return values.
-        mock_http.get.side_effect = [url_resp, file_resp]
-
-        with patch("httpx.Client", mock_cls):
-            paths = run.download_files(output_dir=str(tmp_path), columns=["designed_pdb"])
-
-        assert len(paths) == 1
-        dest = tmp_path / "1_designed_pdb.pdb"
-        assert dest.exists()
-        assert dest.read_bytes() == file_content
-
-    def test_download_files_skips_existing(self, tmp_path):
-        """download_files(overwrite=False) does not re-download an existing file."""
-        run, _ = self._make_run(status="succeeded")
-
-        # Pre-create the file that would be downloaded
-        existing = tmp_path / "1_designed_pdb.pdb"
-        existing.write_bytes(b"already-here")
-
-        url_payload = {
-            "urls": {
-                "1": {
-                    "designed_pdb": {"url": "https://storage.example.com/row1_pdb.pdb"}
-                }
-            }
-        }
-        url_resp = _mock_response(200, url_payload)
-
-        mock_cls = MagicMock()
-        mock_http = MagicMock()
-        mock_cls.return_value.__enter__.return_value = mock_http
-        mock_cls.return_value.__exit__.return_value = False
-        mock_http.get.return_value = url_resp
-
-        with patch("httpx.Client", mock_cls):
-            paths = run.download_files(output_dir=str(tmp_path), overwrite=False)
-
-        # File not re-downloaded: get called once (for URL list) not twice
-        assert mock_http.get.call_count == 1
-        assert existing in paths
-        assert existing.read_bytes() == b"already-here"
-
-    def test_download_files_empty_urls(self, tmp_path):
-        """download_files() returns [] when the API returns an empty urls dict."""
-        run, _ = self._make_run(status="succeeded")
-
-        url_payload = {"urls": {}}
-        url_resp = _mock_response(200, url_payload)
-
-        mock_cls = MagicMock()
-        mock_http = MagicMock()
-        mock_cls.return_value.__enter__.return_value = mock_http
-        mock_cls.return_value.__exit__.return_value = False
-        mock_http.get.return_value = url_resp
-
-        with patch("httpx.Client", mock_cls):
-            paths = run.download_files(output_dir=str(tmp_path))
-
-        assert paths == []
+        mock_dl.assert_called_once_with(output_dir=str(tmp_path), file_type="csv", overwrite=False)
+        assert result == expected_path
 
 
 # ---------------------------------------------------------------------------
@@ -664,3 +593,195 @@ class TestTopLevel:
             timeout=3600.0,
             show_progress=False,
         )
+
+
+# ===========================================================================
+# Integration tests — skipped unless BIOLMAI_TOKEN is set
+#
+# These make REAL HTTP requests to a live BioLM server (local or prod).
+# No mocking. The full client → server → Celery → Modal → results path is
+# exercised.
+#
+# Usage (against local dev stack):
+#   BIOLMAI_TOKEN=your-token BIOLMAI_BASE_DOMAIN=http://localhost:7777 \
+#       pytest tests/test_protocol_client.py::TestProtocolClientIntegration -v
+#
+# Usage (against prod):
+#   BIOLMAI_TOKEN=your-token \
+#       pytest tests/test_protocol_client.py::TestProtocolClientIntegration -v
+#
+# Required env vars:
+#   BIOLMAI_TOKEN              — Knox API token for an account with protocol access
+#   BIOLMAI_BASE_DOMAIN        — base URL (default: https://biolm.ai)
+#
+# Optional env vars:
+#   INTEGRATION_PROTOCOL_SLUG  — protocol slug to test (default: test-echo-protocol)
+#   INTEGRATION_POLL_TIMEOUT   — max seconds to wait for completion (default: 300)
+# ===========================================================================
+
+import os
+import pytest
+
+
+def _integration_enabled():
+    """Both an explicit opt-in flag AND a token must be present."""
+    has_token = bool(os.environ.get("BIOLMAI_TOKEN") or os.environ.get("BIOLM_TOKEN"))
+    opted_in = os.environ.get("BIOLMAI_INTEGRATION") == "1"
+    return has_token and opted_in
+
+
+@pytest.mark.skipif(
+    not _integration_enabled(),
+    reason="Skipped: set BIOLMAI_TOKEN and BIOLMAI_INTEGRATION=1 to run against a live server",
+)
+class TestProtocolClientIntegration:
+    """End-to-end integration tests using a real ProtocolClient against a live server.
+
+    No HTTP mocking. Tests submit real protocol runs, poll /progress/ until
+    terminal, and verify results are returned. Requires biolm_web PR #161 to
+    be merged and the target protocol to be published.
+    """
+
+    _SLUG = os.environ.get("INTEGRATION_PROTOCOL_SLUG", "test-echo-protocol")
+    _TIMEOUT = int(os.environ.get("INTEGRATION_POLL_TIMEOUT", 300))
+
+    @pytest.fixture(autouse=True)
+    def client(self):
+        from biolmai import ProtocolClient
+        base_url = os.environ.get("BIOLMAI_BASE_DOMAIN")
+        kwargs = {"api_key": _integration_token()}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = ProtocolClient(**kwargs)
+
+    def test_list_returns_results(self):
+        """client.list() hits the real server and returns a valid paginated response."""
+        result = self._client.list()
+        assert "results" in result
+        assert "count" in result
+        assert isinstance(result["results"], list)
+
+    def test_get_protocol_schema(self):
+        """client.get(slug) returns inputs_schema for the target protocol.
+
+        Skip gracefully if the protocol doesn't exist on this server.
+        """
+        from biolmai import ProtocolNotFoundError
+        try:
+            schema = self._client.get(self._SLUG)
+        except ProtocolNotFoundError:
+            pytest.skip(
+                f"Protocol '{self._SLUG}' not found on this server. "
+                "Publish it via the console or set INTEGRATION_PROTOCOL_SLUG."
+            )
+        assert "inputs_schema" in schema
+        assert schema["slug"] == self._SLUG
+
+    def test_submit_and_wait_for_completion(self):
+        """Submit a real run and poll until succeeded. Verify results are populated.
+
+        Uses the protocol's own inputs_schema to build minimal valid inputs,
+        so this test stays protocol-agnostic.
+        """
+        from biolmai import ProtocolNotFoundError, ProtocolRunError
+
+        # Fetch schema to build inputs
+        try:
+            schema = self._client.get(self._SLUG)
+        except ProtocolNotFoundError:
+            pytest.skip(f"Protocol '{self._SLUG}' not found — cannot submit.")
+
+        # Build minimal inputs: use initial/default values from schema where available,
+        # otherwise skip required fields that have no default (test will fail clearly)
+        inputs = {}
+        for field, spec in schema.get("inputs_schema", {}).items():
+            if "initial" in spec:
+                inputs[field] = spec["initial"]
+            elif spec.get("required"):
+                pytest.skip(
+                    f"Required field '{field}' has no default — provide a test protocol "
+                    "with example_inputs or set INTEGRATION_PROTOCOL_SLUG to one that does."
+                )
+
+        # Submit
+        run = self._client.submit(self._SLUG, inputs=inputs, run_name="sdk-integration-test")
+        assert run.run_id.startswith("ALY_"), f"Unexpected run_id: {run.run_id}"
+        assert run.status in ("scheduled", "running")
+
+        # Wait for completion
+        try:
+            run.wait(poll_interval=5, timeout=self._TIMEOUT, show_progress=True)
+        except ProtocolRunError as exc:
+            pytest.fail(f"Run {run.run_id} failed: {exc}")
+
+        assert run.status == "succeeded"
+
+        # Verify results
+        detail = run.results()
+        assert detail["status"] == "succeeded"
+        assert detail.get("results") is not None, (
+            f"Run {run.run_id} succeeded but results is null — "
+            "protocol may not be writing return_json."
+        )
+
+    def test_progress_shape_during_run(self):
+        """Progress endpoint returns correctly shaped data for a live run."""
+        from biolmai import ProtocolNotFoundError
+
+        try:
+            schema = self._client.get(self._SLUG)
+        except ProtocolNotFoundError:
+            pytest.skip(f"Protocol '{self._SLUG}' not found.")
+
+        inputs = {
+            field: spec["initial"]
+            for field, spec in schema.get("inputs_schema", {}).items()
+            if "initial" in spec
+        }
+
+        run = self._client.submit(self._SLUG, inputs=inputs)
+
+        # Poll once immediately — run may be scheduled or already running
+        prog = run.progress()
+        assert "status" in prog
+        assert "tasks" in prog
+        assert "log_lines" in prog
+        assert "progress_pct" in prog
+        assert isinstance(prog["tasks"], list)
+        assert isinstance(prog["log_lines"], list)
+
+        # Clean up — wait or cancel
+        if prog["status"] not in ("succeeded", "failed", "cancelled"):
+            try:
+                run.wait(poll_interval=5, timeout=self._TIMEOUT, show_progress=False)
+            except Exception:
+                run.cancel()
+
+    def test_get_run_reconnect(self):
+        """client.get_run(run_id) reconnects to a prior run and returns current status."""
+        from biolmai import ProtocolNotFoundError
+
+        try:
+            schema = self._client.get(self._SLUG)
+        except ProtocolNotFoundError:
+            pytest.skip(f"Protocol '{self._SLUG}' not found.")
+
+        inputs = {
+            field: spec["initial"]
+            for field, spec in schema.get("inputs_schema", {}).items()
+            if "initial" in spec
+        }
+
+        # Submit, then reconnect by run_id
+        original = self._client.submit(self._SLUG, inputs=inputs)
+        run_id = original.run_id
+
+        reconnected = self._client.get_run(run_id)
+        assert reconnected.run_id == run_id
+        assert reconnected.status in ("scheduled", "running", "succeeded", "failed", "cancelled")
+
+        # Clean up
+        try:
+            reconnected.wait(poll_interval=5, timeout=self._TIMEOUT, show_progress=False)
+        except Exception:
+            reconnected.cancel()
