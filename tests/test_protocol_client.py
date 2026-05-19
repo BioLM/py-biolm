@@ -643,7 +643,6 @@ class TestTopLevel:
             _SLUG,
             {"sequence": "MKTAY"},
             run_name="top-level-test",
-            poll_interval=5.0,
             timeout=3600.0,
             show_progress=False,
         )
@@ -764,7 +763,7 @@ class TestProtocolClientIntegration:
 
         # Wait for completion
         try:
-            run.wait(poll_interval=5, timeout=self._TIMEOUT, show_progress=True)
+            run.wait(timeout=self._TIMEOUT, show_progress=True)
         except ProtocolRunError as exc:
             pytest.fail(f"Run {run.run_id} failed: {exc}")
 
@@ -807,7 +806,7 @@ class TestProtocolClientIntegration:
         # Clean up — wait or cancel
         if prog["status"] not in ("succeeded", "failed", "cancelled"):
             try:
-                run.wait(poll_interval=5, timeout=self._TIMEOUT, show_progress=False)
+                run.wait(timeout=self._TIMEOUT, show_progress=False)
             except Exception:
                 run.cancel()
 
@@ -836,6 +835,6 @@ class TestProtocolClientIntegration:
 
         # Clean up
         try:
-            reconnected.wait(poll_interval=5, timeout=self._TIMEOUT, show_progress=False)
+            reconnected.wait(timeout=self._TIMEOUT, show_progress=False)
         except Exception:
             reconnected.cancel()

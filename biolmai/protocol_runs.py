@@ -97,6 +97,7 @@ class ProtocolRun:
         self.protocol_version: int = data.get("protocol_version", 1)
         self.status: str = data.get("status", "scheduled")
         self._client = client
+        self._failure_error: Optional[str] = None
 
     def __repr__(self) -> str:
         return (
@@ -140,15 +141,12 @@ class ProtocolRun:
 
     def wait(
         self,
-        poll_interval: float = 5.0,
         timeout: float = 3600.0,
         show_progress: bool = True,
     ) -> "ProtocolRun":
         """Block until this run reaches a terminal state.
 
         Args:
-            poll_interval: Unused — progress is tracked via WebSocket. Kept for
-                backwards-compatibility. Default ``5``.
             timeout: Maximum seconds to wait before raising
                 :class:`TimeoutError`. Default ``3600`` (1 hour).
             show_progress: Print progress lines to stdout. Default ``True``.
@@ -163,7 +161,7 @@ class ProtocolRun:
         Example::
 
             run = client.submit("my-protocol", inputs={"sequence": "MKLL..."})
-            run.wait(poll_interval=10, timeout=7200)
+            run.wait(timeout=7200)
             print(run.results())
         """
         # Fetch channel_id for this run (single HTTP call — not a poll loop)
@@ -179,8 +177,9 @@ class ProtocolRun:
             self._check_terminal()
             return self
 
+        _ws_scheme = "wss" if self._client._base.startswith("https://") else "ws"
         domain = self._client._base.replace("https://", "").replace("http://", "").split("/")[0]
-        ws_url = f"wss://{domain}/ws/telemetry/{channel_id}/"
+        ws_url = f"{_ws_scheme}://{domain}/ws/telemetry/{channel_id}/"
 
         self._listen_ws(ws_url, show_progress=show_progress, timeout=timeout)
 
@@ -219,8 +218,11 @@ class ProtocolRun:
                     payload = env.get("payload", env)
                     status = payload.get("status") or env.get("status")
                     pct = payload.get("progress_pct") or env.get("progress_pct")
+                    error = payload.get("failure_error") or env.get("failure_error")
                     if status:
                         self.status = status
+                    if error:
+                        self._failure_error = error
                     if show_progress:
                         pct_str = f" {pct}%" if pct is not None else ""
                         print(f"  [{self.run_id}] {self.status}{pct_str}")
@@ -259,10 +261,12 @@ class ProtocolRun:
     def _check_terminal(self) -> None:
         """Raise if status is failed or cancelled."""
         if self.status == "failed":
-            try:
-                detail = self._client._get(f"runs/{self.run_id}/").get("failure_error") or "unknown error"
-            except Exception:
-                detail = "unknown error"
+            detail = self._failure_error
+            if not detail:
+                try:
+                    detail = self._client._get(f"runs/{self.run_id}/").get("failure_error") or "unknown error"
+                except Exception:
+                    detail = "unknown error"
             raise ProtocolRunError(f"Protocol run {self.run_id} failed: {detail}")
         if self.status == "cancelled":
             raise ProtocolRunError(f"Protocol run {self.run_id} was cancelled.")
@@ -322,6 +326,12 @@ class ProtocolRun:
             path = run.download(output_dir="./results")
             # path → PosixPath('./results/ALY_xxx_results.csv.zip')
         """
+        _VALID_FILE_TYPES = {"csv", "jsonl"}
+        if file_type not in _VALID_FILE_TYPES:
+            raise ValueError(
+                f"file_type must be one of {sorted(_VALID_FILE_TYPES)}, got {file_type!r}."
+            )
+
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
         dest = out / f"{self.run_id}_results.{file_type}.zip"
@@ -751,7 +761,6 @@ class ProtocolClient:
         slug: str,
         inputs: Dict[str, Any],
         run_name: Optional[str] = None,
-        poll_interval: float = 5.0,
         timeout: float = 3600.0,
         show_progress: bool = True,
     ) -> Dict[str, Any]:
@@ -764,7 +773,6 @@ class ProtocolClient:
             slug: Protocol slug.
             inputs: Input field values.
             run_name: Optional run label.
-            poll_interval: Seconds between polls (default 5).
             timeout: Max seconds to wait (default 3600).
             show_progress: Print progress updates (default True).
 
@@ -785,5 +793,5 @@ class ProtocolClient:
         run = self.submit(slug, inputs, run_name=run_name)
         if show_progress:
             print(f"Submitted: {run.run_id}  [{slug}]")
-        run.wait(poll_interval=poll_interval, timeout=timeout, show_progress=show_progress)
+        run.wait(timeout=timeout, show_progress=show_progress)
         return run.results().get("results", {})
