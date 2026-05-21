@@ -117,12 +117,19 @@ $ pytest tests.test_biolmai
 Deploying
 ---------
 
-A reminder for the maintainers on how to deploy.
-Make sure all your changes are committed (including an entry in HISTORY.rst).
-Then run::
+Releases are automated from ``main`` using `Conventional Commits`_ and
+`python-semantic-release`. See ``VERSIONING.md`` for full details.
 
-$ bump2version patch # possible: major / minor / patch
-$ git push
-$ git push --tags
+1. Merge changes to ``main`` with commit messages like ``feat: ...``,
+   ``fix: ...``, or a squash-merge PR title such as ``PD-52 feat: ...``.
+2. CI on ``main`` runs tests, then bumps ``biolmai/__version__``, tags
+   (e.g. ``v0.5.0``), and creates a GitHub Release.
+3. Publishing to PyPI runs when that GitHub Release is published
+   (``.github/workflows/publish.yml``).
 
-Travis will then deploy to PyPI if tests pass.
+Do not run ``bump2version`` or hand-edit ``__version__`` for production releases.
+
+To update hosted documentation, merge ``main`` into ``production`` when ready;
+docs deploy from the ``production`` branch.
+
+.. _Conventional Commits: https://www.conventionalcommits.org/
