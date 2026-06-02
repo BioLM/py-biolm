@@ -1495,6 +1495,10 @@ class BasePipeline(ABC):
             ],
         }
 
+    def results(self) -> pd.DataFrame:
+        """Return the final output DataFrame.  Alias for :meth:`get_final_data`."""
+        return self.get_final_data()
+
     def get_final_data(self) -> pd.DataFrame:
         """Get the final output DataFrame.
 

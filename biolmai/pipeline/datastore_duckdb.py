@@ -309,6 +309,7 @@ class DuckDBDataStore:
                 repetition_penalty DOUBLE,
                 max_length INTEGER,
                 sampling_params VARCHAR,
+                label VARCHAR,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (sequence_id, run_id)
             )
@@ -318,6 +319,13 @@ class DuckDBDataStore:
         try:
             self.conn.execute(
                 "ALTER TABLE generation_metadata ADD COLUMN IF NOT EXISTS sampling_params VARCHAR"
+            )
+        except Exception:
+            pass
+        # Add label column to existing DBs
+        try:
+            self.conn.execute(
+                "ALTER TABLE generation_metadata ADD COLUMN IF NOT EXISTS label VARCHAR"
             )
         except Exception:
             pass
@@ -1366,6 +1374,7 @@ class DuckDBDataStore:
                 "repetition_penalty": row.get("repetition_penalty", sp.get("repetition_penalty")),
                 "max_length": row.get("max_length", sp.get("max_length")),
                 "sampling_params": sampling_params_json,
+                "label": row.get("label"),
                 "created_at": now,
             })
         df = pd.DataFrame(records)
@@ -1377,10 +1386,10 @@ class DuckDBDataStore:
                 INSERT INTO generation_metadata
                 (metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
                  num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
-                 created_at)
+                 label, created_at)
                 SELECT metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
                        num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
-                       created_at
+                       label, created_at
                 FROM {_tmp}
                 ON CONFLICT DO NOTHING
                 """
@@ -2298,14 +2307,30 @@ class DuckDBDataStore:
             seq_select = ", ".join(f's."{c}"' for c in seq_col_names)
             seq_group = ", ".join(f's."{c}"' for c in seq_col_names)
 
+            # Include source_label from generation_metadata when any row has one
+            label_col_sql = ""
+            label_join_sql = ""
+            label_group_sql = ""
+            has_labels = self.conn.execute(
+                f"SELECT COUNT(*) FROM generation_metadata gm "
+                f"INNER JOIN {_ws_tmp} w ON gm.sequence_id = w.sequence_id "
+                f"WHERE gm.label IS NOT NULL"
+            ).fetchone()[0]
+            if has_labels:
+                label_col_sql = ",\n                    MAX(gm.label) AS source_label"
+                label_join_sql = (
+                    f"LEFT JOIN generation_metadata gm ON s.sequence_id = gm.sequence_id"
+                )
+
             cte_clause = f"WITH{pred_cte_sql}" if pred_cte_sql else ""
             query = f"""
                 {cte_clause}
                 SELECT
-                    {seq_select}{pred_cols_sql}
+                    {seq_select}{pred_cols_sql}{label_col_sql}
                 FROM sequences s
                 INNER JOIN {_ws_tmp} w ON s.sequence_id = w.sequence_id
                 {pred_join_sql}
+                {label_join_sql}
                 GROUP BY {seq_group}
             """
             return self.conn.execute(query).df()
