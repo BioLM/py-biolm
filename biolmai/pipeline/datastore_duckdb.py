@@ -2307,20 +2307,29 @@ class DuckDBDataStore:
             seq_select = ", ".join(f's."{c}"' for c in seq_col_names)
             seq_group = ", ".join(f's."{c}"' for c in seq_col_names)
 
-            # Include source_label from generation_metadata when any row has one
-            label_col_sql = ""
-            label_join_sql = ""
-            label_group_sql = ""
-            has_labels = self.conn.execute(
-                f"SELECT COUNT(*) FROM generation_metadata gm "
-                f"INNER JOIN {_ws_tmp} w ON gm.sequence_id = w.sequence_id "
-                f"WHERE gm.label IS NOT NULL"
-            ).fetchone()[0]
-            if has_labels:
-                label_col_sql = ",\n                    MAX(gm.label) AS source_label"
-                label_join_sql = (
-                    f"LEFT JOIN generation_metadata gm ON s.sequence_id = gm.sequence_id"
-                )
+            # Always include source_label from generation_metadata.
+            # Use a ranked subquery (most recent metadata_id per sequence) to
+            # avoid fan-out when a sequence has multiple generation_metadata rows
+            # (e.g. generated under different run_ids). NULL when no label was set.
+            # MAX() is an aggregate because the outer query has GROUP BY.
+            # The subquery guarantees at most one row per sequence, so MAX() is
+            # equivalent to ANY_VALUE() and returns the single label or NULL.
+            label_col_sql = ",\n                MAX(gm_label.label) AS source_label"
+            label_join_sql = (
+                f"LEFT JOIN ("
+                f"    SELECT sequence_id, label"
+                f"    FROM ("
+                f"        SELECT sequence_id, label,"
+                f"               ROW_NUMBER() OVER ("
+                f"                   PARTITION BY sequence_id"
+                f"                   ORDER BY metadata_id DESC"
+                f"               ) AS _rn"
+                f"        FROM generation_metadata"
+                f"        WHERE sequence_id IN (SELECT sequence_id FROM {_ws_tmp})"
+                f"    ) _ranked"
+                f"    WHERE _rn = 1"
+                f") gm_label ON s.sequence_id = gm_label.sequence_id"
+            )
 
             cte_clause = f"WITH{pred_cte_sql}" if pred_cte_sql else ""
             query = f"""

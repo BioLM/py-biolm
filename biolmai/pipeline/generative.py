@@ -24,6 +24,23 @@ logger = logging.getLogger(__name__)
 # Module-level counter for unique temporary DuckDB table names
 _GENERATIVE_TEMP_COUNTER = _itertools.count()
 
+# Allowlist of legal BioLM API action names.  Used to guard getattr() dispatch
+# in SaturationMutagenesisConfig and IterativeMaskingDMSConfig so that
+# user-supplied action strings cannot resolve to arbitrary BioLMApiClient attrs.
+_ALLOWED_API_ACTIONS: frozenset = frozenset(
+    {"predict", "encode", "generate", "fold", "search", "score"}
+)
+
+# Reserved column names that must not be used as a score_field key, because they
+# would silently overwrite core sequence/provenance data in the output row dict.
+_RESERVED_SCORE_COLUMNS: frozenset = frozenset(
+    {
+        "sequence", "model_name", "temperature", "sampling_params",
+        "generation_method", "parent_sequence", "source_label",
+        "sequence_id", "length", "hash",
+    }
+)
+
 import pandas as pd
 
 from biolmai.client import BioLMApiClient  # Use async client
@@ -232,6 +249,36 @@ class SaturationMutagenesisConfig:
     pdb_str: Optional[str] = None
     chain: str = "A"
 
+    def __post_init__(self):
+        import re as _re
+        if self.scoring_action not in _ALLOWED_API_ACTIONS:
+            raise ValueError(
+                f"SaturationMutagenesisConfig.scoring_action must be one of "
+                f"{sorted(_ALLOWED_API_ACTIONS)}, got {self.scoring_action!r}"
+            )
+        _score_field_pattern = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*){0,2}$")
+        if not _score_field_pattern.match(self.score_field):
+            raise ValueError(
+                f"SaturationMutagenesisConfig.score_field must match "
+                f"'identifier' or 'identifier.identifier' (max 3 components), "
+                f"got {self.score_field!r}"
+            )
+        _leaf = self.score_field.replace(".", "_")
+        if _leaf in _RESERVED_SCORE_COLUMNS:
+            raise ValueError(
+                f"SaturationMutagenesisConfig.score_field resolves to reserved "
+                f"column name {_leaf!r}. Choose a different field name."
+            )
+        if self.positions is not None:
+            _bad = [p for p in self.positions if not (0 <= p < len(self.parent_sequence))]
+            if _bad:
+                raise ValueError(
+                    f"SaturationMutagenesisConfig.positions contains out-of-range "
+                    f"indices {_bad} for parent_sequence of length "
+                    f"{len(self.parent_sequence)}. All positions must be in "
+                    f"[0, {len(self.parent_sequence) - 1}]."
+                )
+
     def to_spec(self) -> dict:
         return {
             "type": "SaturationMutagenesisConfig",
@@ -294,6 +341,29 @@ class IterativeMaskingDMSConfig:
     batch_size: int = 32
     label: Optional[str] = None
     action: str = "predict"
+
+    def __post_init__(self):
+        if self.action not in _ALLOWED_API_ACTIONS:
+            raise ValueError(
+                f"IterativeMaskingDMSConfig.action must be one of "
+                f"{sorted(_ALLOWED_API_ACTIONS)}, got {self.action!r}"
+            )
+        if self.rounds < 1:
+            raise ValueError(f"IterativeMaskingDMSConfig.rounds must be >= 1, got {self.rounds}")
+        if self.rounds > 2:
+            raise ValueError(
+                f"IterativeMaskingDMSConfig.rounds > 2 is not yet supported "
+                f"(got {self.rounds}). Only rounds=1 (single-point) and "
+                f"rounds=2 (two-point DMS) are implemented."
+            )
+        if self.positions is not None:
+            _bad = [p for p in self.positions if not (0 <= p < len(self.parent_sequence))]
+            if _bad:
+                raise ValueError(
+                    f"IterativeMaskingDMSConfig.positions contains out-of-range "
+                    f"indices {_bad} for parent_sequence of length "
+                    f"{len(self.parent_sequence)}."
+                )
 
     def to_spec(self) -> dict:
         return {
@@ -407,9 +477,9 @@ class GenerationStage(Stage):
     def __init__(
         self,
         name: str = "generation",
-        config: Optional[Union[RemaskingConfig, DirectGenerationConfig]] = None,
+        config: Optional[Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]] = None,
         configs: Optional[
-            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
+            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]]
         ] = None,
         deduplicate: bool = True,
         **kwargs,
@@ -1115,12 +1185,22 @@ class GenerationStage(Stage):
                     # Normalize to list
                     if isinstance(raw, dict):
                         raw = [raw]
+                    batch_scores: list = []
                     for r in raw:
                         val = self._get_nested(r, config.score_field) if isinstance(r, dict) else None
                         try:
-                            scores.append(float(val) if val is not None else None)
+                            batch_scores.append(float(val) if val is not None else None)
                         except (TypeError, ValueError):
-                            scores.append(None)
+                            batch_scores.append(None)
+                    # Pad to batch length if API returned fewer results than sent
+                    if len(batch_scores) < len(batch):
+                        logger.warning(
+                            "SaturationMutagenesis batch %d: API returned %d results for %d items; "
+                            "padding missing scores with None",
+                            i // config.batch_size, len(batch_scores), len(batch),
+                        )
+                        batch_scores.extend([None] * (len(batch) - len(batch_scores)))
+                    scores.extend(batch_scores)
                 except Exception as e:
                     logger.warning("SaturationMutagenesis scoring batch %d failed: %s", i // config.batch_size, e)
                     scores.extend([None] * len(batch))
@@ -1308,7 +1388,7 @@ class GenerationStage(Stage):
 
     async def _dispatch_config(
         self,
-        cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, SequenceSourceConfig],
+        cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, SequenceSourceConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"],
         datastore: DataStore,
         df_input: pd.DataFrame,
         context=None,
@@ -1575,12 +1655,12 @@ class GenerativePipeline(BasePipeline):
     def __init__(
         self,
         generation_configs: Optional[
-            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
+            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]]
         ] = None,
         deduplicate: bool = True,
         # ---- convenience aliases ----
         configs: Optional[
-            list[Union[RemaskingConfig, DirectGenerationConfig]]
+            list[Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]]
         ] = None,
         filters=None,
         data_store=None,
@@ -1592,8 +1672,15 @@ class GenerativePipeline(BasePipeline):
 
         super().__init__(**kwargs)
 
-        # configs= is a shorthand alias for generation_configs=
-        resolved_configs = generation_configs or configs or []
+        # configs= is a shorthand alias for generation_configs=.
+        # Use `is not None` so an explicit generation_configs=[] is respected
+        # rather than silently falling through to the alias.
+        if generation_configs is not None:
+            resolved_configs = generation_configs
+        elif configs is not None:
+            resolved_configs = configs
+        else:
+            resolved_configs = []
         self.generation_configs = resolved_configs
         self.deduplicate = deduplicate
         self._generated_ws = None  # set by run_async() after generation stage
@@ -1652,7 +1739,7 @@ class GenerativePipeline(BasePipeline):
 
     def set_generation(
         self,
-        *configs: Union[RemaskingConfig, DirectGenerationConfig],
+        *configs: Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"],
         stage_name: str = "generation",
         deduplicate: bool = True,
     ) -> "GenerativePipeline":
@@ -1698,7 +1785,7 @@ class GenerativePipeline(BasePipeline):
     # Keep replace_generation as a convenience alias for single-config swaps
     def replace_generation(
         self,
-        config: Union[RemaskingConfig, DirectGenerationConfig],
+        config: Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"],
         stage_name: Optional[str] = None,
         deduplicate: bool = True,
     ) -> "GenerativePipeline":
@@ -1756,7 +1843,7 @@ class GenerativePipeline(BasePipeline):
         )
 
     def add_generation_config(
-        self, config: Union[RemaskingConfig, DirectGenerationConfig]
+        self, config: Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]
     ) -> "GenerativePipeline":
         """Append a config to the existing generation slot.
 

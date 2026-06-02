@@ -148,10 +148,20 @@ class TestSaturationMutagenesisConfigDispatch:
     PARENT = "MKTAY"
     POSITIONS = [0]
 
-    def _make_mock(self, scores: list):
-        """Return a mock BioLMApiClient instance whose .predict returns *scores*."""
+    def _make_mock(self, scores: list, score_field: str = "ddg"):
+        """Return a mock that yields exactly len(items) scores per batch call.
+
+        Using side_effect (not return_value) so that each batch call gets the
+        correct number of results rather than the same full list every time —
+        which would cause zip() truncation to silently mask batch alignment bugs.
+        """
+        scores_iter = iter(scores)
+
+        async def _predict(items, **kwargs):
+            return [{score_field: next(scores_iter, None)} for _ in items]
+
         instance = AsyncMock()
-        instance.predict = AsyncMock(return_value=[{"ddg": s} for s in scores])
+        instance.predict = _predict
         instance.shutdown = AsyncMock()
         return instance
 
@@ -191,8 +201,9 @@ class TestSaturationMutagenesisConfigDispatch:
         assert result.output_count == 3
 
     def test_top_n_ascending_keeps_lowest_scores(self, tmp_ds):
-        # 19 variants, scores 18 down to 0
-        scores = list(range(18, -1, -1))
+        # Alphabet order at pos 0 (excluding WT 'M'): A,C,D,E,F,G,H,I,K,L,N,P,Q,R,S,T,V,W,Y
+        # Assign scores 18,17,...,0 in that order → 'Y' gets 0 (lowest/best)
+        scores = list(range(18, -1, -1))  # 18 down to 0
         mock_inst = self._make_mock(scores)
         cfg = SaturationMutagenesisConfig(
             parent_sequence=self.PARENT,
@@ -202,9 +213,15 @@ class TestSaturationMutagenesisConfigDispatch:
             ascending=True,
         )
         ws_out, result = self._dispatch(cfg, mock_inst, tmp_ds)
-        df = tmp_ds.materialize_working_set(ws_out)
-        # Best sequences must have score ≤ 2 (the 3 lowest)
         assert result.output_count == 3
+        df = tmp_ds.materialize_working_set(ws_out)
+        # Substitutions at pos 0 excluding WT 'M', in alphabet (ACDEFGHIKLMNPQRSTVWY) order:
+        # A(18), C(17), D(16), E(15), F(14), G(13), H(12), I(11), K(10), L(9),
+        # N(8), P(7), Q(6), R(5), S(4), T(3), V(2), W(1), Y(0)
+        # Top-3 lowest scores: Y(0)→"YKTAY", W(1)→"WKTAY", V(2)→"VKTAY"
+        expected = {"YKTAY", "WKTAY", "VKTAY"}
+        actual = set(df["sequence"].str.upper())
+        assert actual == expected, f"Expected {expected}, got {actual}"
 
     def test_exclude_synonymous_drops_wt_residue(self, tmp_ds):
         # With exclude_synonymous=True (default), 'M' at pos 0 is skipped → 19 variants
@@ -240,30 +257,18 @@ class TestSaturationMutagenesisConfigDispatch:
             ds2.close()
 
     def test_none_scores_are_dropped(self, tmp_ds):
-        # API returns None for some variants — those should be filtered out
-        # We do this by returning a dict missing the score field for some items
-        scores_with_gaps = [{"ddg": -1.0}, {}, {"ddg": -2.0}]  # middle has no ddg
-        instance = AsyncMock()
-        instance.predict = AsyncMock(return_value=scores_with_gaps)
-        instance.shutdown = AsyncMock()
-        # Only 3 positions for simplicity
+        # 19 variants at pos 0 of "MKT"; every 3rd one gets None score.
+        # indices with None: 1, 4, 7, 10, 13, 16 → 6 dropped, 13 kept.
+        all_scores = [float(i) if i % 3 != 1 else None for i in range(19)]
+        mock_inst = self._make_mock(all_scores)
         cfg = SaturationMutagenesisConfig(
-            parent_sequence="MKT",  # 3 residues
+            parent_sequence="MKT",
             scoring_model="m",
             positions=[0],
             top_n=None,
             exclude_synonymous=True,
         )
-        # 19 substitutions at pos 0 in "MKT" → still one batch
-        # Make the mock return correct length list with some None scores
-        all_scores = [{"ddg": float(i) if i % 3 != 1 else None} for i in range(19)]
-        instance.predict = AsyncMock(return_value=all_scores)
-        stage = GenerationStage(name="gen", config=cfg)
-        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
-            ws_out, result = asyncio.run(
-                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
-            )
-        # 6 out of 19 have None ddg (indices 1, 4, 7, 10, 13, 16)
+        ws_out, result = self._dispatch(cfg, mock_inst, tmp_ds)
         assert result.output_count == 19 - 6
 
     def test_label_stored_as_source_label(self, tmp_ds):
@@ -314,10 +319,13 @@ class TestSaturationMutagenesisConfigDispatch:
 
     def test_nested_score_field(self, tmp_ds):
         """score_field='result.ddg' must navigate nested dict response."""
+        scores_iter = iter(-float(i) for i in range(19))
+
+        async def nested_predict(items, **kwargs):
+            return [{"result": {"ddg": next(scores_iter, None)}} for _ in items]
+
         instance = AsyncMock()
-        instance.predict = AsyncMock(
-            return_value=[{"result": {"ddg": -float(i)}} for i in range(19)]
-        )
+        instance.predict = nested_predict
         instance.shutdown = AsyncMock()
         cfg = SaturationMutagenesisConfig(
             parent_sequence=self.PARENT,
@@ -375,6 +383,103 @@ class TestSaturationMutagenesisConfigDispatch:
             )
         assert result.output_count == 3 * 19  # all 57 variants
 
+    def test_multi_batch_score_alignment(self, tmp_ds):
+        """With batch_size=3 and 19 variants, scores must align to correct mutants."""
+        # The first 3 variants at pos 0 (excl. WT 'M') in alphabet order:
+        #   A (idx 0), C (idx 1), D (idx 2) → scores 100, 200, 300
+        # All others get score 0.
+        # With ascending=True and top_n=3, the 3 lowest scores (all 0s) should win —
+        # meaning none of the first 3 are in the top set.
+        scores = [100.0, 200.0, 300.0] + [0.0] * 16
+        mock_inst = self._make_mock(scores)
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence=self.PARENT,
+            scoring_model="thermompnn-d",
+            positions=self.POSITIONS,
+            top_n=3,
+            ascending=True,
+            batch_size=3,  # forces 7 batches for 19 variants
+        )
+        ws_out, result = self._dispatch(cfg, mock_inst, tmp_ds)
+        assert result.output_count == 3
+        df = tmp_ds.materialize_working_set(ws_out)
+        # Scores 100/200/300 went to the FIRST 3 variants (A, C, D at pos 0).
+        # With ascending=True and top_n=3, those 3 should NOT be in the result.
+        top_seqs = set(df["sequence"].str.upper())
+        for excluded in {"AKTAY", "CKTAY", "DKTAY"}:
+            assert excluded not in top_seqs, f"{excluded} has score 100+ but appeared in top-3"
+
+    def test_api_exception_in_batch_fills_none_scores(self, tmp_ds):
+        """A batch-level API failure gracefully fills scores with None for that batch."""
+        call_count = 0
+
+        async def failing_predict(items, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("simulated API failure")
+            return [{"ddg": -1.0} for _ in items]
+
+        instance = AsyncMock()
+        instance.predict = failing_predict
+        instance.shutdown = AsyncMock()
+
+        # 19 variants, batch_size=10 → batch 0 fails (None × 10), batch 1 succeeds (9 scores)
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence=self.PARENT,
+            scoring_model="m",
+            positions=self.POSITIONS,
+            top_n=None,
+            batch_size=10,
+        )
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            ws_out, result = asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+        # First batch (10 items) → all None → dropped; second batch (9 items) → kept
+        assert result.output_count == 9
+
+    def test_invalid_scoring_action_raises(self):
+        with pytest.raises(ValueError, match="scoring_action"):
+            SaturationMutagenesisConfig(
+                parent_sequence="MKTAY",
+                scoring_model="thermompnn-d",
+                scoring_action="__class__",
+            )
+
+    def test_invalid_score_field_pattern_raises(self):
+        with pytest.raises(ValueError, match="score_field"):
+            SaturationMutagenesisConfig(
+                parent_sequence="MKTAY",
+                scoring_model="m",
+                score_field="bad field!",
+            )
+
+    def test_reserved_score_field_raises(self):
+        with pytest.raises(ValueError, match="reserved"):
+            SaturationMutagenesisConfig(
+                parent_sequence="MKTAY",
+                scoring_model="m",
+                score_field="sequence",
+            )
+
+    def test_out_of_range_position_raises(self):
+        with pytest.raises(ValueError, match="out-of-range"):
+            SaturationMutagenesisConfig(
+                parent_sequence="MKTAY",
+                scoring_model="m",
+                positions=[0, 10],  # 10 >= len("MKTAY")=5
+            )
+
+    def test_negative_position_raises(self):
+        with pytest.raises(ValueError, match="out-of-range"):
+            SaturationMutagenesisConfig(
+                parent_sequence="MKTAY",
+                scoring_model="m",
+                positions=[-1],
+            )
+
 
 # ---------------------------------------------------------------------------
 # IterativeMaskingDMSConfig — specification
@@ -426,6 +531,38 @@ class TestIterativeMaskingDMSConfigSpec:
         spec = stage.to_spec()
         assert spec["configs"][0]["type"] == "IterativeMaskingDMSConfig"
 
+    def test_rounds_greater_than_2_raises(self):
+        with pytest.raises(ValueError, match="rounds > 2"):
+            IterativeMaskingDMSConfig(
+                parent_sequence="MKTAY",
+                model_name="esm2-650m",
+                rounds=3,
+            )
+
+    def test_rounds_0_raises(self):
+        with pytest.raises(ValueError, match="rounds must be >= 1"):
+            IterativeMaskingDMSConfig(
+                parent_sequence="MKTAY",
+                model_name="esm2-650m",
+                rounds=0,
+            )
+
+    def test_invalid_action_raises(self):
+        with pytest.raises(ValueError, match="action"):
+            IterativeMaskingDMSConfig(
+                parent_sequence="MKTAY",
+                model_name="esm2-650m",
+                action="_headers",
+            )
+
+    def test_out_of_range_position_raises(self):
+        with pytest.raises(ValueError, match="out-of-range"):
+            IterativeMaskingDMSConfig(
+                parent_sequence="MKTAY",
+                model_name="esm2-650m",
+                positions=[0, 99],
+            )
+
 
 # ---------------------------------------------------------------------------
 # IterativeMaskingDMSConfig — dispatch (mocked API)
@@ -467,6 +604,7 @@ class TestIterativeMaskingDMSConfigDispatch:
             model_name="esm2-650m",
             positions=self.POSITIONS,
             rounds=1,
+            batch_size=100,  # explicit: ensures both positions collapse to one call
         )
         ws_out, result = self._dispatch(cfg, instance, tmp_ds)
         # 2 positions → 2 single-mutant sequences
@@ -499,6 +637,7 @@ class TestIterativeMaskingDMSConfigDispatch:
             model_name="esm2-650m",
             positions=self.POSITIONS,
             rounds=2,
+            batch_size=100,  # explicit: 2 positions → both rounds each fit in 1 call
         )
         ws_out, result = self._dispatch(cfg, instance, tmp_ds)
         assert result.output_count == 2
@@ -525,6 +664,7 @@ class TestIterativeMaskingDMSConfigDispatch:
             positions=self.POSITIONS,
             rounds=1,
             exclude_synonymous=True,
+            batch_size=100,
         )
         ws_out, result = self._dispatch(cfg, instance, tmp_ds)
         # Only pos2 change is kept
@@ -549,6 +689,7 @@ class TestIterativeMaskingDMSConfigDispatch:
             positions=self.POSITIONS,
             rounds=1,
             exclude_synonymous=False,
+            batch_size=100,
         )
         ws_out, result = self._dispatch(cfg, instance, tmp_ds)
         # Both positions kept (even the synonymous one)
@@ -569,6 +710,7 @@ class TestIterativeMaskingDMSConfigDispatch:
             positions=self.POSITIONS,
             rounds=1,
             label="dms-esm2-r1",
+            batch_size=100,
         )
         ws_out, _ = self._dispatch(cfg, instance, tmp_ds)
         df = tmp_ds.materialize_working_set(ws_out)
@@ -600,6 +742,7 @@ class TestIterativeMaskingDMSConfigDispatch:
             model_name="esmc-300m",
             positions=self.POSITIONS,
             rounds=1,
+            batch_size=100,
         )
         ws_out, result = self._dispatch(cfg, instance, tmp_ds)
         # Should correctly extract argmax even with BOS/EOS padding
@@ -634,7 +777,7 @@ class TestIterativeMaskingDMSConfigDispatch:
 
         cfg = IterativeMaskingDMSConfig(
             parent_sequence=parent, model_name="esm2-650m",
-            positions=positions, rounds=2,
+            positions=positions, rounds=2, batch_size=100,
         )
         ws_out, result = self._dispatch(cfg, instance, tmp_ds)
         df = tmp_ds.materialize_working_set(ws_out)
@@ -657,7 +800,7 @@ class TestIterativeMaskingDMSConfigDispatch:
 
         cfg = IterativeMaskingDMSConfig(
             parent_sequence=parent, model_name="esm2-650m",
-            positions=None, rounds=1,
+            positions=None, rounds=1, batch_size=100,
         )
         stage = GenerationStage(name="gen", config=cfg)
         ds_path = tmp_ds.db_path  # reuse fixture ds
@@ -814,8 +957,8 @@ class TestDirectGenerationConfigLabel:
         assert "source_label" in df.columns
         assert df["source_label"].iloc[0] == "test-label"
 
-    def test_no_source_label_column_when_no_labels(self, tmp_ds):
-        """materialize_working_set omits source_label when no labels are stored."""
+    def test_source_label_is_null_when_no_labels_stored(self, tmp_ds):
+        """source_label column is always present; NULL when no label was set."""
         seq_id = tmp_ds.add_sequences_batch(["MKTAYIAKQRQ"])[0]
         tmp_ds.create_pipeline_run(run_id="r1", pipeline_type="T", config={}, status="running")
         tmp_ds.add_generation_metadata_batch([{
@@ -826,7 +969,8 @@ class TestDirectGenerationConfigLabel:
         }])
         ws = WorkingSet.from_ids([seq_id])
         df = tmp_ds.materialize_working_set(ws)
-        assert "source_label" not in df.columns
+        assert "source_label" in df.columns
+        assert df["source_label"].isna().all()
 
     def test_multiple_labels_preserved_per_sequence(self, tmp_ds):
         """Each sequence retains its own label; different labels coexist."""
@@ -928,3 +1072,84 @@ class TestResultsAlias:
         df = pipe.results()
         assert len(df) == 2
         ds.close()
+
+
+# ---------------------------------------------------------------------------
+# pipeline_def.py round-trip: save → reconstruct via _config_from_spec()
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineDefRoundtrip:
+    """Verify that all new config types survive to_spec() → _config_from_spec()."""
+
+    def test_saturation_mutagenesis_config_roundtrip(self):
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence="MKTAY",
+            scoring_model="thermompnn-d",
+            positions=[0, 2],
+            top_n=10,
+            ascending=False,
+            label="thermo-label",
+            pdb_str="ATOM ...",
+            chain="B",
+            score_field="ddg",
+        )
+        restored = _config_from_spec(cfg.to_spec())
+        assert isinstance(restored, SaturationMutagenesisConfig)
+        assert restored.parent_sequence == cfg.parent_sequence
+        assert restored.scoring_model == cfg.scoring_model
+        assert restored.positions == cfg.positions
+        assert restored.top_n == cfg.top_n
+        assert restored.ascending == cfg.ascending
+        assert restored.label == cfg.label
+        assert restored.pdb_str == cfg.pdb_str
+        assert restored.chain == cfg.chain
+
+    def test_iterative_masking_dms_config_roundtrip(self):
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence="MKTAY",
+            model_name="esm2-650m",
+            positions=[0, 2],
+            rounds=2,
+            label="dms-label",
+            batch_size=64,
+        )
+        restored = _config_from_spec(cfg.to_spec())
+        assert isinstance(restored, IterativeMaskingDMSConfig)
+        assert restored.parent_sequence == cfg.parent_sequence
+        assert restored.model_name == cfg.model_name
+        assert restored.rounds == cfg.rounds
+        assert restored.label == cfg.label
+        assert restored.batch_size == cfg.batch_size
+
+    def test_direct_generation_config_label_survives_roundtrip(self):
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+        from biolmai.pipeline import DirectGenerationConfig
+
+        cfg = DirectGenerationConfig(
+            model_name="hyper-mpnn",
+            item_field="pdb",
+            params={"batch_size": 50, "temperature": 0.3},
+            label="hyper-nterm-T0.3",
+        )
+        restored = _config_from_spec(cfg.to_spec())
+        assert isinstance(restored, DirectGenerationConfig)
+        assert restored.label == "hyper-nterm-T0.3"
+
+    def test_direct_generation_config_label_none_survives_roundtrip(self):
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+        from biolmai.pipeline import DirectGenerationConfig
+
+        cfg = DirectGenerationConfig(model_name="hyper-mpnn")
+        restored = _config_from_spec(cfg.to_spec())
+        assert restored.label is None
+
+    def test_unknown_config_type_raises(self):
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+
+        with pytest.raises(ValueError, match="Unknown generation config type"):
+            _config_from_spec({"type": "NonExistentConfig"})

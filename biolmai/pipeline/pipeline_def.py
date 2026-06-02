@@ -178,7 +178,12 @@ def filter_from_spec(spec: dict) -> "BaseFilter":
 
 def _config_from_spec(spec: dict) -> Any:
     """Reconstruct a generation config object from its ``to_spec()`` dict."""
-    from biolmai.pipeline.generative import DirectGenerationConfig, SequenceSourceConfig
+    from biolmai.pipeline.generative import (
+        DirectGenerationConfig,
+        IterativeMaskingDMSConfig,
+        SaturationMutagenesisConfig,
+        SequenceSourceConfig,
+    )
     from biolmai.pipeline.mlm_remasking import RemaskingConfig
 
     ctype = spec.get("type")
@@ -213,6 +218,37 @@ def _config_from_spec(spec: dict) -> Any:
             structure_from_stage=spec.get("structure_from_stage"),
             structure_from_model=spec.get("structure_from_model"),
             n_runs=spec.get("n_runs", 1),
+            label=spec.get("label"),
+        )
+    elif ctype == "SaturationMutagenesisConfig":
+        return SaturationMutagenesisConfig(
+            parent_sequence=spec["parent_sequence"],
+            scoring_model=spec["scoring_model"],
+            positions=spec.get("positions"),
+            alphabet=spec.get("alphabet", "ACDEFGHIKLMNPQRSTVWY"),
+            scoring_action=spec.get("scoring_action", "predict"),
+            scoring_params=spec.get("scoring_params", {}),
+            score_field=spec.get("score_field", "ddg"),
+            top_n=spec.get("top_n", 50),
+            ascending=spec.get("ascending", True),
+            exclude_synonymous=spec.get("exclude_synonymous", True),
+            batch_size=spec.get("batch_size", 8),
+            label=spec.get("label"),
+            pdb_str=spec.get("pdb_str"),
+            chain=spec.get("chain", "A"),
+        )
+    elif ctype == "IterativeMaskingDMSConfig":
+        return IterativeMaskingDMSConfig(
+            parent_sequence=spec["parent_sequence"],
+            model_name=spec["model_name"],
+            positions=spec.get("positions"),
+            rounds=spec.get("rounds", 2),
+            mask_token=spec.get("mask_token", "<mask>"),
+            alphabet=spec.get("alphabet", "ACDEFGHIKLMNPQRSTVWY"),
+            exclude_synonymous=spec.get("exclude_synonymous", True),
+            batch_size=spec.get("batch_size", 32),
+            label=spec.get("label"),
+            action=spec.get("action", "predict"),
         )
     elif ctype == "RemaskingConfig":
         return RemaskingConfig(
@@ -236,8 +272,9 @@ def _config_from_spec(spec: dict) -> Any:
     else:
         raise ValueError(
             f"Unknown generation config type '{ctype}'. "
-            "Only SequenceSourceConfig, RemaskingConfig, and DirectGenerationConfig "
-            "are reconstructable."
+            "Supported types: SequenceSourceConfig, RemaskingConfig, "
+            "DirectGenerationConfig, SaturationMutagenesisConfig, "
+            "IterativeMaskingDMSConfig."
         )
 
 
