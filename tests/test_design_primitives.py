@@ -200,6 +200,29 @@ class TestSaturationMutagenesisConfigDispatch:
         ws_out, result = self._dispatch(cfg, mock_inst, tmp_ds)
         assert result.output_count == 3
 
+    def test_top_n_descending_keeps_highest_scores(self, tmp_ds):
+        """ascending=False: top_n keeps the HIGHEST scoring variants."""
+        # Alphabet order at pos 0 (excl. WT 'M'): A,C,D,E,F,G,H,I,K,L,N,P,Q,R,S,T,V,W,Y
+        # Scores 0..18: A=0, C=1, ..., Y=18
+        scores = list(range(19))
+        mock_inst = self._make_mock(scores)
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence=self.PARENT,
+            scoring_model="thermompnn-d",
+            positions=self.POSITIONS,
+            top_n=3,
+            ascending=False,  # higher score = better
+        )
+        ws_out, result = self._dispatch(cfg, mock_inst, tmp_ds)
+        assert result.output_count == 3
+        df = tmp_ds.materialize_working_set(ws_out)
+        top_seqs = set(df["sequence"].str.upper())
+        # Highest scores: Y(18)→"YKTAY", W(17)→"WKTAY", V(16)→"VKTAY"
+        for included in {"YKTAY", "WKTAY", "VKTAY"}:
+            assert included in top_seqs, f"{included} should be in top-3 by descending score"
+        for excluded in {"AKTAY", "CKTAY", "DKTAY"}:
+            assert excluded not in top_seqs, f"{excluded} has low score but appeared in top-3"
+
     def test_top_n_ascending_keeps_lowest_scores(self, tmp_ds):
         # Alphabet order at pos 0 (excluding WT 'M'): A,C,D,E,F,G,H,I,K,L,N,P,Q,R,S,T,V,W,Y
         # Assign scores 18,17,...,0 in that order → 'Y' gets 0 (lowest/best)
@@ -403,11 +426,14 @@ class TestSaturationMutagenesisConfigDispatch:
         ws_out, result = self._dispatch(cfg, mock_inst, tmp_ds)
         assert result.output_count == 3
         df = tmp_ds.materialize_working_set(ws_out)
-        # Scores 100/200/300 went to the FIRST 3 variants (A, C, D at pos 0).
-        # With ascending=True and top_n=3, those 3 should NOT be in the result.
         top_seqs = set(df["sequence"].str.upper())
+        # High-score variants (first batch: A=100, C=200, D=300) must be excluded
         for excluded in {"AKTAY", "CKTAY", "DKTAY"}:
             assert excluded not in top_seqs, f"{excluded} has score 100+ but appeared in top-3"
+        # 16 variants share score 0; stable sort picks the first 3 in enumeration order
+        # (alphabet minus 'M'): E(idx 3)→"EKTAY", F(idx 4)→"FKTAY", G(idx 5)→"GKTAY"
+        for included in {"EKTAY", "FKTAY", "GKTAY"}:
+            assert included in top_seqs, f"{included} has score 0 but was not in top-3"
 
     def test_api_exception_in_batch_fills_none_scores(self, tmp_ds):
         """A batch-level API failure gracefully fills scores with None for that batch."""
@@ -439,6 +465,13 @@ class TestSaturationMutagenesisConfigDispatch:
             )
         # First batch (10 items) → all None → dropped; second batch (9 items) → kept
         assert result.output_count == 9
+
+    def test_frozen_prevents_post_construction_mutation(self):
+        """frozen=True must block post-construction attribute assignment."""
+        from dataclasses import FrozenInstanceError
+        cfg = SaturationMutagenesisConfig(parent_sequence="MKTAY", scoring_model="m")
+        with pytest.raises(FrozenInstanceError):
+            cfg.positions = [999]
 
     def test_invalid_scoring_action_raises(self):
         with pytest.raises(ValueError, match="scoring_action"):
@@ -530,6 +563,13 @@ class TestIterativeMaskingDMSConfigSpec:
         stage = GenerationStage(name="gen", config=cfg)
         spec = stage.to_spec()
         assert spec["configs"][0]["type"] == "IterativeMaskingDMSConfig"
+
+    def test_frozen_prevents_post_construction_mutation(self):
+        """frozen=True must block post-construction attribute assignment."""
+        from dataclasses import FrozenInstanceError
+        cfg = IterativeMaskingDMSConfig(parent_sequence="MKTAY", model_name="esm2-650m")
+        with pytest.raises(FrozenInstanceError):
+            cfg.positions = [999]
 
     def test_rounds_greater_than_2_raises(self):
         with pytest.raises(ValueError, match="rounds > 2"):

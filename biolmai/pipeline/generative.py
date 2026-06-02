@@ -28,16 +28,20 @@ _GENERATIVE_TEMP_COUNTER = _itertools.count()
 # in SaturationMutagenesisConfig and IterativeMaskingDMSConfig so that
 # user-supplied action strings cannot resolve to arbitrary BioLMApiClient attrs.
 _ALLOWED_API_ACTIONS: frozenset = frozenset(
-    {"predict", "encode", "generate", "fold", "search", "score"}
+    {"predict", "encode", "generate", "search", "score"}
 )
 
 # Reserved column names that must not be used as a score_field key, because they
 # would silently overwrite core sequence/provenance data in the output row dict.
+# Includes both core pipeline columns and the provenance columns written by
+# _run_saturation_mutagenesis itself (sat_position, sat_wt_aa, sat_mut_aa).
 _RESERVED_SCORE_COLUMNS: frozenset = frozenset(
     {
         "sequence", "model_name", "temperature", "sampling_params",
         "generation_method", "parent_sequence", "source_label",
         "sequence_id", "length", "hash",
+        "sat_position", "sat_wt_aa", "sat_mut_aa",
+        "dms_round", "dms_pos1", "dms_aa1", "dms_pos2", "dms_aa2",
     }
 )
 
@@ -199,7 +203,7 @@ class SequenceSourceConfig:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class SaturationMutagenesisConfig:
     """Source config that generates a single-mutant library and filters by a prediction model.
 
@@ -229,9 +233,14 @@ class SaturationMutagenesisConfig:
             identical to the wild-type residue.
         batch_size: Sequences per API request when scoring (default 8).
         label: Optional label stored as ``source_label`` in results.
-        pdb_str: Optional PDB string forwarded to the scoring model alongside
-            each sequence (required by structure-aware models like ThermoMPNN-D).
-        chain: Chain identifier forwarded to the scoring model (default ``'A'``).
+        pdb_str: Raw PDB file contents as a string (not a file path).  When
+            provided, each scoring item is built as
+            ``{"pdb": pdb_str, "mutations": ["<WT><pos+1><MUT>"], "chain": chain}``
+            instead of ``{"sequence": mutant_sequence}``.  Required by
+            structure-aware models such as ThermoMPNN-D.  Pass ``None`` (default)
+            for sequence-only models like ESM2StabP.
+        chain: Chain identifier forwarded in structure-aware scoring items
+            (default ``'A'``).
     """
 
     parent_sequence: str
@@ -299,7 +308,7 @@ class SaturationMutagenesisConfig:
         }
 
 
-@dataclass
+@dataclass(frozen=True)
 class IterativeMaskingDMSConfig:
     """Source config that builds multi-point variants via sequential greedy masking.
 

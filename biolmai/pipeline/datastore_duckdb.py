@@ -327,8 +327,13 @@ class DuckDBDataStore:
             self.conn.execute(
                 "ALTER TABLE generation_metadata ADD COLUMN IF NOT EXISTS label VARCHAR"
             )
-        except Exception:
-            pass
+        except Exception as _migration_err:
+            logger.warning(
+                "generation_metadata schema migration failed: could not add 'label' column "
+                "(%s). Subsequent generation_metadata inserts that include a label will "
+                "fail with a schema error. Check that the DuckDB file is writable.",
+                _migration_err,
+            )
         self.conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_gen_meta_seq
@@ -2224,6 +2229,14 @@ class DuckDBDataStore:
 
         Returns:
             Wide-format DataFrame: one row per sequence, one column per prediction type.
+            Always includes the following columns regardless of pipeline configuration:
+
+            - ``sequence_id``, ``sequence``, ``length``, ``hash`` — core sequence data.
+            - ``source_label`` — label set on the generation config (e.g.
+              ``DirectGenerationConfig.label``, ``SaturationMutagenesisConfig.label``).
+              ``NULL`` / ``None`` when no label was supplied.  This column is **always
+              present** even when no labels have been set, so downstream code should
+              not branch on ``"source_label" in df.columns`` — it is always there.
         """
         if not ws:
             return pd.DataFrame(columns=["sequence_id", "sequence", "length"])
