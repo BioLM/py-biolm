@@ -7,6 +7,7 @@ from biolmai.core.http import BioLMApi, BioLMApiClient
 from biolmai.biolmai import BioLM
 from biolmai.models import Model, predict, encode, generate
 from biolmai.protocols import Protocol
+from biolmai.finetune import Finetune
 from biolmai.workspaces import Workspace
 from biolmai.volumes import Volume
 from biolmai.examples import get_example, list_models
@@ -41,6 +42,7 @@ __all__ = [
     # New interfaces from issue49
     'Model',
     'Protocol',
+    'Finetune',
     'Workspace',
     'Volume',
     # Convenience functions
