@@ -1,0 +1,11 @@
+=====
+SPURS
+=====
+
+
+.. toctree::
+   :titlesonly:
+   :glob:
+
+   *
+

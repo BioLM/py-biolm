@@ -78,3 +78,11 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    cli/reference
    sdk/api-reference/index
    resources/rest-api
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Model Docs:
+   :hidden:
+   :glob:
+
+   model-docs/*/index

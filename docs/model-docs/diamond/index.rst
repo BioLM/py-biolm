@@ -1,0 +1,11 @@
+=======
+DIAMOND
+=======
+
+
+.. toctree::
+   :titlesonly:
+   :glob:
+
+   *
+

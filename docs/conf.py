@@ -293,27 +293,5 @@ def setup(app):
     app.connect("sphinx-click-process-envvars", _envvar_description_as_paragraph)
 
 
-# Redirects
-redirects = {
-    "model-docs/esmfold/ESMFold_Additional": "https://biolm.ai/models/esmfold/",
-    "model-docs/esmfold/ESMFold_API": "https://biolm.ai/models/esmfold/",
-    "model-docs/esmfold/index": "https://biolm.ai/models/esmfold/",
-    "model-docs/esm1v/ESM-1v_Additional": "https://biolm.ai/models/esm1v-all/",
-    "model-docs/esm1v/ESM-1v_API": "https://biolm.ai/models/esm1v-all/",
-    "model-docs/esm1v/index": "https://biolm.ai/models/esm1v-all/",
-    "model-docs/esm2/ESM2_Additional": "https://biolm.ai/models/esm2-650m/",
-    "model-docs/esm2/ESM2_API": "https://biolm.ai/models/esm2-650m/",
-    "model-docs/esm2/index": "https://biolm.ai/models/esm2-650m/",
-    "model-docs/progen2/ProGen2_Additional": "https://biolm.ai/models/progen2-medium/",
-    "model-docs/progen2/ProGen2_API": "https://biolm.ai/models/progen2-medium/",
-    "model-docs/progen2/index": "https://biolm.ai/models/progen2-medium/",
-    "model-docs/esmif/ESM_InverseFold_Additional": "https://biolm.ai/models/esm-if1/",
-    "model-docs/esmif/ESM_InverseFold_API": "https://biolm.ai/models/esm-if1/",
-    "model-docs/esmif/index": "https://biolm.ai/models/esm-if1/",
-    "model-docs/dnabert/DNABERT_Additional": "https://biolm.ai/models/dnabert2/",
-    "model-docs/dnabert/classifier_ft": "https://biolm.ai/models/dnabert2/",
-    "model-docs/dnabert/index": "https://biolm.ai/models/dnabert2/",
-    "model-docs/biolmtox/BioLMTox_Additional": "https://biolm.ai/models/biolmtox/",
-    "model-docs/biolmtox/BioLMTox_API": "https://biolm.ai/models/biolmtox/",
-    "model-docs/biolmtox/index": "https://biolm.ai/models/biolmtox/",
-}
+# Redirects — model-docs entries removed; pages now live at docs/model-docs/{slug}/
+redirects = {}

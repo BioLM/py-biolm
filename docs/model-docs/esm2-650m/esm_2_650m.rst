@@ -1,0 +1,673 @@
+ESM-2 650M API
+==============
+
+ESM-2 650M is a transformer protein language model trained on evolutionary-scale UniRef50/UniRef90 sequence data for masked amino acid prediction and representation learning. The API exposes two main capabilities: GPU-accelerated encoding of protein sequences into per-sequence, per-token, BOS, attention, contact, and logit representations, and masked-token prediction for sequences containing `<mask>`. Typical uses include protein representation learning, contact-map estimation, mutational scanning, and sequence design workflows for engineering and analysis.
+
+Predict
+-------
+
+Predict masked amino acid tokens in the input sequences
+
+.. tab-set::
+
+    .. tab-item:: Python (biolmai)
+        :sync: sdk
+
+        .. code:: python
+
+            from biolmai import BioLM
+            response = BioLM(
+                entity="esm2-650m",
+                action="predict",
+                params={},
+                items=[
+                  {
+                    "sequence": "MKT<mask>IALSYIFCLVFA"
+                  },
+                  {
+                    "sequence": "VLSP<mask>KAAW"
+                  }
+                ]
+            )
+            print(response)
+
+    .. tab-item:: cURL
+        :sync: curl
+
+        .. code:: bash
+
+            curl -X POST https://biolm.ai/api/v3/esm2-650m/predict/ \
+              -H "Authorization: Token YOUR_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+              "items": [
+                {
+                  "sequence": "MKT<mask>IALSYIFCLVFA"
+                },
+                {
+                  "sequence": "VLSP<mask>KAAW"
+                }
+              ]
+            }'
+
+    .. tab-item:: Python Requests
+        :sync: python
+
+        .. code:: python
+
+            import requests
+
+            url = "https://biolm.ai/api/v3/esm2-650m/predict/"
+            headers = {
+                "Authorization": "Token YOUR_API_KEY",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                  "items": [
+                    {
+                      "sequence": "MKT<mask>IALSYIFCLVFA"
+                    },
+                    {
+                      "sequence": "VLSP<mask>KAAW"
+                    }
+                  ]
+                }
+
+            response = requests.post(url, headers=headers, json=payload)
+            print(response.json())
+
+    .. tab-item:: R
+        :sync: r
+
+        .. code:: r
+
+            library(httr)
+
+            url <- "https://biolm.ai/api/v3/esm2-650m/predict/"
+            headers <- c("Authorization" = "Token YOUR_API_KEY", "Content-Type" = "application/json")
+            body <- list(
+              items = list(
+                list(
+                  sequence = "MKT<mask>IALSYIFCLVFA"
+                ),
+                list(
+                  sequence = "VLSP<mask>KAAW"
+                )
+              )
+            )
+
+            res <- POST(url, add_headers(.headers = headers), body = body, encode = "json")
+            print(content(res))
+
+.. http:post:: /api/v3/esm2-650m/predict/
+
+   Predict endpoint for ESM-2 650M.
+
+   :reqheader Content-Type: application/json
+   :reqheader Authorization: Token YOUR_API_KEY
+
+   .. container:: field-heading
+
+      Request
+
+   .. container:: field-definition
+
+      - **params** (*object*, optional) --- Configuration parameters:
+
+        - **repr_layers** (*array of integers*, default: [-1]) — Indices of model layers to return representations from
+
+        - **include** (*array of strings*, default: ["mean"]) — Output data to compute and return
+
+          Allowed values:
+
+          - mean
+          - per_token
+          - bos
+          - contacts
+          - logits
+          - attentions
+
+
+      - **items** (*array of objects*, min: 1, max: 8) --- Input sequences for embedding:
+
+        - **sequence** (*string*, min length: 1, max length: 2048, required) — Protein sequence using extended amino acid alphabet plus "-" character
+
+
+      - **items** (*array of objects*, min: 1, max: 8) --- Input sequences with masked tokens for prediction:
+
+        - **sequence** (*string*, min length: 1, max length: 2048, required) — Protein sequence using extended amino acid alphabet plus "<mask>" token (one or more occurrences)
+
+   **Example request**:
+
+   .. sourcecode:: http
+
+      POST /api/v3/esm2-650m/predict/ HTTP/1.1
+      Host: biolm.ai
+      Authorization: Token YOUR_API_KEY
+      Content-Type: application/json
+
+            {
+        "items": [
+          {
+            "sequence": "MKT<mask>IALSYIFCLVFA"
+          },
+          {
+            "sequence": "VLSP<mask>KAAW"
+          }
+        ]
+      }
+
+   :statuscode 200: Successful response
+   :statuscode 400: Invalid input
+   :statuscode 500: Internal server error
+
+   .. container:: field-heading
+
+      Response
+
+   .. container:: field-definition
+
+      - **results** (*array of objects*) --- One result per input item, in the order requested:
+
+        - **sequence_index** (*int*) — Index of the input sequence in the request ``items`` array
+
+        - **embeddings** (*array of objects*, optional) — Mean embeddings per requested layer
+
+          - **layer** (*int*) — Layer index from the ESM2 model
+
+          - **embedding** (*array of floats*, size: 1280) — Mean embedding vector for the sequence
+
+        - **bos_embeddings** (*array of objects*, optional) — Beginning-of-sequence embeddings per requested layer
+
+          - **layer** (*int*) — Layer index from the ESM2 model
+
+          - **embedding** (*array of floats*, size: 1280) — Embedding vector for the beginning-of-sequence token
+
+        - **per_token_embeddings** (*array of objects*, optional) — Per-token embeddings per requested layer
+
+          - **layer** (*int*) — Layer index from the ESM2 model
+
+          - **embeddings** (*array of arrays of floats*, shape: [sequence_length, 1280]) — Embedding vectors per token position
+
+        - **contacts** (*array of arrays of floats*, optional, shape: [sequence_length, sequence_length], range: 0.0-1.0) — Predicted inter-residue contact scores
+
+        - **attentions** (*array of arrays of floats*, optional, shape: [sequence_length, sequence_length]) — Aggregated self-attention weights
+
+        - **logits** (*array of arrays of floats*, optional, shape: [sequence_length, vocab_size]) — Predicted per-token logits over vocabulary tokens
+
+        - **vocab_tokens** (*array of strings*, optional, size: vocab_size) — Vocabulary tokens corresponding to ``logits`` indices
+
+
+      - **results** (*array of objects*) --- One result per input item, in the order requested:
+
+        - **logits** (*array of arrays of floats*, shape: [num_masked_positions, vocab_size]) — Predicted logits for masked positions
+
+        - **sequence_tokens** (*array of strings*, size: sequence_length) — Tokenized input sequence, including ``"<mask>"`` tokens
+
+        - **vocab_tokens** (*array of strings*, size: vocab_size) — Vocabulary tokens corresponding to ``logits`` indices
+
+   **Example response**:
+
+   .. sourcecode:: http
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+
+            {
+        "results": [
+          {
+            "logits": [
+              [
+                0.26346755027770996,
+                -1.0843636989593506,
+                "... (truncated for documentation)"
+              ],
+              [
+                0.22804699838161469,
+                -0.11050359904766083,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ],
+            "sequence_tokens": [
+              "M",
+              "K",
+              "... (truncated for documentation)"
+            ],
+            "vocab_tokens": [
+              "L",
+              "A",
+              "... (truncated for documentation)"
+            ]
+          },
+          {
+            "logits": [
+              [
+                -0.4318189024925232,
+                -0.31044864654541016,
+                "... (truncated for documentation)"
+              ],
+              [
+                3.3938562870025635,
+                0.003626987338066101,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ],
+            "sequence_tokens": [
+              "V",
+              "L",
+              "... (truncated for documentation)"
+            ],
+            "vocab_tokens": [
+              "L",
+              "A",
+              "... (truncated for documentation)"
+            ]
+          }
+        ]
+      }
+
+
+Encode
+------
+
+Generate embeddings for input protein sequences
+
+.. tab-set::
+
+    .. tab-item:: Python (biolmai)
+        :sync: sdk
+
+        .. code:: python
+
+            from biolmai import BioLM
+            response = BioLM(
+                entity="esm2-650m",
+                action="encode",
+                params={
+                  "repr_layers": [
+                    -1,
+                    -2
+                  ],
+                  "include": [
+                    "mean",
+                    "per_token"
+                  ]
+                },
+                items=[
+                  {
+                    "sequence": "MKTIIALSYIFCLVFAD"
+                  },
+                  {
+                    "sequence": "VLSPADKTNVKAAW"
+                  }
+                ]
+            )
+            print(response)
+
+    .. tab-item:: cURL
+        :sync: curl
+
+        .. code:: bash
+
+            curl -X POST https://biolm.ai/api/v3/esm2-650m/encode/ \
+              -H "Authorization: Token YOUR_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+              "params": {
+                "repr_layers": [
+                  -1,
+                  -2
+                ],
+                "include": [
+                  "mean",
+                  "per_token"
+                ]
+              },
+              "items": [
+                {
+                  "sequence": "MKTIIALSYIFCLVFAD"
+                },
+                {
+                  "sequence": "VLSPADKTNVKAAW"
+                }
+              ]
+            }'
+
+    .. tab-item:: Python Requests
+        :sync: python
+
+        .. code:: python
+
+            import requests
+
+            url = "https://biolm.ai/api/v3/esm2-650m/encode/"
+            headers = {
+                "Authorization": "Token YOUR_API_KEY",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                  "params": {
+                    "repr_layers": [
+                      -1,
+                      -2
+                    ],
+                    "include": [
+                      "mean",
+                      "per_token"
+                    ]
+                  },
+                  "items": [
+                    {
+                      "sequence": "MKTIIALSYIFCLVFAD"
+                    },
+                    {
+                      "sequence": "VLSPADKTNVKAAW"
+                    }
+                  ]
+                }
+
+            response = requests.post(url, headers=headers, json=payload)
+            print(response.json())
+
+    .. tab-item:: R
+        :sync: r
+
+        .. code:: r
+
+            library(httr)
+
+            url <- "https://biolm.ai/api/v3/esm2-650m/encode/"
+            headers <- c("Authorization" = "Token YOUR_API_KEY", "Content-Type" = "application/json")
+            body <- list(
+              params = list(
+                repr_layers = list(
+                  -1,
+                  -2
+                ),
+                include = list(
+                  "mean",
+                  "per_token"
+                )
+              ),
+              items = list(
+                list(
+                  sequence = "MKTIIALSYIFCLVFAD"
+                ),
+                list(
+                  sequence = "VLSPADKTNVKAAW"
+                )
+              )
+            )
+
+            res <- POST(url, add_headers(.headers = headers), body = body, encode = "json")
+            print(content(res))
+
+.. http:post:: /api/v3/esm2-650m/encode/
+
+   Encode endpoint for ESM-2 650M.
+
+   :reqheader Content-Type: application/json
+   :reqheader Authorization: Token YOUR_API_KEY
+
+   .. container:: field-heading
+
+      Request
+
+   .. container:: field-definition
+
+      - **params** (*object*, optional) --- Configuration parameters:
+
+        - **repr_layers** (*array of integers*, default: [-1]) — Representation layers to include from the model
+
+        - **include** (*array of strings*, default: ["mean"]) — Output types to include:
+
+          - "mean" — Mean embedding
+          - "per_token" — Per-token embeddings
+          - "bos" — Beginning-of-sequence embedding
+          - "contacts" — Predicted inter-residue distances
+          - "logits" — Predicted per-token logits
+          - "attentions" — Self-attention weights
+
+      - **items** (*array of objects*, min: 1, max: 8) --- Input sequences:
+
+        - **sequence** (*string*, min length: 1, max length: 2048, required) — Protein sequence using extended amino acid codes and "-" character
+
+   **Example request**:
+
+   .. sourcecode:: http
+
+      POST /api/v3/esm2-650m/encode/ HTTP/1.1
+      Host: biolm.ai
+      Authorization: Token YOUR_API_KEY
+      Content-Type: application/json
+
+            {
+        "params": {
+          "repr_layers": [
+            -1,
+            -2
+          ],
+          "include": [
+            "mean",
+            "per_token"
+          ]
+        },
+        "items": [
+          {
+            "sequence": "MKTIIALSYIFCLVFAD"
+          },
+          {
+            "sequence": "VLSPADKTNVKAAW"
+          }
+        ]
+      }
+
+   :statuscode 200: Successful response
+   :statuscode 400: Invalid input
+   :statuscode 500: Internal server error
+
+   .. container:: field-heading
+
+      Response
+
+   .. container:: field-definition
+
+      - **results** (*array of objects*) --- One result per input item, in the order requested:
+
+        - **sequence_index** (*int*) — Index of the input sequence in the request items list
+
+        - **embeddings** (*array of objects*, optional) — Mean embeddings per requested layer:
+
+          - **layer** (*int*) — Layer index from ESM2 model
+          - **embedding** (*array of floats*, size: 1280) — Mean embedding vector for the sequence
+
+        - **bos_embeddings** (*array of objects*, optional) — Beginning-of-sequence embeddings per requested layer:
+
+          - **layer** (*int*) — Layer index from ESM2 model
+          - **embedding** (*array of floats*, size: 1280) — Embedding vector for the beginning-of-sequence token
+
+        - **per_token_embeddings** (*array of objects*, optional) — Per-token embeddings per requested layer:
+
+          - **layer** (*int*) — Layer index from ESM2 model
+          - **embeddings** (*array of arrays of floats*, shape: [sequence_length, 1280]) — Embedding vectors for each token position
+
+        - **contacts** (*array of arrays of floats*, optional, shape: [sequence_length, sequence_length], range: 0.0-1.0) — Predicted inter-residue contact probabilities
+
+        - **attentions** (*array of arrays of floats*, optional, shape: [sequence_length, sequence_length], range: 0.0-1.0) — Self-attention weights between tokens
+
+        - **logits** (*array of arrays of floats*, optional, shape: [sequence_length, vocab_size]) — Predicted per-token logits for each vocabulary token
+
+        - **vocab_tokens** (*array of strings*, optional, size: vocab_size) — Vocabulary tokens corresponding to logits indices
+
+   **Example response**:
+
+   .. sourcecode:: http
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+
+            {
+        "results": [
+          {
+            "sequence_index": 0,
+            "embeddings": [
+              {
+                "layer": 32,
+                "embedding": [
+                  -0.07151295244693756,
+                  8.46182632446289,
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 33,
+                "embedding": [
+                  0.026107627898454666,
+                  0.22847698628902435,
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "per_token_embeddings": [
+              {
+                "layer": 32,
+                "embeddings": [
+                  [
+                    3.1025631427764893,
+                    8.30557632446289,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    -12.64371395111084,
+                    18.03836441040039,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 33,
+                "embeddings": [
+                  [
+                    0.0552901066839695,
+                    0.2175598442554474,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    -0.10134288668632507,
+                    0.3057705760002136,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              }
+            ]
+          },
+          {
+            "sequence_index": 1,
+            "embeddings": [
+              {
+                "layer": 32,
+                "embedding": [
+                  -4.4823503494262695,
+                  6.506104469299316,
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 33,
+                "embedding": [
+                  -0.04350338131189346,
+                  0.07114817947149277,
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "per_token_embeddings": [
+              {
+                "layer": 32,
+                "embeddings": [
+                  [
+                    -2.563758373260498,
+                    -1.9410854578018188,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    11.576005935668945,
+                    0.6234054565429688,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 33,
+                "embeddings": [
+                  [
+                    -0.10343319922685623,
+                    0.03292176127433777,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    0.11083731055259705,
+                    0.031194249168038368,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+
+Performance
+-----------
+
+- Inference is accelerated on NVIDIA Tesla T4 GPUs with 16 GB memory, enabling efficient batched processing for both embedding (encoder) and masked-token prediction (predictor) endpoints.
+- Typical end-to-end latency is on the order of 1–3 seconds per batch for ESM-2 650M on BioLM’s deployment, with modest additional overhead when simultaneously returning multiple heads (embeddings, logits, attentions, contacts).
+- Across the ESM-2 family, the 650M model provides substantially better representation quality than smaller variants (8M, 35M, 150M), improving unsupervised inter-residue contact precision from ~0.30–0.44 (8M–150M) to ~0.52 long-range P@L, and yielding higher downstream accuracy for zero-shot functional prediction and variant effect tasks.
+- Compared to structure-focused models in the BioLM ecosystem, ESM-2 650M contact maps and embeddings offer higher-quality single-sequence structural signals than ESM-1b and smaller ESM-2 variants, and provide structure-aware features that are significantly cheaper and faster to compute than full 3D predictors such as AlphaFold2, while being less accurate than dedicated folding models like ESMFold on atomic-resolution structure benchmarks.
+
+Applications
+------------
+
+- Embedding-based generation of novel protein variants for therapeutic protein engineering, using sequence representations and masked-token prediction from ESM-2 650M to propose local sequence changes; useful for companies optimizing stability or solubility of cytokines, growth factors, or enzymes, but not specifically tuned for antibody or nanobody discovery workflows.
+- Fixed-backbone protein design support by combining ESM-2 650M per-residue embeddings and attention-derived contact maps with external design tools, enabling screening of sequences against a given scaffold for compatibility with desired structural motifs or binding pockets; effective for relatively rigid globular proteins, but less suitable for highly flexible or intrinsically disordered targets.
+- Rapid exploration of protein sequence space via unconstrained sequence generation with the predictor endpoint (masking contiguous regions or full-length sequences), allowing biotech teams to sample diverse candidates around an existing scaffold and then down-select using embeddings and contact predictions; appropriate for ideation of novel folds and scaffolds, but not a substitute for explicit structure-prediction models like ESMFold or AlphaFold2 when strict structural constraints are required.
+- Sequence-based filtering and ranking of protein design libraries using mean or per-token embeddings, logits, and contact maps from the encoder endpoint to build task-specific ML models (e.g., stability, solubility, expression likelihood), helping prioritize variants before synthesis; this accelerates high-throughput engineering pipelines but still requires experimental validation for final developability assessment.
+- Identification and refinement of local structural features such as secondary-structure segments, helix capping, and residue-residue interaction hotspots by analyzing ESM-2 650M attention patterns and contact predictions, aiding the design of robust scaffolds, fusion proteins, and enzyme domains; however, functional impacts of individual mutations should be confirmed with dedicated assays or specialized models rather than inferred solely from ESM-2 outputs.
+
+Limitations
+-----------
+
+- **Maximum Sequence Length**: Input protein sequences must not exceed ``2048`` amino acids (``sequence`` field in both ``encoder`` and ``predictor`` endpoints); longer proteins must be truncated or split before submission.
+- **Batch Size**: The API accepts at most ``8`` sequences per request (``items`` list); larger datasets must be processed in multiple calls and aggregated client-side.
+- **Training Data Bias**: ESM-2 650M is trained on natural protein sequences from UniRef; performance may degrade on highly unnatural, extensively engineered, or rare orphan-like sequences with little evolutionary signal.
+- **No Explicit 3D Structures**: This API exposes sequence-level language modeling only. It can return pairwise contact probabilities via ``include=["contacts"]``, but it does not perform full 3D folding like ESMFold or AlphaFold2 and should not be used as a drop-in structure predictor.
+- **Generated Sequences and Stability**: ``predictor`` logits and any sequences derived from them are unconstrained by biophysics; they may not fold, be stable, or be functional without additional structure/function screening.
+- **Embeddings and Outputs**: Embeddings are only available from the ``encoder`` endpoint and must be requested via the ``include`` options (e.g. ``"mean"``, ``"per_token"``, ``"bos"``, ``"contacts"``, ``"attentions"``, ``"logits"``). Causal language model embeddings are not available in this API, so tasks requiring generative CausalLM-style representations are out of scope.
+
+How We Use It
+-------------
+
+BioLM uses ESM-2 650M as a general-purpose protein sequence model within design and optimization campaigns, leveraging its embeddings, masked-token predictions, and contact maps via scalable APIs to guide sequence exploration around fixed backbones and in unconstrained sequence spaces. ESM-2 outputs feed into downstream models and lab-assay data pipelines for iterative design, ranking, and triage, and are combined with structure predictors (for example ESMFold or AlphaFold) and biophysical filters to focus experimental effort on sequences with favorable structural and developability profiles.
+
+- Supports workflows such as fixed-backbone optimization, mutational scanning, and de novo sequence generation guided by model perplexity and contact patterns
+- Integrates with structure-derived metrics, docking, and physicochemical property models to prioritize sequences for synthesis and multi-round protein engineering
+
+Related
+-------
+
+- ``ESMFold`` – End-to-end single-sequence 3D structure prediction from ESM-2 representations; useful for validating or structurally characterizing sequences analyzed with ``ESM-2 650M``.
+- ``ESM-IF1`` – Inverse folding model that designs sequences for given backbones; pairs well with ``ESM-2 650M`` embeddings for structure-aware design workflows.
+- ``ESM-2 150M`` – Smaller, faster ESM-2 variant that supports the same encoder and predictor use cases as ``ESM-2 650M`` with reduced compute.
+- ``ESM-2 35M`` – Lightweight ESM-2 model for large-scale or CPU-only embedding and masked-token prediction, when ``ESM-2 650M`` is too resource-intensive.
+
+References
+----------
+
+- Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y., dos Santos Costa, A., Fazel-Zarandi, M., Sercu, T., Candido, S., & Rives, A. (2023). `Evolutionary-scale prediction of atomic-level protein structure with a language model <https://doi.org/10.1126/science.ade2574>`_. *Science*. Earlier version as bioRxiv preprint: 2022.07.20.500902.

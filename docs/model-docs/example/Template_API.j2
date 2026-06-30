@@ -1,0 +1,141 @@
+{# ---------------------------------------------------------------------------
+   Jinja template for every API .rst page.
+   Variables expected in the context:
+   model_title, model_slug, short_description, postman_url,
+   endpoints (list of dicts with keys: name, descr, http_path,
+             params_fields, item_fields, result_fields)
+-------------------------------------------------------------------------- #}
+{{ model_title }} API
+{{ "=" * (model_title | length + 4) }}
+
+{{ short_description }}
+
+.. seealso::
+   :class: important
+
+   Postman Collection: {{ postman_url }}
+
+{# ------------------------------ ENDPOINTS -------------------------------- #}
+{% for ep in endpoints %}
+{{ ep.name }}
+{{ "-" * (ep.name | length) }}
+
+{{ ep.descr }}
+
+.. tab-set::
+
+    .. tab-item:: Python (biolmai)
+        :sync: sdk
+
+        .. code-block:: python
+
+            from biolmai import BioLM
+            resp = BioLM(
+                entity="{{ model_slug }}",
+                action="{{ ep.action }}",
+                {{ "params=" ~ ep.example_params ~ "," if ep.example_params else "" }}
+                items=[{{ ep.example_item }}],
+            )
+            print(resp)
+
+    .. tab-item:: Python Requests
+        :sync: python
+
+        .. code-block:: python
+
+            import requests, json, os
+            url = "https://biolm.ai{{ ep.http_path }}"
+            headers = {
+                "Authorization": f"Token {os.environ.get('BIOLM_TOKEN')}",
+                "Content-Type": "application/json",
+            }
+            payload = {{ ep.example_payload }}
+            res = requests.post(url, headers=headers, json=payload)
+            print(res.json())
+
+    .. tab-item:: cURL
+        :sync: curl
+
+        .. code-block:: bash
+
+            curl -X POST https://biolm.ai{{ ep.http_path }} \
+              -H "Authorization: Token $BIOLM_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{{ ep.example_payload | tojson }}'
+
+    .. tab-item:: R
+        :sync: r
+
+        .. code-block:: r
+
+            library(httr)
+            url  <- "https://biolm.ai{{ ep.http_path }}"
+            res  <- POST(
+              url,
+              add_headers(
+                Authorization = sprintf("Token %s", Sys.getenv("BIOLM_TOKEN")),
+                `Content-Type` = "application/json"
+              ),
+              body  = {{ ep.example_payload | tojson }},
+              encode = "json"
+            )
+            print(content(res))
+
+.. http:post:: {{ ep.http_path }}
+
+   {{ ep.descr }}
+
+   :reqheader Content-Type: application/json
+   :reqheader Authorization: Token YOUR_API_KEY
+
+   .. container:: field-heading
+
+      Request JSON Object
+
+   .. container:: field-definition
+
+{% for f in ep.params_fields %}
+      - **params.{{ f.name }}** ({{ f.type }}) — {{ f.descr }}
+{% endfor %}
+{% for f in ep.item_fields %}
+      - **items[].{{ f.name }}** ({{ f.type }}) — {{ f.descr }}
+{% endfor %}
+
+   **Example request**::
+
+      {{ ep.example_request | indent(3) }}
+
+   :statuscode 200: Successful.
+   :statuscode 400: Validation error.
+
+   .. container:: field-heading
+
+      Response JSON Object
+
+   .. container:: field-definition
+
+{% for f in ep.result_fields %}
+      - **results[].{{ f.name }}** ({{ f.type }}) — {{ f.descr }}
+{% endfor %}
+
+   **Example response**::
+
+      {{ ep.example_response | indent(3) }}
+
+{% endfor %}
+
+Performance
+-----------
+*(auto-filled or put a static bullet list here)*
+
+Applications
+------------
+*(optional – list bullets)*
+
+Limitations
+-----------
+*(optional – list bullets)*
+
+References
+----------
+*(optional – bib entries)* 

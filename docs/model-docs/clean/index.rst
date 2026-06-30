@@ -1,0 +1,11 @@
+=====
+CLEAN
+=====
+
+
+.. toctree::
+   :titlesonly:
+   :glob:
+
+   *
+

@@ -1,0 +1,539 @@
+ESM-2 150M API
+==============
+
+ESM-2 150M is a transformer-based protein language model trained on UniRef evolutionary sequence data, exposed here for sequence encoding and masked-token prediction. The API provides GPU-accelerated embeddings (mean, per-residue, BOS), self-attention maps, unsupervised contact scores, and logits for sequences up to 2048 amino acids, with batched processing up to 8 sequences. Typical uses include feature extraction for downstream ML models, zero-shot mutation scoring, contact-based structure analysis, and design workflows in protein engineering and variant prioritization.
+
+Predict
+-------
+
+Predict properties or scores for input sequences
+
+.. tab-set::
+
+    .. tab-item:: Python (biolmai)
+        :sync: sdk
+
+        .. code:: python
+
+            from biolmai import BioLM
+            response = BioLM(
+                entity="esm2-150m",
+                action="predict",
+                params={},
+                items=[
+                  {
+                    "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLIN<mask>VVHNNNVYPGGGSGGGSGTASCTTMKTIIAL"
+                  },
+                  {
+                    "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVG<mask>SLINKVVHNNNVYMKTIIALSY"
+                  }
+                ]
+            )
+            print(response)
+
+    .. tab-item:: cURL
+        :sync: curl
+
+        .. code:: bash
+
+            curl -X POST https://biolm.ai/api/v3/esm2-150m/predict/ \
+              -H "Authorization: Token YOUR_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+              "items": [
+                {
+                  "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLIN<mask>VVHNNNVYPGGGSGGGSGTASCTTMKTIIAL"
+                },
+                {
+                  "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVG<mask>SLINKVVHNNNVYMKTIIALSY"
+                }
+              ]
+            }'
+
+    .. tab-item:: Python Requests
+        :sync: python
+
+        .. code:: python
+
+            import requests
+
+            url = "https://biolm.ai/api/v3/esm2-150m/predict/"
+            headers = {
+                "Authorization": "Token YOUR_API_KEY",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                  "items": [
+                    {
+                      "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLIN<mask>VVHNNNVYPGGGSGGGSGTASCTTMKTIIAL"
+                    },
+                    {
+                      "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVG<mask>SLINKVVHNNNVYMKTIIALSY"
+                    }
+                  ]
+                }
+
+            response = requests.post(url, headers=headers, json=payload)
+            print(response.json())
+
+    .. tab-item:: R
+        :sync: r
+
+        .. code:: r
+
+            library(httr)
+
+            url <- "https://biolm.ai/api/v3/esm2-150m/predict/"
+            headers <- c("Authorization" = "Token YOUR_API_KEY", "Content-Type" = "application/json")
+            body <- list(
+              items = list(
+                list(
+                  sequence = "MKTIIALSYIFCLVFADYGPTNVGSLIN<mask>VVHNNNVYPGGGSGGGSGTASCTTMKTIIAL"
+                ),
+                list(
+                  sequence = "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVG<mask>SLINKVVHNNNVYMKTIIALSY"
+                )
+              )
+            )
+
+            res <- POST(url, add_headers(.headers = headers), body = body, encode = "json")
+            print(content(res))
+
+.. http:post:: /api/v3/esm2-150m/predict/
+
+   Predict endpoint for ESM-2 150M.
+
+   :reqheader Content-Type: application/json
+   :reqheader Authorization: Token YOUR_API_KEY
+
+   .. container:: field-heading
+
+      Request
+
+   .. container:: field-definition
+
+      - **params** (*object*, optional) --- Configuration parameters:
+
+        - **repr_layers** (*array of ints*, default: [-1]) — Indices of model layers to include in the output representations
+
+        - **include** (*array of strings*, default: ["mean"]) — Output representation types to compute for each input sequence
+
+
+      - **items** (*array of objects*, min items: 1, max items: 8) --- Input sequences:
+
+        - **sequence** (*string*, min length: 1, max length: 2048, required) — Protein sequence using extended amino acid codes, optionally including "-"
+
+   **Example request**:
+
+   .. sourcecode:: http
+
+      POST /api/v3/esm2-150m/predict/ HTTP/1.1
+      Host: biolm.ai
+      Authorization: Token YOUR_API_KEY
+      Content-Type: application/json
+
+            {
+        "items": [
+          {
+            "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLIN<mask>VVHNNNVYPGGGSGGGSGTASCTTMKTIIAL"
+          },
+          {
+            "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVG<mask>SLINKVVHNNNVYMKTIIALSY"
+          }
+        ]
+      }
+
+   :statuscode 200: Successful response
+   :statuscode 400: Invalid input
+   :statuscode 500: Internal server error
+
+   .. container:: field-heading
+
+      Response
+
+   .. container:: field-definition
+
+      - **results** (*array of objects*) --- One result per input item, in the order requested:
+
+        - **logits** (*array of arrays of floats*) — Per-position output scores over the model vocabulary, shape: `[L, V]` where `L` is the input sequence length (including `<mask>` tokens) and `V` is the vocabulary size
+
+        - **sequence_tokens** (*array of strings*) — Tokenized input sequence, one token per position
+
+        - **vocab_tokens** (*array of strings*) — Vocabulary tokens corresponding to indices in `logits`
+
+   **Example response**:
+
+   .. sourcecode:: http
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+
+            {"results":[{"logits":[[0.5648517608642578, -1.3809473514556885, -1.9560823440551758, -0.024447500705718994, -0.8574265837669373, "... (truncated for documentation)"],[1.06108558177948, -1.0631077289581299, -1.8059626817703247, -0.9411989450454712, -0.8083363771438599, "... (truncated for documentation)"],[1.1486198902130127, -0.28979265689849854, -1.6340497732162476, 0.1683715283870697, 0.1478067934513092, "... (truncated for documentation)"],[3.122206687927246, 0.08690245449542999, -2.130117654800415, 1.2147090435028076, -0.3246610164642334, "... (truncated for documentation)"],[3.027710437774658, 0.14797261357307434, -2.0828988552093506, 1.5454299449920654, -0.5523021221160889, "... (truncated for documentation)"],[2.523796558380127, 4.083597183227539, -1.469581961631775, 1.4957406520843506, -0.15025366842746735, "... (truncated for documentation)"],[6.884420871734619, 0.19885800778865814, -2.1653223037719727, 1.3358924388885498, -0.25991371273994446, "... (truncated for documentation)"],[2.346280097961426, 0.8570345640182495, -0.9375900030136108, 0.7808367013931274, 4.523433685302734, "... (truncated for documentation)"],[2.964228868484497, 2.0938961505889893, -1.0909994840621948, 1.6917812824249268, 0.9032192826271057, "... (truncated for documentation)"],[3.396500587463379, 0.8253411054611206, -0.9759087562561035, 1.72198486328125, -0.10190427303314209, "... (truncated for documentation)"],[2.1811251640319824, 1.5062651634216309, -0.8609804511070251, 1.6378464698791504, 0.5155919790267944, "... (truncated for documentation)"],[0.5469008088111877, 1.895470380783081, 1.2766062021255493, 0.8748326897621155, 1.538112998008728, "... (truncated for documentation)"],[4.90947961807251, 1.0229750871658325, -0.07250426709651947, 0.936244010925293, 0.8486461639404297, "... (truncated for documentation)"],[0.6564755439758301, 2.390556812286377, -0.440517783164978, 5.544875144958496, 0.9155997037887573, "... (truncated for documentation)"],[1.217693567276001, 0.932212769985199, -1.2617111206054688, 0.2736881375312805, 1.0256160497665405, "... (truncated for documentation)"],[0.07950977981090546, 5.524820804595947, 1.2660008668899536, -0.6499687433242798, 0.9793508052825928, "... (truncated for documentation)"],[-0.5267484784126282, 0.4762421250343323, 0.5185971856117249, -0.3174101412296295, -0.006838157773017883, "... (truncated for documentation)"],[-0.6011778116226196, 0.6564778089523315, 0.5877165794372559, -0.060964420437812805, 0.27422791719436646, "... (truncated for documentation)"],[0.032291945070028305, -0.35966724157333374, 2.7113821506500244, 0.3006601929664612, -0.055843740701675415, "... (truncated for documentation)"],[-0.29384005069732666, -0.23946493864059448, 0.4973437190055847, -0.26072949171066284, 0.38808009028434753, "... (truncated for documentation)"],[-0.1750538945198059, -0.31273984909057617, 0.18802747130393982, 0.08785367012023926, 0.11688771843910217, "... (truncated for documentation)"],[-0.08647944033145905, 0.030754968523979187, 0.5419530868530273, 0.09229244291782379, 0.5163278579711914, "... (truncated for documentation)",[-0.163432314991951, -0.3763691186904907, 0.31382253766059875, 3.098268508911133, 0.18621322512626648, "... (truncated for documentation)"],[-0.46235430240631104, -0.1005791574716568, 3.618257522583008, -0.32607436180114746, 0.17071741819381714, "... (truncated for documentation)"],[-0.7932397723197937, -0.3465656638145447, 0.4402065873146057, -0.5217506289482117, 3.5547118186950684, "... (truncated for documentation)"],[2.770803928375244, -0.16790080070495605, 0.49679601192474365, 0.00463634729385376, 0.3398030996322632, "... (truncated for documentation)"],[-0.3356144428253174, -0.06968613713979721, 0.7294139862060547, -0.16867688298225403, 0.4652184247970581, "... (truncated for documentation)"],[-0.5728906393051147, -0.03462480753660202, 0.9142559766769409, -0.22783344984054565, 0.6096863746643066, "... (truncated for documentation)"],[-0.358120858669281, 0.30472278594970703, 0.9977332353591919, 0.27785468101501465, 0.9285677671432495, "... (truncated for documentation)"],[-0.4102645516395569, -0.1189035177230835, 0.3207832872867584, 3.2999496459960938, -0.21293866634368896, "... (truncated for documentation)"],[-0.09270739555358887, -0.4684872627258301, 0.017074499279260635, 3.4377059936523438, -0.10226404666900635, "... (truncated for documentation)"],[-0.10558533668518066, 0.09677707403898239, 0.788972020149231, 0.8502665162086487, 0.41365426778793335, "... (truncated for documentation)"],[-0.19037753343582153, -0.049932584166526794, 0.6419967412948608, 0.43703728914260864, 0.18000507354736328, "... (truncated for documentation)"],[-0.19988226890563965, -0.15874937176704407, 0.9598935842514038, 0.4062210023403168, 0.11684134602546692, "... (truncated for documentation)"],[-0.13535650074481964, -0.2764871120452881, 0.272957980632782, 0.9877280592918396, -0.3943398594856262, "... (truncated for documentation)"],[-0.46383988857269287, -0.4881598949432373, 0.553851842880249, 3.297546863555908, -0.20283818244934082, "... (truncated for documentation)"],[0.04165944829583168, 0.35767048597335815, 0.4959616959095001, 0.6717516183853149, 0.22856061160564423, "... (truncated for documentation)"],[-0.7637483477592468, -0.3687766194343567, 1.7236000299453735, 0.20752078294754028, 0.8195604085922241, "... (truncated for documentation)"],[-0.7329859733581543, -0.0732623040676117, 4.518457412719727, -0.11653713881969452, 0.9327951073646545, "... (truncated for documentation)"],[-0.8748630285263062, -0.0783807560801506, 5.1866655349731445, -0.5027042627334595, 1.6198272705078125, "... (truncated for documentation)"],[-0.8930577635765076, -0.11274224519729614, 5.463998317718506, -0.38701313734054565, 1.5248844623565674, "... (truncated for documentation)"],[-1.406400203704834, -0.22491663694381714, 2.6873278617858887, -0.5840028524398804, 4.943245887756348, "... (truncated for documentation)"],[-0.8933356404304504, -0.19580712914466858, 5.4691643714904785, -0.46000808477401733, 1.7254526615142822, "... (truncated for documentation)"],[-0.996550440788269, -0.11923810839653015, 5.323272228240967, -0.6470522284507751, 2.1117115020751953, "... (truncated for documentation)"],[-0.7672345042228699, -0.006013140082359314, 5.36737060546875, -0.33248141407966614, 1.4568848609924316, "... (truncated for documentation)"],[-1.307675838470459, -0.08849580585956573, 2.2680506706237793, -0.49638378620147705, 4.688385486602783, "... (truncated for documentation)"],[-0.621236264705658, 0.12592026591300964, 4.308491230010986, -0.053242675960063934, 1.036836862564087, "... (truncated for documentation)"],[-1.1094931364059448, 0.0591619573533535, 2.204932928085327, -0.5888969898223877, 1.3537886142730713, "... (truncated for documentation)"],[-0.6597499251365662, 3.1673636436462402, 0.8305691480636597, -0.15474243462085724, 0.8823022842407227, "... (truncated for documentation)"],[-0.717897355556488, 0.07054336369037628, 0.18231961131095886, -0.10813847184181213, 3.6752870082855225, "... (truncated for documentation)"],[-0.2518072724342346, 0.5809104442596436, 0.6304067373275757, 0.3344085216522217, 1.0194898843765259, "... (truncated for documentation)"],[-0.29243218898773193, -0.23109093308448792, 0.09526671469211578, -0.1812618374824524, 0.2804979681968689, "... (truncated for documentation)"],[-0.06326781213283539, -0.3954853415489197, -0.2903515696525574, 0.009411424398422241, -0.21244657039642334, "... (truncated for documentation)"],[-0.2956274151802063, -0.19178654253482819, -0.18995988368988037, -0.037124767899513245, 0.14912661910057068, "... (truncated for documentation)"],[-0.18679916858673096, 0.1950559765100479, -0.16891449689865112, 0.0966595858335495, 0.2091529667377472, "... (truncated for documentation)"],[-0.057881712913513184, -0.36602646112442017, -0.8362212181091309, -0.29372647404670715, -0.17365680634975433, "... (truncated for documentation)"],[0.02686762809753418, 0.041074469685554504, -0.4980340003967285, 0.07951104640960693, 0.13367679715156555, "... (truncated for documentation)"],[0.07681149244308472, -0.23992028832435608, -0.6694939732551575, -0.05142207443714142, 0.11302659660577774, "... (truncated for documentation)"],[0.18850041925907135, 2.738638162612915, -0.8276696801185608, -0.24009156227111816, -0.12408788502216339, "... (truncated for documentation)"],[3.3290185928344727, -0.41525211930274963, -0.3130868673324585, -0.3144070506095886, -0.09800247848033905, "... (truncated for documentation)"]],"sequence_tokens":["M","K","T","I","I","A","L","S","Y","I","F","C","L","V","F","A","D","Y","G","P","T","N","V","G","S","L","I","N","<mask>","V","V","H","N","N","N","V","Y","P","G","G","G","S","G","G","G","S","G","T","A","S","C","T","T","M","K","T","I","I","A","L"],"vocab_tokens":["L","A","G","V","S","E","R","T","I","D","P","K","Q","N","F","Y","M","H","W","C"]},{"logits":[[-1.4461108446121216, -0.23059141635894775, 2.7108566761016846, -0.6962704658508301, 1.1685152053833008, "... (truncated for documentation)"],[-0.9730031490325928, 0.14847764372825623, 5.210873603820801, -0.6302197575569153, 1.124686360359192, "... (truncated for documentation)"],[-0.9028624296188354, -0.09376230835914612, 5.623722553253174, -0.9288973212242126, 1.5003024339675903, "... (truncated for documentation)"],[-1.255942702293396, 0.21394093334674835, 6.077827453613281, -0.8519583344459534, 1.3393481969833374, "... (truncated for documentation)"],[-1.8325860500335693, -0.05693797022104263, 3.1171751022338867, -0.8591606020927429, 4.865995407104492, "... (truncated for documentation)"],[-1.24729585647583, -0.02663445472717285, 6.189629554748535, -0.8515956997871399, 1.7200731039047241, "... (truncated for documentation)"],[-1.1059296131134033, -0.15798503160476685, 5.7422966957092285, -1.0249017477035522, 1.9864068031311035, "... (truncated for documentation)"],[-1.014534592628479, 0.03459276258945465, 5.983512878417969, -0.6501672863960266, 1.2491848468780518, "... (truncated for documentation)"],[-1.408320426940918, 0.010750748217105865, 2.51163911819458, -0.609278678894043, 4.746824264526367, "... (truncated for documentation)"],[-0.6823215484619141, -0.12563742697238922, 4.587033748626709, -0.44562605023384094, 1.1389051675796509, "... (truncated for documentation)"],[-0.7860503196716309, -0.16002555191516876, 2.375720977783203, -0.4218575060367584, 1.032111644744873, "... (truncated for documentation)"],[-0.44655346870422363, 2.853262186050415, 0.7459837198257446, -0.7005760669708252, 1.072702169418335, "... (truncated for documentation)"],[-0.05700284242630005, -0.4019143581390381, -0.18742872774600983, -0.4600749611854553, 3.6990606784820557, "... (truncated for documentation)"],[0.2321423888206482, -0.00871133804321289, -0.5963588356971741, -0.2659592032432556, 0.8717197775840759, "... (truncated for documentation)"],[0.48825258016586304, -0.6741349697113037, -0.8591011762619019, 0.1498553454875946, 0.36090680956840515, "... (truncated for documentation)"],[-0.5279434323310852, -0.39815011620521545, -1.963987112045288, -0.9127840995788574, 0.06550751626491547, "... (truncated for documentation)"],[1.0115656852722168, -0.7463876008987427, -1.5191192626953125, 0.4664100408554077, -0.23561954498291016, "... (truncated for documentation)"],[1.2253624200820923, -0.7150377035140991, -1.7429533004760742, -0.892825186252594, -0.7118424773216248, "... (truncated for documentation)"],[0.7814420461654663, 0.5507778525352478, -1.7064709663391113, 0.01913602650165558, 0.5547012090682983, "... (truncated for documentation)"],[3.086317539215088, -0.17636214196681976, -2.8704864978790283, 1.5705492496490479, -0.8110772371292114, "... (truncated for documentation)"],[2.6138861179351807, -0.3441571593284607, -2.5529072284698486, 2.073183059692383, -0.9630286693572998, "... (truncated for documentation)"],[1.5092076063156128, 5.348109245300293, -1.0267030000686646, 1.3199589252471924, -0.3493424654006958, "... (truncated for documentation)"],[7.643656253814697, -0.6833152770996094, -2.678021192550659, 1.0027518272399902, -0.2778444290161133, "... (truncated for documentation)"],[1.8605523109436035, 1.1660535335540771, -0.2999337911605835, 0.5164835453033447, 5.732699394226074, "... (truncated for documentation)"],[2.9251184463500977, 1.1804301738739014, -1.8492145538330078, 1.2970854043960571, 0.7288916707038879, "... (truncated for documentation)"],[2.6760780811309814, 0.2767139673233032, -1.3370099067687988, 1.410644292831421, -0.38323700428009033, "... (truncated for documentation)"],[1.9082646369934082, 1.2922230958938599, -0.8890399932861328, 1.5596449375152588, 0.28337687253952026, "... (truncated for documentation)"],[0.8028789758682251, 2.107626438140869, 1.1166876554489136, 0.9650306701660156, 1.0989257097244263, "... (truncated for documentation)"],[5.138006210327148, 0.7668325901031494, -0.5049933195114136, 1.1471083164215088, 0.2747882902622223, "... (truncated for documentation)"],[0.08296762406826019, 2.5372092723846436, -0.23410141468048096, 5.548698425292969, 0.8007687926292419, "... (truncated for documentation)"],[1.0007468461990356, 1.2266488075256348, -1.2180991172790527, 0.44308316707611084, 0.8023244142532349, "... (truncated for documentation)"],[0.0627276599407196, 5.475883483886719, 0.9660478830337524, -0.12626132369041443, 0.5953764915466309, "... (truncated for documentation)"],[-0.5895793437957764, 0.854888916015625, 0.5181260108947754, -0.2068903148174286, 0.032655611634254456, "... (truncated for documentation)"],[-0.44939547777175903, 0.20694707334041595, 0.45747989416122437, -0.056695207953453064, 0.260589599609375, "... (truncated for documentation)"],[0.30809494853019714, -0.500728964805603, 2.844705820083618, 0.12768080830574036, -0.06592905521392822, "... (truncated for documentation)"],[-0.27550867199897766, -0.42458391189575195, 0.4321953356266022, -0.4360092580318451, 0.3355289101600647, "... (truncated for documentation)"],[-0.36272409558296204, -0.38766375184059143, 0.2344188094139099, -0.3655147850513458, 0.26487332582473755, "... (truncated for documentation)"],[0.019905410706996918, -0.11442145705223083, 0.4542822241783142, 0.013542674481868744, 0.29202568531036377, "... (truncated for documentation)"],[-0.33883917331695557, -0.4406595826148987, 0.3332240581512451, 2.9294021129608154, 0.14121609926223755, "... (truncated for documentation)"],[-0.03280901163816452, -0.35088229179382324, 2.859938144683838, -0.10475444793701172, -0.1972590684890747, "... (truncated for documentation)"],[0.2759476602077484, -0.0076157450675964355, 0.5186170339584351, 0.043022751808166504, 0.755149245262146, "... (truncated for documentation)"],[-0.3830004334449768, -0.5690040588378906, -0.2534291446208954, -0.33901554346084595, 3.2805898189544678, "... (truncated for documentation)"],[2.869743824005127, -0.44953101873397827, -0.07063122093677521, -0.3283439874649048, 0.19219547510147095, "... (truncated for documentation)"],[-0.06633111834526062, -0.30659064650535583, 0.3052016496658325, -0.274140864610672, 0.09849033504724503, "... (truncated for documentation)"],[-0.08800813555717468, -0.39169812202453613, 0.06455522775650024, -0.1291690170764923, 0.26173728704452515, "... (truncated for documentation)"],[-0.25777775049209595, -0.2518041729927063, 0.0579037070274353, 0.025197137147188187, 0.19123761355876923, "... (truncated for documentation)"],[-0.07204762101173401, -0.6322261095046997, -0.4362183213233948, 3.235644817352295, -0.2586163878440857, "... (truncated for documentation)"],[0.10066775977611542, -0.5734882950782776, -0.40567877888679504, 3.2338948249816895, -0.06963595747947693, "... (truncated for documentation)"],[0.06458263099193573, 0.08070182800292969, 0.06256799399852753, 0.24840418994426727, 0.2919519245624542, "... (truncated for documentation)"],[0.01666487753391266, 0.12623578310012817, 0.1425062119960785, 0.2786409556865692, 0.07605081051588058, "... (truncated for documentation)"],[-0.025462746620178223, -0.28072136640548706, 0.46654045581817627, -0.0011264532804489136, 0.40794849395751953, "... (truncated for documentation)"],[-0.040871210396289825, -0.3300858438014984, 0.16136150062084198, 0.09340546280145645, 0.14193011820316315, "... (truncated for documentation)"],[-0.20315104722976685, -0.5601193308830261, -0.37930428981781006, 3.2370729446411133, -0.10872471332550049, "... (truncated for documentation)"],[-0.6350470185279846, 0.45111891627311707, -1.3392398357391357, 0.09589549899101257, 0.09910859167575836, "... (truncated for documentation)"],[0.2790597081184387, -0.9944486618041992, -0.542992889881134, -0.07318376004695892, -0.06734883785247803, "... (truncated for documentation)"],[0.3986300230026245, -0.6680879592895508, -1.363369345664978, -0.6238410472869873, -0.2706093192100525, "... (truncated for documentation)"],[-0.6051653027534485, -0.1096906065940857, -1.7467204332351685, -0.6575855016708374, 0.47503751516342163, "... (truncated for documentation)"],[0.4567868709564209, -1.0288302898406982, -1.8883094787597656, 0.8763426542282104, -0.6158434152603149, "... (truncated for documentation)"],[0.24419626593589783, -0.7333808541297913, -1.149600863456726, 1.0088108777999878, -0.5391216278076172, "... (truncated for documentation)"],[-1.1062692403793335, 6.873395919799805, 0.25692129135131836, 0.5041264295578003, -0.007257729768753052, "... (truncated for documentation)",[6.3469743728637695, -1.3444472551345825, -1.1885030269622803, -0.3779231309890747, -0.6194782257080078, "... (truncated for documentation)"],[-0.2224922776222229, -0.6752804517745972, -0.7089102268218994, -0.8613042235374451, 5.8798828125, "... (truncated for documentation)"],[0.2653263807296753, -0.5520523190498352, -0.40210145711898804, -0.2085408866405487, 0.2647783160209656, "... (truncated for documentation)"]],"sequence_tokens":["P","G","G","G","S","G","G","G","S","G","T","A","S","C","T","T","M","K","T","I","I","A","L","S","Y","I","F","C","L","V","F","A","D","Y","G","P","T","N","V","G","<mask>","S","L","I","N","K","V","V","H","N","N","N","V","Y","M","K","T","I","I","A","L","S","Y"],"vocab_tokens":["L","A","G","V","S","E","R","T","I","D","P","K","Q","N","F","Y","M","H","W","C"]}]}
+
+
+Encode
+------
+
+Generate embeddings for input sequences
+
+.. tab-set::
+
+    .. tab-item:: Python (biolmai)
+        :sync: sdk
+
+        .. code:: python
+
+            from biolmai import BioLM
+            response = BioLM(
+                entity="esm2-150m",
+                action="encode",
+                params={
+                  "repr_layers": [
+                    -1,
+                    -2
+                  ],
+                  "include": [
+                    "mean",
+                    "contacts"
+                  ]
+                },
+                items=[
+                  {
+                    "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYPGGGSGGGSGTASCTTMKTIIALSYIFCLV"
+                  },
+                  {
+                    "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYMKTIIALSYIFCLV"
+                  }
+                ]
+            )
+            print(response)
+
+    .. tab-item:: cURL
+        :sync: curl
+
+        .. code:: bash
+
+            curl -X POST https://biolm.ai/api/v3/esm2-150m/encode/ \
+              -H "Authorization: Token YOUR_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+              "params": {
+                "repr_layers": [
+                  -1,
+                  -2
+                ],
+                "include": [
+                  "mean",
+                  "contacts"
+                ]
+              },
+              "items": [
+                {
+                  "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYPGGGSGGGSGTASCTTMKTIIALSYIFCLV"
+                },
+                {
+                  "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYMKTIIALSYIFCLV"
+                }
+              ]
+            }'
+
+    .. tab-item:: Python Requests
+        :sync: python
+
+        .. code:: python
+
+            import requests
+
+            url = "https://biolm.ai/api/v3/esm2-150m/encode/"
+            headers = {
+                "Authorization": "Token YOUR_API_KEY",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                  "params": {
+                    "repr_layers": [
+                      -1,
+                      -2
+                    ],
+                    "include": [
+                      "mean",
+                      "contacts"
+                    ]
+                  },
+                  "items": [
+                    {
+                      "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYPGGGSGGGSGTASCTTMKTIIALSYIFCLV"
+                    },
+                    {
+                      "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYMKTIIALSYIFCLV"
+                    }
+                  ]
+                }
+
+            response = requests.post(url, headers=headers, json=payload)
+            print(response.json())
+
+    .. tab-item:: R
+        :sync: r
+
+        .. code:: r
+
+            library(httr)
+
+            url <- "https://biolm.ai/api/v3/esm2-150m/encode/"
+            headers <- c("Authorization" = "Token YOUR_API_KEY", "Content-Type" = "application/json")
+            body <- list(
+              params = list(
+                repr_layers = list(
+                  -1,
+                  -2
+                ),
+                include = list(
+                  "mean",
+                  "contacts"
+                )
+              ),
+              items = list(
+                list(
+                  sequence = "MKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYPGGGSGGGSGTASCTTMKTIIALSYIFCLV"
+                ),
+                list(
+                  sequence = "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYMKTIIALSYIFCLV"
+                )
+              )
+            )
+
+            res <- POST(url, add_headers(.headers = headers), body = body, encode = "json")
+            print(content(res))
+
+.. http:post:: /api/v3/esm2-150m/encode/
+
+   Encode endpoint for ESM-2 150M.
+
+   :reqheader Content-Type: application/json
+   :reqheader Authorization: Token YOUR_API_KEY
+
+   .. container:: field-heading
+
+      Request
+
+   .. container:: field-definition
+
+      - **params** (*object*, required) --- Configuration parameters:
+
+        - **repr_layers** (*array of ints*, default: [-1]) — Indices of model layers to include in the output representations
+
+        - **include** (*array of strings*, default: ["mean"]) — Output representation types to compute, using values from {"mean", "per_token", "bos", "contacts", "logits", "attentions"}
+
+
+      - **items** (*array of objects*, min: 1, max: 8) --- Input sequences:
+
+        - **sequence** (*string*, min length: 1, max length: 2048, required) — Protein sequence using the extended amino acid alphabet (may include "-" as an extra character)
+
+   **Example request**:
+
+   .. sourcecode:: http
+
+      POST /api/v3/esm2-150m/encode/ HTTP/1.1
+      Host: biolm.ai
+      Authorization: Token YOUR_API_KEY
+      Content-Type: application/json
+
+            {
+        "params": {
+          "repr_layers": [
+            -1,
+            -2
+          ],
+          "include": [
+            "mean",
+            "contacts"
+          ]
+        },
+        "items": [
+          {
+            "sequence": "MKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYPGGGSGGGSGTASCTTMKTIIALSYIFCLV"
+          },
+          {
+            "sequence": "PGGGSGGGSGTASCTTMKTIIALSYIFCLVFADYGPTNVGSLINKVVHNNNVYMKTIIALSYIFCLV"
+          }
+        ]
+      }
+
+   :statuscode 200: Successful response
+   :statuscode 400: Invalid input
+   :statuscode 500: Internal server error
+
+   .. container:: field-heading
+
+      Response
+
+   .. container:: field-definition
+
+      - **results** (*array of objects*) --- One result per input item, in the order requested:
+
+        - **sequence_index** (*int*) — Zero-based index of the input sequence corresponding to this result
+
+        - **embeddings** (*array of objects*, optional) — Per-layer sequence-level embeddings, included when ``include`` contains ``"mean"`` or when ``repr_layers`` is set:
+
+          - **layer** (*int*) — Identifier of the model layer that produced this embedding
+
+          - **embedding** (*array of floats*) — Mean-pooled embedding vector for the sequence (length depends on model size, e.g., 640 for 150M parameters)
+
+        - **bos_embeddings** (*array of objects*, optional) — Per-layer beginning-of-sequence token embeddings, included when ``include`` contains ``"bos"``:
+
+          - **layer** (*int*) — Identifier of the model layer that produced this embedding
+
+          - **embedding** (*array of floats*) — Embedding vector for the BOS token at this layer
+
+        - **per_token_embeddings** (*array of objects*, optional) — Per-layer per-residue embeddings, included when ``include`` contains ``"per_token"``:
+
+          - **layer** (*int*) — Identifier of the model layer that produced these embeddings
+
+          - **embeddings** (*array of arrays of floats*) — Per-residue embeddings with shape ``[L, D]`` where ``L`` is sequence length and ``D`` is embedding dimension
+
+        - **contacts** (*array of arrays of floats*, optional) — Predicted inter-residue contact or distance scores, included when ``include`` contains ``"contacts"``; square matrix of shape ``[L, L]``
+
+        - **attentions** (*array of arrays of floats*, optional) — Flattened self-attention weights, included when ``include`` contains ``"attentions"``
+
+        - **logits** (*array of arrays of floats*, optional) — Per-position unnormalized token scores, included when ``include`` contains ``"logits"``; shape ``[L, V]`` where ``V`` is vocabulary size
+
+        - **vocab_tokens** (*array of strings*, optional) — Token strings defining the vocabulary order used for ``logits``
+
+   **Example response**:
+
+   .. sourcecode:: http
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+
+            {
+        "results": [
+          {
+            "embeddings": [
+              {
+                "layer": 29,
+                "embedding": [
+                  -2.011397361755371,
+                  -3.4499614238739014,
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 30,
+                "embedding": [
+                  -0.05783110484480858,
+                  -0.2212517261505127,
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "contacts": [
+              [
+                0.9296878576278687,
+                0.0017561335116624832,
+                "... (truncated for documentation)"
+              ],
+              [
+                0.0017561335116624832,
+                0.0960121601819992,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ]
+          },
+          {
+            "embeddings": [
+              {
+                "layer": 29,
+                "embedding": [
+                  -2.1167407035827637,
+                  -3.1774816513061523,
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 30,
+                "embedding": [
+                  -0.07335882633924484,
+                  -0.17132967710494995,
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "contacts": [
+              [
+                0.9773598313331604,
+                0.991390585899353,
+                "... (truncated for documentation)"
+              ],
+              [
+                0.991390585899353,
+                0.991047203540802,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ]
+          }
+        ]
+      }
+
+
+Performance
+-----------
+
+- Deployed on NVIDIA T4 GPUs with 16 GB VRAM for the 150M-parameter ESM-2 variant, optimized for inference-only workloads (FP16 where applicable) to maximize throughput for embedding and masked-token prediction.
+- Compared to the 650M ESM-2 model served on the same GPU class, ESM-2 150M typically achieves a 2–3x higher throughput per GPU (sequences processed per unit time) for both encoder and predictor endpoints, due to the smaller transformer depth and hidden size.
+- On structure-related benchmarks derived from the ESM-2 paper (unsupervised long-range contact precision and structure-module TM-score), ESM-2 150M underperforms ESM-2 650M by roughly 5–10 percentage points, but is comparable to or better than the earlier ESM-1b 650M model at similar parameter count.
+- 150M-parameter embeddings and attention-derived contacts obtained via the ``encoder`` endpoint are suitable for rapid prototyping, large-scale screening, and downstream models, while larger ESM-2 variants hosted by BioLM are recommended when maximum accuracy on structure- or function-prediction tasks is required.
+
+Applications
+------------
+
+- De novo protein sequence design for therapeutic and industrial proteins  
+  ESM-2 150M can propose novel amino acid sequences by filling in masked regions or scoring candidate variants, enabling exploration of protein designs not present in natural databases. This is useful for early-stage design of binders, scaffolds, or enzymes before moving to more specialized structure-based tools.
+
+- Fixed-backbone sequence optimization guided by structural priors  
+  Using per-residue embeddings and self-attention–derived contact maps, ESM-2 150M can help prioritize mutations that are consistent with the model’s learned structural constraints for a given backbone-like topology. Companies can use this to filter or rank large mutation libraries for stability or foldability before experimental screening or more expensive modeling.
+
+- Protein fitness and developability scoring in ML-guided engineering pipelines  
+  The encoder endpoint provides sequence embeddings that capture evolutionary and structural signals, which can be used as input features to downstream predictive models (e.g., activity, stability, expression, solubility). This enables higher-quality surrogate models for protein engineering campaigns in biopharma, industrial biotech, and synthetic biology.
+
+- Rapid in silico variant exploration for lead optimization  
+  The predictor endpoint supports masked language modeling on protein sequences, allowing users to evaluate many single or combinatorial substitutions around a lead sequence. This helps narrow down mutation hotspots and prioritize variants for synthesis when experimental throughput is limited.
+
+- Large-scale sequence space mapping for portfolio and IP strategy  
+  By embedding up to 2048-residue sequences and predicting approximate contact patterns, ESM-2 150M can be used to cluster portfolios, detect remote relationships, and identify underexplored sequence regions. This is valuable for scouting novel protein families or differentiable sequence space while avoiding obvious prior art.
+
+Limitations
+-----------
+
+- **Batch Size**: Maximum ``batch_size`` per request is ``8`` sequences; higher throughput requires multiple requests or client-side batching across calls.
+- **Maximum Sequence Length**: Each ``sequence`` must be at most ``2048`` characters; longer proteins must be split or truncated before calling either ``encoder`` or ``predictor``.
+- **Input Alphabet**: ``encoder`` accepts standard amino acids plus ``"-"``; ``predictor`` additionally allows ``"<mask>"`` but requires at least one ``"<mask>"`` token per ``sequence``. Non‑standard tokens are rejected.
+- **Representation Scope**: Outputs such as ``embeddings``, ``per_token_embeddings``, ``contacts``, ``attentions``, and ``logits`` are model-internal features, not calibrated biophysical quantities (e.g., not experimental ΔΔG, binding affinities, or folding energies).
+- **Structure Prediction**: The ``contacts`` option exposes coarse inter-residue contact probabilities only; this API does not provide full 3D structure prediction (use dedicated structure models such as ESMFold or AlphaFold2 for atomic coordinates).
+- **Sequence & Family Coverage**: As a masked language model trained on UniRef, ESM-2 can underperform on extremely unusual, synthetic, or very low-homology proteins; downstream validation with more specialized or supervised models is recommended for critical design or ranking decisions.
+
+How We Use It
+-------------
+
+BioLM uses the ESM-2 150M model as a standardized, API-accessible sequence encoder to accelerate protein engineering campaigns, especially when large-scale screening or limited compute budgets rule out larger models. Its embeddings, attention-derived contact maps, and masked-token predictions integrate into multi-step workflows for enzyme design, antibody optimization, and metagenomic mining, where they inform variant generation, in silico filtering, and ranking alongside downstream structure predictors and biophysical property models. This enables rapid iteration on thousands of candidate sequences while keeping analyses reproducible and scalable across projects.
+
+- Combines ESM-2 150M embeddings and contact estimates with separate 3D structure and property predictors for sequence triage and downselection  
+- Supports scalable, batched analysis (up to 8 sequences of length ≤2048) via consistent APIs, simplifying integration into automated lab-in-the-loop pipelines
+
+Related
+-------
+
+- ``ESM-IF1`` – Inverse folding model that designs sequences for given backbone structures, useful for validating or extending sequence designs explored with ESM-2 150M embeddings.
+- ``ESMFold`` – Single-sequence structure prediction model built on ESM-2; can fold candidates scored or generated using ESM-2 150M to assess structural plausibility.
+- ``AlphaFold2`` – High-accuracy structure predictor that can refine or benchmark structure hypotheses generated from ESM-2 150M–based design or analysis workflows.
+- ``ESM-2 650M`` – Larger ESM-2 variant offering higher-quality embeddings and contact predictions when ESM-2 150M accuracy is insufficient for a task.
+
+References
+----------
+
+- Rives, A., Meier, J., Sercu, T., Goyal, S., Lin, Z., Liu, J., Guo, D., Ott, M., Zitnick, C. L., Ma, J., & Fergus, R. (2021). `Biological structure and function emerge from scaling unsupervised learning to 250 million protein sequences <https://doi.org/10.1073/pnas.2016239118>`_. *Proceedings of the National Academy of Sciences*.
+
+- Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y., dos Santos Costa, A., Fazel-Zarandi, M., Sercu, T., Candido, S., & Rives, A. (2023). `Evolutionary-scale prediction of atomic level protein structure with a language model <https://www.science.org/doi/10.1126/science.ade2574>`_. *Science*. (Earlier versions available as bioRxiv preprint: `https://www.biorxiv.org/content/10.1101/2022.07.20.500902v2 <https://www.biorxiv.org/content/10.1101/2022.07.20.500902v2>`_.)

@@ -1,0 +1,716 @@
+E1 600M API
+===========
+
+E1 600M is a 600M-parameter retrieval-augmented protein encoder that produces sequence embeddings, masked-token logits, and log-probability–based zero-shot variant effect scores from amino acid sequences. The API supports GPU-optimized, batched inference on sequences up to 2048 residues, optionally conditioned on up to 50 unaligned homologous context sequences via alternating intra-sequence and block-causal multi-sequence attention. Typical uses include fitness prediction, variant ranking, and embedding-based structural or functional analysis in protein engineering workflows.
+
+Predict
+-------
+
+Predict masked amino acids ('?') in protein sequences, optionally conditioned on homologous context sequences
+
+.. tab-set::
+
+    .. tab-item:: Python (biolmai)
+        :sync: sdk
+
+        .. code:: python
+
+            from biolmai import BioLM
+            response = BioLM(
+                entity="e1-600m",
+                action="predict",
+                params={},
+                items=[
+                  {
+                    "sequence": "MKTAYIAKQ?QISFVKSHFSRQ",
+                    "context_sequences": [
+                      "MKTAYIAKQKQISFVKSHFSRQ",
+                      "MKTAYIAKQRQISFVKSHFTRQ"
+                    ]
+                  },
+                  {
+                    "sequence": "GAVLILMSTAVAAQKAGV?",
+                    "context_sequences": null
+                  }
+                ]
+            )
+            print(response)
+
+    .. tab-item:: cURL
+        :sync: curl
+
+        .. code:: bash
+
+            curl -X POST https://biolm.ai/api/v3/e1-600m/predict/ \
+              -H "Authorization: Token YOUR_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+              "items": [
+                {
+                  "sequence": "MKTAYIAKQ?QISFVKSHFSRQ",
+                  "context_sequences": [
+                    "MKTAYIAKQKQISFVKSHFSRQ",
+                    "MKTAYIAKQRQISFVKSHFTRQ"
+                  ]
+                },
+                {
+                  "sequence": "GAVLILMSTAVAAQKAGV?",
+                  "context_sequences": null
+                }
+              ]
+            }'
+
+    .. tab-item:: Python Requests
+        :sync: python
+
+        .. code:: python
+
+            import requests
+
+            url = "https://biolm.ai/api/v3/e1-600m/predict/"
+            headers = {
+                "Authorization": "Token YOUR_API_KEY",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                  "items": [
+                    {
+                      "sequence": "MKTAYIAKQ?QISFVKSHFSRQ",
+                      "context_sequences": [
+                        "MKTAYIAKQKQISFVKSHFSRQ",
+                        "MKTAYIAKQRQISFVKSHFTRQ"
+                      ]
+                    },
+                    {
+                      "sequence": "GAVLILMSTAVAAQKAGV?",
+                      "context_sequences": null
+                    }
+                  ]
+                }
+
+            response = requests.post(url, headers=headers, json=payload)
+            print(response.json())
+
+    .. tab-item:: R
+        :sync: r
+
+        .. code:: r
+
+            library(httr)
+
+            url <- "https://biolm.ai/api/v3/e1-600m/predict/"
+            headers <- c("Authorization" = "Token YOUR_API_KEY", "Content-Type" = "application/json")
+            body <- list(
+              items = list(
+                list(
+                  sequence = "MKTAYIAKQ?QISFVKSHFSRQ",
+                  context_sequences = list(
+                    "MKTAYIAKQKQISFVKSHFSRQ",
+                    "MKTAYIAKQRQISFVKSHFTRQ"
+                  )
+                ),
+                list(
+                  sequence = "GAVLILMSTAVAAQKAGV?",
+                  context_sequences = None
+                )
+              )
+            )
+
+            res <- POST(url, add_headers(.headers = headers), body = body, encode = "json")
+            print(content(res))
+
+.. http:post:: /api/v3/e1-600m/predict/
+
+   Predict endpoint for E1 600M.
+
+   :reqheader Content-Type: application/json
+   :reqheader Authorization: Token YOUR_API_KEY
+
+   .. container:: field-heading
+
+      Request
+
+   .. container:: field-definition
+
+      - **items** (*array of objects*, min: 1, max: 8) --- Input sequences for masked prediction:
+
+        - **sequence** (*string*, length: 1-2048, required) — Protein sequence containing one or more "?" mask tokens; characters must be from extended amino acid alphabet plus "?"
+
+        - **context_sequences** (*array of strings*, length: 0-50, optional) — Homologous protein sequences; each string length: 1-2048; characters must be from extended amino acid alphabet and must not contain "?"
+
+   **Example request**:
+
+   .. sourcecode:: http
+
+      POST /api/v3/e1-600m/predict/ HTTP/1.1
+      Host: biolm.ai
+      Authorization: Token YOUR_API_KEY
+      Content-Type: application/json
+
+            {
+        "items": [
+          {
+            "sequence": "MKTAYIAKQ?QISFVKSHFSRQ",
+            "context_sequences": [
+              "MKTAYIAKQKQISFVKSHFSRQ",
+              "MKTAYIAKQRQISFVKSHFTRQ"
+            ]
+          },
+          {
+            "sequence": "GAVLILMSTAVAAQKAGV?",
+            "context_sequences": null
+          }
+        ]
+      }
+
+   :statuscode 200: Successful response
+   :statuscode 400: Invalid input
+   :statuscode 500: Internal server error
+
+   .. container:: field-heading
+
+      Response
+
+   .. container:: field-definition
+
+      - **results** (*array of objects*) --- One result per input item, in the order requested:
+
+        - **logits** (*array of arrays of floats*, shape: [L_masked, V]) — Unnormalized scores for each masked position and vocabulary token in the query sequence
+
+        - **sequence_tokens** (*array of strings*, length: L_masked) — Query-sequence tokens at positions containing '?' in the request
+
+        - **vocab_tokens** (*array of strings*, length: V) — Vocabulary tokens corresponding to columns of ``logits``
+
+   **Example response**:
+
+   .. sourcecode:: http
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+
+            {
+        "results": [
+          {
+            "logits": [
+              [
+                -1.765625,
+                -2.875,
+                "... (truncated for documentation)"
+              ],
+              [
+                -1.6328125,
+                -3.765625,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ],
+            "sequence_tokens": [
+              "M",
+              "K",
+              "... (truncated for documentation)"
+            ],
+            "vocab_tokens": [
+              "A",
+              "C",
+              "... (truncated for documentation)"
+            ]
+          },
+          {
+            "logits": [
+              [
+                0.3671875,
+                -2.03125,
+                "... (truncated for documentation)"
+              ],
+              [
+                3.640625,
+                -1.7578125,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ],
+            "sequence_tokens": [
+              "G",
+              "A",
+              "... (truncated for documentation)"
+            ],
+            "vocab_tokens": [
+              "A",
+              "C",
+              "... (truncated for documentation)"
+            ]
+          }
+        ]
+      }
+
+
+Encode
+------
+
+Encode protein sequences with optional homologous context, returning mean, per-token, and logits representations from specified layers
+
+.. tab-set::
+
+    .. tab-item:: Python (biolmai)
+        :sync: sdk
+
+        .. code:: python
+
+            from biolmai import BioLM
+            response = BioLM(
+                entity="e1-600m",
+                action="encode",
+                params={
+                  "repr_layers": [
+                    -1,
+                    12
+                  ],
+                  "include": [
+                    "mean",
+                    "per_token",
+                    "logits"
+                  ]
+                },
+                items=[
+                  {
+                    "sequence": "MKTAYIAKQRQISFVKSHFSRQ",
+                    "context_sequences": [
+                      "MKTAYIAKQKKISFVKSHFSRQ",
+                      "MKTTYIAKQRQISFVKSHFTRQ"
+                    ]
+                  },
+                  {
+                    "sequence": "GAVLILMSTAVAAQKAGVK",
+                    "context_sequences": null
+                  }
+                ]
+            )
+            print(response)
+
+    .. tab-item:: cURL
+        :sync: curl
+
+        .. code:: bash
+
+            curl -X POST https://biolm.ai/api/v3/e1-600m/encode/ \
+              -H "Authorization: Token YOUR_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{
+              "params": {
+                "repr_layers": [
+                  -1,
+                  12
+                ],
+                "include": [
+                  "mean",
+                  "per_token",
+                  "logits"
+                ]
+              },
+              "items": [
+                {
+                  "sequence": "MKTAYIAKQRQISFVKSHFSRQ",
+                  "context_sequences": [
+                    "MKTAYIAKQKKISFVKSHFSRQ",
+                    "MKTTYIAKQRQISFVKSHFTRQ"
+                  ]
+                },
+                {
+                  "sequence": "GAVLILMSTAVAAQKAGVK",
+                  "context_sequences": null
+                }
+              ]
+            }'
+
+    .. tab-item:: Python Requests
+        :sync: python
+
+        .. code:: python
+
+            import requests
+
+            url = "https://biolm.ai/api/v3/e1-600m/encode/"
+            headers = {
+                "Authorization": "Token YOUR_API_KEY",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                  "params": {
+                    "repr_layers": [
+                      -1,
+                      12
+                    ],
+                    "include": [
+                      "mean",
+                      "per_token",
+                      "logits"
+                    ]
+                  },
+                  "items": [
+                    {
+                      "sequence": "MKTAYIAKQRQISFVKSHFSRQ",
+                      "context_sequences": [
+                        "MKTAYIAKQKKISFVKSHFSRQ",
+                        "MKTTYIAKQRQISFVKSHFTRQ"
+                      ]
+                    },
+                    {
+                      "sequence": "GAVLILMSTAVAAQKAGVK",
+                      "context_sequences": null
+                    }
+                  ]
+                }
+
+            response = requests.post(url, headers=headers, json=payload)
+            print(response.json())
+
+    .. tab-item:: R
+        :sync: r
+
+        .. code:: r
+
+            library(httr)
+
+            url <- "https://biolm.ai/api/v3/e1-600m/encode/"
+            headers <- c("Authorization" = "Token YOUR_API_KEY", "Content-Type" = "application/json")
+            body <- list(
+              params = list(
+                repr_layers = list(
+                  -1,
+                  12
+                ),
+                include = list(
+                  "mean",
+                  "per_token",
+                  "logits"
+                )
+              ),
+              items = list(
+                list(
+                  sequence = "MKTAYIAKQRQISFVKSHFSRQ",
+                  context_sequences = list(
+                    "MKTAYIAKQKKISFVKSHFSRQ",
+                    "MKTTYIAKQRQISFVKSHFTRQ"
+                  )
+                ),
+                list(
+                  sequence = "GAVLILMSTAVAAQKAGVK",
+                  context_sequences = None
+                )
+              )
+            )
+
+            res <- POST(url, add_headers(.headers = headers), body = body, encode = "json")
+            print(content(res))
+
+.. http:post:: /api/v3/e1-600m/encode/
+
+   Encode endpoint for E1 600M.
+
+   :reqheader Content-Type: application/json
+   :reqheader Authorization: Token YOUR_API_KEY
+
+   .. container:: field-heading
+
+      Request
+
+   .. container:: field-definition
+
+      - **params** (*object*, optional) --- Configuration parameters:
+
+        - **repr_layers** (*array of integers*, default: [-1]) — Indices of model layers to return representations for
+
+        - **include** (*array of strings*, default: ["mean"]) — Output types to include; allowed values: "mean", "per_token", "logits"
+
+
+      - **items** (*array of objects*, min: 1, max: 8) --- Input sequences to encode:
+
+        - **sequence** (*string*, min length: 1, max length: 2048, required) — Amino acid sequence using extended alphabet (ACDEFGHIKLMNPQRSTVWYBXZUO)
+
+        - **context_sequences** (*array of strings*, max items: 50, optional) — Amino acid context sequences using extended alphabet (ACDEFGHIKLMNPQRSTVWYBXZUO), each with min length: 1, max length: 2048
+
+   **Example request**:
+
+   .. sourcecode:: http
+
+      POST /api/v3/e1-600m/encode/ HTTP/1.1
+      Host: biolm.ai
+      Authorization: Token YOUR_API_KEY
+      Content-Type: application/json
+
+            {
+        "params": {
+          "repr_layers": [
+            -1,
+            12
+          ],
+          "include": [
+            "mean",
+            "per_token",
+            "logits"
+          ]
+        },
+        "items": [
+          {
+            "sequence": "MKTAYIAKQRQISFVKSHFSRQ",
+            "context_sequences": [
+              "MKTAYIAKQKKISFVKSHFSRQ",
+              "MKTTYIAKQRQISFVKSHFTRQ"
+            ]
+          },
+          {
+            "sequence": "GAVLILMSTAVAAQKAGVK",
+            "context_sequences": null
+          }
+        ]
+      }
+
+   :statuscode 200: Successful response
+   :statuscode 400: Invalid input
+   :statuscode 500: Internal server error
+
+   .. container:: field-heading
+
+      Response
+
+   .. container:: field-definition
+
+      - **results** (*array of objects*) --- One result per input item, in the order requested:
+
+        - **embeddings** (*array of objects*, optional) — Layer-level pooled embeddings; present when ``"mean"`` is included in ``include``
+
+          - **layer** (*int*) — Layer index for this embedding (e.g., -1 for final layer)
+
+          - **embedding** (*array of floats*) — Pooled embedding vector for the query sequence; length equals the E1 hidden size for that layer
+
+
+        - **per_token_embeddings** (*array of objects*, optional) — Layer-level per-token embeddings; present when ``"per_token"`` is included in ``include``
+
+          - **layer** (*int*) — Layer index for these embeddings (e.g., -1 for final layer)
+
+          - **embeddings** (*array of arrays of floats*) — Per-token embedding matrix for the query sequence; shape: [L, H], where L ≤ 2048 is the query sequence length in residues and H is the E1 hidden size for that layer
+
+
+        - **logits** (*array of arrays of floats*, optional) — Output logits for each residue position when ``"logits"`` is included in ``include``; shape: [L, V], where L ≤ 2048 is the query sequence length and V is the vocabulary size; values are unnormalized scores over ``vocab_tokens``
+
+
+        - **vocab_tokens** (*array of strings*, optional) — Vocabulary tokens corresponding to the last dimension of ``logits``; length V equals the model vocabulary size
+
+
+        - **context_sequence_count** (*int*, optional) — Number of context sequences provided for this item; range: 0–50
+
+   **Example response**:
+
+   .. sourcecode:: http
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+
+            {
+        "results": [
+          {
+            "embeddings": [
+              {
+                "layer": 30,
+                "embedding": [
+                  0.09033203125,
+                  -0.056884765625,
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 12,
+                "embedding": [
+                  0.92578125,
+                  -0.5546875,
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "per_token_embeddings": [
+              {
+                "layer": 30,
+                "embeddings": [
+                  [
+                    0.11767578125,
+                    -0.1826171875,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    0.041748046875,
+                    -0.017822265625,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 12,
+                "embeddings": [
+                  [
+                    3.0,
+                    0.84375,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    1.0390625,
+                    -0.859375,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "logits": [
+              [
+                -1.9921875,
+                -3.625,
+                "... (truncated for documentation)"
+              ],
+              [
+                -1.9609375,
+                -4.375,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ],
+            "vocab_tokens": [
+              "A",
+              "C",
+              "... (truncated for documentation)"
+            ],
+            "context_sequence_count": 2
+          },
+          {
+            "embeddings": [
+              {
+                "layer": 30,
+                "embedding": [
+                  0.03466796875,
+                  -0.02197265625,
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 12,
+                "embedding": [
+                  0.2333984375,
+                  0.224609375,
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "per_token_embeddings": [
+              {
+                "layer": 30,
+                "embeddings": [
+                  [
+                    -0.0654296875,
+                    -0.1123046875,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    0.0233154296875,
+                    0.0306396484375,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              },
+              {
+                "layer": 12,
+                "embeddings": [
+                  [
+                    -0.96875,
+                    0.9765625,
+                    "... (truncated for documentation)"
+                  ],
+                  [
+                    -0.40234375,
+                    0.125,
+                    "... (truncated for documentation)"
+                  ],
+                  "... (truncated for documentation)"
+                ]
+              }
+            ],
+            "logits": [
+              [
+                0.416015625,
+                -2.09375,
+                "... (truncated for documentation)"
+              ],
+              [
+                3.71875,
+                -1.8359375,
+                "... (truncated for documentation)"
+              ],
+              "... (truncated for documentation)"
+            ],
+            "vocab_tokens": [
+              "A",
+              "C",
+              "... (truncated for documentation)"
+            ]
+          }
+        ]
+      }
+
+
+Performance
+-----------
+
+- Hardware and implementation
+  - Deployed on recent NVIDIA data‑center GPUs (A100/H100 class) using mixed‑precision inference (FP16/BF16 with FP32 accumulation) and fused attention kernels optimized for bidirectional Transformer encoders
+  - E1 600M has higher memory usage than E1 150M/300M but fits comfortably on a single high‑memory GPU for inference, avoiding inter‑GPU communication and keeping latency stable across requests
+- Relative throughput and latency
+  - Per‑token compute is roughly 2–3× heavier than E1 150M and ~1.7–2× heavier than E1 300M due to the larger hidden size and attention projections
+  - For single‑sequence queries, end‑to‑end latency is generally in the same band as ESM‑2 650M at matched sequence lengths; E1 600M’s alternating intra‑sequence/block‑causal attention keeps most layers as single‑sequence attention
+  - In design loops, the higher per‑request cost is often offset by improved fitness ranking, which can reduce the number of optimization iterations and total evaluated variants
+- Retrieval‑augmented efficiency
+  - E1 600M jointly encodes query and homologous context sequences in a single forward pass via alternating intra‑sequence and block‑causal multi‑sequence attention, instead of running one pass per homolog as with sequence‑only models
+  - For typical use (one query with tens of homologs), this joint encoding substantially reduces total GPU time compared with scoring each homolog independently with models like ESM‑2 650M and uses less memory than full MSA‑style models (e.g., MSA Transformer) that require row/column attention over aligned MSAs
+- Predictive performance vs related models
+  - Zero‑shot variant effect prediction (ProteinGym): E1 600M in sequence‑only mode reaches 0.420 average Spearman, slightly above ESM‑2 650M (0.414) and ESM‑C 600M (0.405); with homolog context it reaches 0.477 Spearman and 0.788 NDCG@10, outperforming PoET and MSA Pairformer on the same benchmark
+  - Unsupervised contact prediction (CAMEO/CASP15 long‑range Precision@L): E1 600M sequence‑only achieves 0.512/0.425, higher than ESM‑2 650M and even ESM‑2 3B; with homologs it reaches 0.541/0.436, exceeding MSA Pairformer while requiring only unaligned context sequences
+  - Across taxa and low/medium MSA‑depth assays, E1 600M sequence‑only matches or exceeds ESM‑2/ESM‑C; enabling retrieval‑augmented mode gives consistent gains where shallow MSAs degrade the performance of sequence‑only models
+
+Applications
+------------
+
+- Zero-shot fitness scoring and variant ranking for protein engineering campaigns using experimental data such as deep mutational scanning or low-throughput assays, where E1 600M scores variants via sequence log-likelihoods that correlate with functional effects and allow teams to prioritize stability-enhanced industrial enzymes or higher-activity biocatalysts without training task-specific models, reducing the number of variants that must be synthesized and tested while still being limited by the fact that it is a sequence-only model that cannot fully capture complex assay- or condition-specific effects
+- Retrieval-augmented design of improved enzyme variants by conditioning E1 600M on unaligned homologous sequences from internal or public databases to better capture family-specific constraints, enabling more reliable identification of beneficial substitutions for thermostability, solvent tolerance, or altered substrate scope in enzyme engineering programs, while requiring sufficient homolog coverage and careful curation of retrieved sequences to avoid propagating undesired properties
+- Structure-aware screening and triage of designed protein libraries using unsupervised contact-map signals derived from E1 600M embeddings to flag designs that are unlikely to adopt a well-packed fold, helping protein engineers filter large in silico–generated libraries (for example for binders, scaffolds, or de novo functional proteins) before structural modeling or wet-lab assays, with the caveat that these contact predictions are approximate and should complement rather than replace high-resolution structure prediction or biophysical assays
+- Embedding-based similarity search and clustering of proprietary protein collections, where embeddings from E1 600M are used as feature vectors for downstream ML (for example clustering, nearest-neighbor retrieval, or activity prediction models), allowing companies to map their internal sequence space, identify underexplored regions, and group functionally similar variants even when simple sequence identity is low, while recognizing that embeddings are trained on natural proteins and may be less reliable for highly exotic or non-natural sequence distributions
+- Context-aware analysis of sequence families with sparse experimental data, where retrieval-augmented E1 600M helps infer functional constraints for protein families with limited assays by leveraging homologous sequences to provide better zero-shot estimates of which regions tolerate mutation, enabling more informed design of follow-up libraries in industrial or therapeutic protein programs, but still requiring iterative lab validation because local epistasis and process-specific constraints (for example expression host or formulation) are not explicitly modeled
+
+Limitations
+-----------
+
+- **Maximum sequence length and batch size.** Each ``sequence`` and each entry in ``context_sequences`` is limited to **2048** amino acids (``E1Params.max_sequence_len``). Each request must include between **1** and **8** items (``E1Params.batch_size``); larger libraries must be sharded client-side into multiple API calls.
+- **Context size and retrieval behavior.** Up to **50** context sequences are allowed per item (``E1Params.max_context_sequences``); additional homologs are ignored unless split across requests. E1 is retrieval-augmented but does not perform homology search itself: you must supply ``context_sequences`` explicitly, and their evolutionary relevance strongly affects performance.
+- **Input alphabet and masking constraints.** ``E1EncodeRequestItem.sequence`` and ``context_sequences`` accept extended amino acids (ACDEFGHIKLMNPQRSTVWY + BXZUO). ``E1PredictRequestItem.sequence`` must contain at least one ``'?'`` mask, and only the query ``sequence`` may contain ``'?'``; its ``context_sequences`` must be unmasked extended amino acids. ``E1PredictLogProbRequestItem.sequence`` and its ``context_sequences`` are restricted to canonical amino acids only. Items violating these rules or length limits are rejected.
+- **Model outputs and representation limits.** ``E1EncodeRequestParams.include`` controls outputs: ``"mean"`` returns one embedding vector per sequence, ``"per_token"`` returns one vector per residue, and ``"logits"`` returns masked-language-model scores with ``vocab_tokens``. These are encoder representations and token-level scores, not generative samples, energy functions, or 3D structures; downstream models are required for sequence generation, large-scale clustering/visualization, or structure prediction.
+- **Algorithmic scope and retrieval limitations.** E1 is optimized for variant scoring, fitness prediction, and structural proxies (for example, contact-map features) rather than full folding (for example, AlphaFold2/ESMFold) or de novo design (for example, diffusion or causal language models). Retrieval conditioning assumes informative homologs exist; performance may degrade for orphan proteins, highly engineered/artificial sequences, or very shallow/uninformative MSAs.
+- **When E1 600M is not the best choice.** The 600M variant trades latency and cost for accuracy and is relatively heavy for real-time or ultra–high-throughput screening where smaller encoders or simpler scoring models may suffice. It is not intended as the final structure-ranking stage compared with dedicated structure predictors, nor as a standalone generator when the goal is to sample large numbers of novel sequences rather than embed or score existing ones.
+
+How We Use It
+-------------
+
+BioLM uses E1 600M as a retrieval‑augmented encoder for variant scoring and structural reasoning in end‑to‑end protein engineering workflows, combining its zero‑shot fitness and unsupervised contact‑map signals with generative models, structure predictors (for example AlphaFold‑class tools), and biophysical filters to accelerate design–build–test cycles. Standardized, scalable APIs expose E1 600M as a common scoring and embedding layer across enzyme design, antibody maturation, and multi‑round optimization campaigns: ML engineers integrate it into ranking and active‑learning loops, bioinformaticians pair its embeddings with homology and MSA resources to navigate sequence families, and protein engineers and lab teams use its fitness and contact‑proxy scores alongside experimental data to prioritize variants with better chances of expressing, folding, and meeting functional requirements, reducing assay load and time to decision.
+
+- In generative design campaigns, E1 600M scores and embeds model‑proposed variants through the encoder and predictor endpoints, enabling automated triage and down‑selection before structural and physicochemical screening.  
+- In iterative optimization, E1 600M integrates with accumulating assay data to refine ML‑driven ranking and guide subsequent mutation proposals toward improved activity, stability, or developability.
+
+Related
+-------
+
+- ``E1 300M`` – Smaller retrieval-augmented encoder from the same E1 family; choose when you need faster, cheaper inference while retaining similar zero-shot fitness and structural embeddings.  
+- ``ESM-2 650M`` – Single-sequence protein language model; useful as a baseline when homolog retrieval is unavailable and for comparing retrieval-augmented E1 600M against sequence-only models.  
+- ``MSA Transformer`` – Retrieval-augmented model that consumes explicit MSAs; complementary when you already have high-quality alignments and want an alternative multi-sequence representation to cross-check E1 600M embeddings and contacts.  
+- ``ProteinMPNN`` – Structure-conditioned sequence design model; pair with E1 600M by generating candidates with ProteinMPNN and ranking or scoring them using E1’s zero-shot fitness-style log probabilities.
+
+References
+----------
+
+- Jain, S., Beazer, J., Ruffolo, J. A., Bhatnagar, A., & Madani, A. (2025). *E1: Retrieval-Augmented Protein Encoder Models*. Profluent Bio. Preprint / Technical Report. Available at https://github.com/Profluent-AI/E1
