@@ -420,6 +420,117 @@ class ProtocolRun:
             with zf.open(csv_names[0]) as f:
                 return pd.read_csv(io.TextIOWrapper(f, encoding="utf-8"))
 
+    def to_duckdb(
+        self,
+        con=None,
+        table: Optional[str] = None,
+        if_exists: str = "replace",
+        add_run_metadata: bool = True,
+        output_dir: Union[str, Path] = ".",
+        overwrite: bool = False,
+    ):
+        """Load protocol run results directly into a DuckDB table.
+
+        Downloads the CSV results zip (cached locally after the first call)
+        and inserts them into a DuckDB table.  Pass an existing connection to
+        integrate with a pipeline datastore; omit *con* to get a new
+        in-memory DuckDB.
+
+        Args:
+            con: A ``duckdb.DuckDBPyConnection``, a path string/``Path`` to a
+                ``.duckdb`` file, or ``None`` (creates an in-memory connection
+                and returns it).
+            table: Table name.  Defaults to the protocol slug with ``-`` and
+                ``.`` replaced by ``_``
+                (e.g. ``esm2stabp_predict_from_sequences``).
+            if_exists: What to do when the table already exists.
+                ``"replace"`` (default) drops and recreates it; ``"append"``
+                inserts rows without truncating; ``"fail"`` raises
+                ``ValueError``.
+            add_run_metadata: If ``True`` (default), prepend ``_run_id`` and
+                ``_protocol_slug`` columns so results from multiple runs stay
+                traceable after appending.
+            output_dir: Where to cache the downloaded zip file.
+            overwrite: Re-download the zip even if it already exists locally.
+
+        Returns:
+            The ``duckdb.DuckDBPyConnection`` used (the caller's connection,
+            or the new in-memory connection when *con* was ``None``).
+
+        Raises:
+            :class:`ProtocolRunError`: If the run has not yet succeeded.
+            ``ValueError``: If *if_exists* is invalid, or if *if_exists* is
+                ``"fail"`` and the table already exists.
+            ``ImportError``: If ``duckdb`` or ``pandas`` are not installed.
+
+        Example::
+
+            import duckdb
+
+            con = duckdb.connect("results.duckdb")
+            run.to_duckdb(con, table="stability_results")
+            con.execute("SELECT * FROM stability_results LIMIT 5").df()
+
+            # Append results from multiple runs into the same table:
+            for run in completed_runs:
+                run.to_duckdb(con, table="stability_results", if_exists="append")
+
+            # In-memory quick exploration — no file needed:
+            con = run.to_duckdb()
+            con.sql("SELECT * FROM esm2stabp_predict_from_sequences").show()
+        """
+        try:
+            import duckdb
+        except ImportError:
+            raise ImportError(
+                "duckdb is required for run.to_duckdb(). "
+                "Install it: pip install biolmai[pipeline]"
+            )
+
+        _VALID = {"replace", "append", "fail"}
+        if if_exists not in _VALID:
+            raise ValueError(
+                f"if_exists must be one of {sorted(_VALID)!r}, got {if_exists!r}."
+            )
+
+        # Resolve connection — own_con means we opened it and should return it
+        if con is None or isinstance(con, (str, Path)):
+            con = duckdb.connect(str(con) if con is not None else ":memory:")
+
+        # Default table name: sanitize slug
+        if table is None:
+            slug = self.protocol_slug or self.run_id or "protocol_results"
+            table = slug.replace("-", "_").replace(".", "_")
+
+        # Check for existing table
+        table_exists = con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [table],
+        ).fetchone()[0]
+
+        if table_exists and if_exists == "fail":
+            raise ValueError(
+                f"Table {table!r} already exists and if_exists='fail'."
+            )
+
+        # Download CSV and load into pandas (reuses to_dataframe logic)
+        df = self.to_dataframe(output_dir=output_dir, overwrite=overwrite)
+
+        if add_run_metadata:
+            df.insert(0, "_protocol_slug", self.protocol_slug)
+            df.insert(0, "_run_id", self.run_id)
+
+        if table_exists and if_exists == "replace":
+            con.execute(f'DROP TABLE "{table}"')
+            table_exists = False
+
+        if not table_exists:
+            con.execute(f'CREATE TABLE "{table}" AS SELECT * FROM df')
+        else:
+            con.execute(f'INSERT INTO "{table}" SELECT * FROM df')
+
+        return con
+
     # ------------------------------------------------------------------
     # Cancel
     # ------------------------------------------------------------------
