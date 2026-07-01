@@ -934,11 +934,19 @@ class DuckDBDataStore:
         df["prediction_id"] = range(start_id, start_id + len(df))
         df["created_at"] = datetime.now()
 
-        # Ensure metadata is JSON string
+        # Ensure metadata is JSON string — B9 fix: apply json.dumps to any non-str
+        # value (lists, numpy arrays, tuples) not just dicts.
         if "metadata" in df.columns:
-            df["metadata"] = df["metadata"].apply(
-                lambda x: json.dumps(x) if isinstance(x, dict) else x
-            )
+            def _serialize_meta(x):
+                if x is None or isinstance(x, str):
+                    return x
+                try:
+                    return json.dumps(x)
+                except (TypeError, ValueError) as _e:
+                    raise ValueError(
+                        f"metadata value is not JSON-serializable: {type(x)} — {_e}"
+                    ) from _e
+            df["metadata"] = df["metadata"].apply(_serialize_meta)
         else:
             df["metadata"] = None
 
@@ -1358,7 +1366,18 @@ class DuckDBDataStore:
             ],
         )
         self._generation_metadata_counter += 1
-        return metadata_id
+        # B8 fix: query back actual stored row ID — ON CONFLICT DO NOTHING means the
+        # pre-assigned counter ID may not match what's in the DB (conflict keeps old row).
+        actual = self.conn.execute(
+            "SELECT metadata_id FROM generation_metadata WHERE sequence_id = ? AND run_id = ?",
+            [sequence_id, run_id],
+        ).fetchone()
+        if actual is None:
+            raise RuntimeError(
+                f"Failed to retrieve metadata_id after insert for "
+                f"sequence_id={sequence_id}, run_id={run_id}"
+            )
+        return actual[0]
 
     def add_generation_metadata_batch(self, rows: list[dict]) -> None:
         """Batch-insert generation metadata — one DuckDB round-trip.
