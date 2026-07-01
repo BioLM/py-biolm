@@ -1334,6 +1334,7 @@ class GenerationStage(Stage):
         api = BioLMApiClient(config.scoring_model)
         try:
             action_fn = getattr(api, config.scoring_action)
+            _score_field_validated = False
             for i in range(0, len(items), config.batch_size):
                 batch = items[i:i + config.batch_size]
                 try:
@@ -1341,6 +1342,17 @@ class GenerationStage(Stage):
                     # Normalize to list
                     if isinstance(raw, dict):
                         raw = [raw]
+                    # Preflight on first batch: validate score_field exists before processing all items
+                    if not _score_field_validated and raw and isinstance(raw[0], dict):
+                        _probe_val = self._get_nested(raw[0], config.score_field)
+                        if _probe_val is None:
+                            raise ValueError(
+                                f"SaturationMutagenesisConfig: score_field {config.score_field!r} not found "
+                                f"in API response for model {config.scoring_model!r}. "
+                                f"Available top-level keys: {list(raw[0].keys())}. "
+                                f"Full response sample: {raw[0]}"
+                            )
+                        _score_field_validated = True
                     if len(raw) != len(batch):
                         raise ValueError(
                             f"SaturationMutagenesis batch {i // config.batch_size}: "
@@ -1452,6 +1464,7 @@ class GenerationStage(Stage):
                 items_r1.append({"sequence": "".join(seq_list)})
 
             results_r1: list[Any] = []
+            _logit_format_validated = False
             for i in range(0, len(items_r1), config.batch_size):
                 batch = items_r1[i:i + config.batch_size]
                 try:
@@ -1460,6 +1473,18 @@ class GenerationStage(Stage):
                         raw = [raw]
                     elif isinstance(raw, list) and raw and isinstance(raw[0], list):
                         raw = [r[0] if r else {} for r in raw]
+                    # Preflight on first batch: validate vocab_tokens present before full run.
+                    # sequence_tokens is not checked here — DMS uses _argmax_from_response
+                    # which only needs logits + vocab_tokens, not sequence_tokens.
+                    if not _logit_format_validated and raw and isinstance(raw[0], dict):
+                        if "logits" in raw[0] and "vocab_tokens" not in raw[0]:
+                            raise ValueError(
+                                f"IterativeMaskingDMSConfig: model {config.model_name!r} returned "
+                                f"'logits' but not 'vocab_tokens' — cannot decode without vocabulary "
+                                f"ordering (differs between models). "
+                                f"Available keys: {list(raw[0].keys())}"
+                            )
+                        _logit_format_validated = True
                     if len(raw) != len(batch):
                         raise ValueError(
                             f"IterativeMaskingDMS round-1 batch {i // config.batch_size}: "
