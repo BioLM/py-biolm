@@ -145,7 +145,7 @@ def filter_from_spec(spec: dict) -> "BaseFilter":
     elif ftype == "ConservedResidueFilter":
         # Keys were stored as strings for JSON compat; convert back to int
         conserved_positions = {
-            int(k): v for k, v in spec.get("conserved_positions", {}).items()
+            int(k): v for k, v in spec["conserved_positions"].items()
         }
         return ConservedResidueFilter(
             conserved_positions=conserved_positions,
@@ -167,6 +167,11 @@ def filter_from_spec(spec: dict) -> "BaseFilter":
         )
     elif ftype == "CompositeFilter":
         from biolmai.pipeline.filters import CompositeFilter
+        if not spec.get("filters"):
+            raise ValueError(
+                "CompositeFilter spec is missing 'filters' key or has an empty sub-filter list — "
+                "a CompositeFilter with no sub-filters is a no-op and is likely a corrupt spec"
+            )
         sub_filters = [filter_from_spec(f) for f in spec.get("filters", [])]
         return CompositeFilter(*sub_filters)
     else:
@@ -252,7 +257,7 @@ def _config_from_spec(spec: dict) -> Any:
         )
     elif ctype == "RemaskingConfig":
         return RemaskingConfig(
-            model_name=spec.get("model_name", "esm-150m"),
+            model_name=spec["model_name"],
             action=spec.get("action", "predict"),
             mask_fraction=spec.get("mask_fraction", 0.15),
             mask_positions=spec.get("mask_positions", "auto"),
@@ -426,7 +431,7 @@ def stage_from_spec(spec: dict) -> "Stage":
         # algorithm parameters (e.g. eps for DBSCAN) are restored.
         return ClusteringStage(
             name=spec["name"],
-            method=spec.get("method", "kmeans"),
+            method=spec["method"],
             n_clusters=spec.get("n_clusters"),
             similarity_metric=spec.get("similarity_metric", "embedding"),
             embedding_model=spec.get("embedding_model"),
