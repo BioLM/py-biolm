@@ -310,6 +310,7 @@ class DuckDBDataStore:
                 max_length INTEGER,
                 sampling_params VARCHAR,
                 label VARCHAR,
+                metadata VARCHAR,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (sequence_id, run_id)
             )
@@ -332,6 +333,17 @@ class DuckDBDataStore:
                 "generation_metadata schema migration failed: could not add 'label' column "
                 "(%s). Subsequent generation_metadata inserts that include a label will "
                 "fail with a schema error. Check that the DuckDB file is writable.",
+                _migration_err,
+            )
+        # Add metadata column to existing DBs (DMS provenance JSON blob)
+        try:
+            self.conn.execute(
+                "ALTER TABLE generation_metadata ADD COLUMN IF NOT EXISTS metadata VARCHAR"
+            )
+        except Exception as _migration_err:
+            logger.warning(
+                "generation_metadata schema migration failed: could not add 'metadata' column "
+                "(%s). DMS provenance will not be persisted for existing databases.",
                 _migration_err,
             )
         self.conn.execute(
@@ -1366,6 +1378,9 @@ class DuckDBDataStore:
             sp = row.get("sampling_params") or {}
             # GEN-04: serialize sampling_params as JSON string for storage
             sampling_params_json = json.dumps(sp) if sp else None
+            # Serialize DMS provenance (or any extra metadata) as a JSON string
+            extra_meta = row.get("metadata")
+            metadata_json = json.dumps(extra_meta) if extra_meta else None
             records.append({
                 "metadata_id": metadata_id,
                 "sequence_id": int(row["sequence_id"]),
@@ -1380,6 +1395,7 @@ class DuckDBDataStore:
                 "max_length": row.get("max_length", sp.get("max_length")),
                 "sampling_params": sampling_params_json,
                 "label": row.get("label"),
+                "metadata": metadata_json,
                 "created_at": now,
             })
         df = pd.DataFrame(records)
@@ -1391,10 +1407,10 @@ class DuckDBDataStore:
                 INSERT INTO generation_metadata
                 (metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
                  num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
-                 label, created_at)
+                 label, metadata, created_at)
                 SELECT metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
                        num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
-                       label, created_at
+                       label, metadata, created_at
                 FROM {_tmp}
                 ON CONFLICT DO NOTHING
                 """

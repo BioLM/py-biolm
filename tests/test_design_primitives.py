@@ -1455,3 +1455,115 @@ class TestBaseClassHierarchy:
             IterativeMaskingDMSConfig(
                 parent_sequence="MKTAY", model_name="esm2-650m", action="encode"
             )
+
+
+# ---------------------------------------------------------------------------
+# DMS provenance persisted in generation_metadata.metadata JSON field
+# ---------------------------------------------------------------------------
+
+
+class TestDMSProvenanceInMetadata:
+    """Verify that DMS provenance columns are packed into the metadata JSON
+    field of generation_metadata so they survive session end."""
+
+    def _dispatch_sat(self, cfg, mock_instance, tmp_ds):
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(mock_instance)):
+            ws_out, result = asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+        return ws_out, result
+
+    def test_saturation_mutagenesis_provenance_in_metadata(self, tmp_ds):
+        """sat_position, sat_wt_aa, sat_mut_aa, and the score value must be
+        stored in generation_metadata.metadata JSON for every sat-mutagenesis row."""
+        import json as _json
+
+        scores_iter = iter(-float(i) for i in range(19))
+
+        async def _predict(items, **kwargs):
+            return [{"ddg": next(scores_iter, None)} for _ in items]
+
+        instance = AsyncMock()
+        instance.predict = _predict
+        instance.shutdown = AsyncMock()
+
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence="MKTAY",
+            scoring_model="thermompnn-d",
+            positions=[0],          # one position → 19 variants
+            top_n=3,
+            score_field="ddg",
+        )
+        ws_out, result = self._dispatch_sat(cfg, instance, tmp_ds)
+        assert result.output_count == 3
+
+        # Fetch all generation_metadata rows from DuckDB
+        rows = tmp_ds.conn.execute(
+            "SELECT metadata FROM generation_metadata WHERE run_id = 'r1'"
+        ).fetchall()
+        assert len(rows) == 3, "Expected 3 generation_metadata rows"
+
+        for (meta_json,) in rows:
+            assert meta_json is not None, "metadata JSON must not be NULL for sat-mutagenesis rows"
+            meta = _json.loads(meta_json)
+            assert "sat_position" in meta, f"sat_position missing from metadata: {meta}"
+            assert "sat_wt_aa" in meta, f"sat_wt_aa missing from metadata: {meta}"
+            assert "sat_mut_aa" in meta, f"sat_mut_aa missing from metadata: {meta}"
+            assert "ddg" in meta, f"ddg score missing from metadata: {meta}"
+            # pos 0 of "MKTAY" is 'M'
+            assert meta["sat_position"] == 0
+            assert meta["sat_wt_aa"] == "M"
+            assert isinstance(meta["ddg"], float)
+
+    def test_iterative_masking_provenance_in_metadata(self, tmp_ds):
+        """dms_round, dms_pos1, dms_aa1 (and optionally dms_pos2, dms_aa2 for
+        round-2) must be stored in generation_metadata.metadata for DMS rows."""
+        import json as _json
+
+        # Round 1: pos 0 → 'A', pos 2 → 'G'
+        r1_response = [
+            {"logits": make_logits(5, {0: "A"}), "vocab_tokens": list(ALPHABET)},
+            {"logits": make_logits(5, {2: "G"}), "vocab_tokens": list(ALPHABET)},
+        ]
+        # Round 2: AKTAY mask pos2 → 'D'; MKGAY mask pos0 → 'L'
+        r2_response = [
+            {"logits": make_logits(5, {2: "D"}), "vocab_tokens": list(ALPHABET)},
+            {"logits": make_logits(5, {0: "L"}), "vocab_tokens": list(ALPHABET)},
+        ]
+        instance = AsyncMock()
+        instance.predict = AsyncMock(side_effect=[r1_response, r2_response])
+        instance.shutdown = AsyncMock()
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence="MKTAY",
+            model_name="esm2-650m",
+            positions=[0, 2],
+            rounds=2,
+            batch_size=100,
+        )
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            ws_out, result = asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+        assert result.output_count == 2
+
+        rows = tmp_ds.conn.execute(
+            "SELECT metadata FROM generation_metadata WHERE run_id = 'r1'"
+        ).fetchall()
+        assert len(rows) == 2, "Expected 2 generation_metadata rows"
+
+        for (meta_json,) in rows:
+            assert meta_json is not None, "metadata JSON must not be NULL for DMS rows"
+            meta = _json.loads(meta_json)
+            assert "dms_round" in meta, f"dms_round missing from metadata: {meta}"
+            assert "dms_pos1" in meta, f"dms_pos1 missing from metadata: {meta}"
+            assert "dms_aa1" in meta, f"dms_aa1 missing from metadata: {meta}"
+            # Round-2 rows must carry both mutation sites
+            assert meta["dms_round"] == 2
+            assert "dms_pos2" in meta, f"dms_pos2 missing from round-2 metadata: {meta}"
+            assert "dms_aa2" in meta, f"dms_aa2 missing from round-2 metadata: {meta}"
+            assert meta["dms_pos1"] in (0, 2)
+            assert meta["dms_pos2"] in (0, 2)
+            assert meta["dms_pos1"] != meta["dms_pos2"]

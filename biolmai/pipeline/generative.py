@@ -55,27 +55,77 @@ from biolmai.pipeline.mlm_remasking import MLMRemasker, RemaskingConfig
 
 
 class ScoringProtocolConfig:
-    """Marker base class for protocol stages that score sequences and rank them.
+    """Marker base class for stages that score sequences and return a ranked subset.
 
-    Subclasses call a prediction model to assign numeric scores to candidate
-    sequences, then filter or rank by those scores.  The ``scoring_action``
-    field must be one of :data:`_ALLOWED_SCORING_ACTIONS` (``predict`` or
-    ``score``).
+    Subclasses call a BioLM prediction model to assign a numeric score to each
+    variant sequence enumerated by the config (e.g. all single-point mutants),
+    then sort and return the top-N results.  They do **not** produce wholly new
+    sequences — the output is a scored, ranked subset of the candidate library
+    built internally by the config (no separate generation step is needed).
+
+    The ``scoring_action`` field on concrete subclasses selects the client
+    method: ``'predict'`` calls :py:meth:`BioLMApiClient.predict` and ``'score'``
+    calls :py:meth:`BioLMApiClient.score`.  Both are allowlisted
+    (``'predict'``, ``'score'``) to prevent arbitrary method dispatch.
 
     Use :func:`isinstance(config, ScoringProtocolConfig)` to branch on config
-    type in pipeline runners.
+    type in pipeline dispatch functions.
+
+    Example::
+
+        from biolmai.pipeline.generative import (
+            ScoringProtocolConfig,
+            SaturationMutagenesisConfig,
+        )
+
+        def dispatch(config):
+            if isinstance(config, ScoringProtocolConfig):
+                return run_scoring_stage(config)  # returns ranked variant library
+            return run_generative_stage(config)   # returns novel sequences
+
+        config = SaturationMutagenesisConfig(
+            parent_sequence="MKTAYIAKQRQ",
+            scoring_model="thermompnn-d",
+            score_field="ddg",
+        )
+        assert isinstance(config, ScoringProtocolConfig)  # True
     """
 
 
 class GenerativeProtocolConfig:
-    """Marker base class for protocol stages that produce new sequences.
+    """Marker base class for stages that produce new amino-acid sequences.
 
     Subclasses drive generative or masked-language models to emit novel
-    sequences — either by autoregressive sampling (ProteinMPNN, DSM) or by
-    greedy-argmax masking over an MLM (ESM2, ESMC).
+    sequences — either via autoregressive sampling (ProteinMPNN, DSM,
+    AntiFold) or by greedy-argmax masking over an MLM (ESM2, ESMC).
+    Unlike :class:`ScoringProtocolConfig` subclasses, these stages expand the
+    candidate pool rather than filtering it; they are the *source* stage in a
+    generative design pipeline.
 
     Use :func:`isinstance(config, GenerativeProtocolConfig)` to branch on
-    config type in pipeline runners.
+    config type in pipeline dispatch functions.
+
+    Example::
+
+        from biolmai.pipeline.generative import (
+            GenerativeProtocolConfig,
+            DirectGenerationConfig,
+            IterativeMaskingDMSConfig,
+        )
+
+        def dispatch(config):
+            if isinstance(config, GenerativeProtocolConfig):
+                return run_generative_stage(config)  # emits new sequences
+            return run_scoring_stage(config)          # returns ranked variants
+
+        cfg_direct = DirectGenerationConfig(
+            "dsm-150m-base", sequence="MKTAYIAKQRQ", num_sequences=50
+        )
+        cfg_dms = IterativeMaskingDMSConfig(
+            parent_sequence="MKTAYIAKQRQ", model_name="esm2-650m"
+        )
+        assert isinstance(cfg_direct, GenerativeProtocolConfig)  # True
+        assert isinstance(cfg_dms, GenerativeProtocolConfig)     # True
     """
 
 
@@ -124,6 +174,34 @@ class DirectGenerationConfig(GenerativeProtocolConfig):
             param names.
         num_sequences: Fallback when ``params`` is empty (default 100).
         temperature: Fallback when ``params`` is empty (default 1.0).
+
+    Example::
+
+        from biolmai.pipeline.generative import DirectGenerationConfig, GenerativePipeline
+
+        # Structure-conditioned design with ProteinMPNN
+        cfg_mpnn = DirectGenerationConfig(
+            model_name="protein-mpnn",
+            structure_path="/path/to/protein.pdb",
+            item_field="pdb",
+            params={"num_sequences": 50, "temperature": 0.1},
+        )
+
+        # Sequence-conditioned design with DSM
+        cfg_dsm = DirectGenerationConfig(
+            model_name="dsm-150m-base",
+            sequence="MKTAYIAKQRQ",
+            item_field="sequence",
+            params={
+                "num_sequences": 100,
+                "temperature": 1.0,
+                "remasking": "low_confidence",
+                "step_divisor": 8,
+            },
+        )
+
+        pipeline = GenerativePipeline(configs=[cfg_mpnn])
+        results = pipeline.run()
     """
 
     model_name: str
@@ -267,6 +345,25 @@ class SaturationMutagenesisConfig(ScoringProtocolConfig):
             for sequence-only models like ESM2StabP.
         chain: Chain identifier forwarded in structure-aware scoring items
             (default ``'A'``).
+
+    Example::
+
+        from biolmai.pipeline.generative import SaturationMutagenesisConfig, GenerativePipeline
+
+        # Score all single-mutant variants at three positions with ThermoMPNN-D
+        config = SaturationMutagenesisConfig(
+            parent_sequence="MKTAYIAKQRQ",
+            scoring_model="thermompnn-d",
+            positions=[3, 7, 10],          # 0-indexed; None → all positions
+            score_field="ddg",             # key in API response holding ΔΔG
+            top_n=25,                      # keep top-25 most stabilising variants
+            ascending=True,                # lower ΔΔG = more stabilising
+            pdb_str=open("protein.pdb").read(),  # required by structure-aware models
+        )
+
+        pipeline = GenerativePipeline(configs=[config])
+        pipeline.add_prediction("esmfold", extractions="mean_plddt", columns="plddt")
+        results = pipeline.run()
     """
 
     parent_sequence: str
@@ -289,7 +386,9 @@ class SaturationMutagenesisConfig(ScoringProtocolConfig):
         if self.scoring_action not in _ALLOWED_SCORING_ACTIONS:
             raise ValueError(
                 f"SaturationMutagenesisConfig.scoring_action must be one of "
-                f"{sorted(_ALLOWED_SCORING_ACTIONS)}, got {self.scoring_action!r}"
+                f"'predict' or 'score' (got {self.scoring_action!r}). "
+                f"'predict' calls api.predict() and expects a response dict; "
+                f"'score' calls api.score() and also expects a response dict."
             )
         _score_field_pattern = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*){0,2}$")
         if not _score_field_pattern.match(self.score_field):
@@ -363,7 +462,26 @@ class IterativeMaskingDMSConfig(GenerativeProtocolConfig):
         batch_size: Sequences per API request (default 32).
         label: Optional label stored as ``source_label`` in results.
         action: API action for the model (default ``'predict'``; the model must
-            return logits).
+            return logits).  Only ``'predict'`` is allowed because the
+            greedy-argmax procedure requires per-token logit arrays.
+
+    Example::
+
+        from biolmai.pipeline.generative import IterativeMaskingDMSConfig, GenerativePipeline
+
+        # Two-round greedy DMS at three positions using ESM2-650M
+        config = IterativeMaskingDMSConfig(
+            parent_sequence="MKTAYIAKQRQ",
+            model_name="esm2-650m",
+            positions=[2, 5, 8],   # 0-indexed; None → all positions
+            rounds=2,              # round 1: per-position; round 2: 2-point combos
+            exclude_synonymous=True,
+        )
+
+        pipeline = GenerativePipeline(configs=[config])
+        results = pipeline.run()
+        # results DataFrame has columns:
+        #   sequence, dms_round, dms_pos1, dms_aa1, dms_pos2, dms_aa2
     """
 
     parent_sequence: str
@@ -380,8 +498,10 @@ class IterativeMaskingDMSConfig(GenerativeProtocolConfig):
     def __post_init__(self):
         if self.action not in _ALLOWED_MLM_ACTIONS:
             raise ValueError(
-                f"IterativeMaskingDMSConfig.action must be one of "
-                f"{sorted(_ALLOWED_MLM_ACTIONS)}, got {self.action!r}"
+                f"IterativeMaskingDMSConfig.action must be one of: 'predict' "
+                f"(got {self.action!r}). Only 'predict' is supported because "
+                f"the greedy-argmax procedure requires per-token logit arrays "
+                f"returned by the model's predict endpoint."
             )
         if self.rounds < 1:
             raise ValueError(f"IterativeMaskingDMSConfig.rounds must be >= 1, got {self.rounds}")
@@ -1636,9 +1756,74 @@ class GenerationStage(Stage):
 
             # Store generation metadata in one batched INSERT
             run_id = kwargs.get("run_id", "")
+
+            # Detect the dynamic score column added by SaturationMutagenesisConfig
+            # (e.g. 'ddg', 'result_ddg').  It is the only column in df_generated
+            # that is not part of the standard or DMS-provenance column sets.
+            _KNOWN_GEN_COLS = frozenset({
+                "sequence", "model_name", "temperature", "sampling_params",
+                "generation_method", "parent_sequence", "source_label",
+                "sat_position", "sat_wt_aa", "sat_mut_aa",
+                "dms_round", "dms_pos1", "dms_aa1", "dms_pos2", "dms_aa2",
+                "global_score", "score", "seq_recovery",
+                "sequence_id", "heavy_chain", "light_chain",
+            })
+            _sat_score_cols = [
+                c for c in df_generated.columns if c not in _KNOWN_GEN_COLS
+            ]
+            _sat_score_col = _sat_score_cols[0] if _sat_score_cols else None
+
             meta_rows = []
             for seq_id, row in zip(seq_ids, df_generated.itertuples(index=False)):
                 sampling_params = getattr(row, "sampling_params", None) or {}
+
+                # Pack DMS provenance into the metadata JSON field so it survives
+                # session end and pipeline resume.
+                dms_meta: dict = {}
+
+                # SaturationMutagenesisConfig provenance
+                sat_pos = getattr(row, "sat_position", None)
+                if sat_pos is not None and not (
+                    isinstance(sat_pos, float) and pd.isna(sat_pos)
+                ):
+                    dms_meta["sat_position"] = int(sat_pos)
+                    sat_wt = getattr(row, "sat_wt_aa", None)
+                    sat_mut = getattr(row, "sat_mut_aa", None)
+                    if sat_wt is not None:
+                        dms_meta["sat_wt_aa"] = sat_wt
+                    if sat_mut is not None:
+                        dms_meta["sat_mut_aa"] = sat_mut
+                    # Capture the dynamic score column value (e.g. ddg, result_ddg)
+                    if _sat_score_col is not None:
+                        score_val = getattr(row, _sat_score_col, None)
+                        if score_val is not None and not (
+                            isinstance(score_val, float) and pd.isna(score_val)
+                        ):
+                            dms_meta[_sat_score_col] = float(score_val)
+
+                # IterativeMaskingDMSConfig provenance
+                dms_round = getattr(row, "dms_round", None)
+                if dms_round is not None and not (
+                    isinstance(dms_round, float) and pd.isna(dms_round)
+                ):
+                    dms_meta["dms_round"] = int(dms_round)
+                    dms_pos1 = getattr(row, "dms_pos1", None)
+                    dms_aa1 = getattr(row, "dms_aa1", None)
+                    if dms_pos1 is not None:
+                        dms_meta["dms_pos1"] = int(dms_pos1)
+                    if dms_aa1 is not None:
+                        dms_meta["dms_aa1"] = dms_aa1
+                    dms_pos2 = getattr(row, "dms_pos2", None)
+                    dms_aa2 = getattr(row, "dms_aa2", None)
+                    if dms_pos2 is not None and not (
+                        isinstance(dms_pos2, float) and pd.isna(dms_pos2)
+                    ):
+                        dms_meta["dms_pos2"] = int(dms_pos2)
+                    if dms_aa2 is not None and not (
+                        isinstance(dms_aa2, float) and pd.isna(dms_aa2)
+                    ):
+                        dms_meta["dms_aa2"] = dms_aa2
+
                 meta_rows.append({
                     "sequence_id": seq_id,
                     "run_id": run_id,
@@ -1646,6 +1831,7 @@ class GenerationStage(Stage):
                     "temperature": getattr(row, "temperature", None),
                     "sampling_params": sampling_params,
                     "label": getattr(row, "source_label", None),
+                    "metadata": dms_meta if dms_meta else None,
                 })
             datastore.add_generation_metadata_batch(meta_rows)
 
