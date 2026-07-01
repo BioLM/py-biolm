@@ -1330,6 +1330,7 @@ class GenerationStage(Stage):
 
         # Score in batches
         scores: list[Optional[float]] = []
+        _example_bad_response: Optional[dict] = None
         api = BioLMApiClient(config.scoring_model)
         try:
             action_fn = getattr(api, config.scoring_action)
@@ -1353,6 +1354,8 @@ class GenerationStage(Stage):
                             batch_scores.append(float(val) if val is not None else None)
                         except (TypeError, ValueError):
                             batch_scores.append(None)
+                        if val is None and _example_bad_response is None and isinstance(r, dict):
+                            _example_bad_response = r
                     scores.extend(batch_scores)
                 except Exception as e:
                     logger.warning("SaturationMutagenesis scoring batch %d failed: %s", i // config.batch_size, e)
@@ -1380,7 +1383,13 @@ class GenerationStage(Stage):
             })
 
         if not rows:
-            logger.warning("SaturationMutagenesisConfig: no variants received valid scores")
+            logger.warning(
+                "SaturationMutagenesisConfig: no variants received valid scores "
+                "(score_field=%r). Example API response where score extraction returned "
+                "None: %r",
+                config.score_field,
+                _example_bad_response,
+            )
             return []
 
         # Rank and keep top-N
