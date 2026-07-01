@@ -1202,8 +1202,13 @@ class GenerationStage(Stage):
                         ).fetchall()
                         sequences = [r[0] for r in rows if r[0]]
                         scoped = True
-                except Exception:
-                    pass
+                except Exception as _scope_err:
+                    logger.warning(
+                        "SequenceSourceConfig: failed to scope sequences to run_id %s, "
+                        "falling back to all sequences in DB: %s",
+                        run_id,
+                        _scope_err,
+                    )
             if not scoped:
                 df_db = datastore.get_all_sequences()
                 sequences = df_db["sequence"].dropna().tolist() if not df_db.empty else []

@@ -276,6 +276,13 @@ class EmbeddingSpec:
             return []
         val = result.get(self.key)
         if val is None:
+            # B15 fix: warn on wrong key so misconfigured EmbeddingSpec surfaces immediately
+            logger.warning(
+                "EmbeddingSpec: key %r not found in API response — "
+                "embedding will not be stored. Available keys: %s",
+                self.key,
+                list(result.keys()) if isinstance(result, dict) else type(result),
+            )
             return []
 
         # Case 1: flat list of floats or a nested numeric array
@@ -690,6 +697,17 @@ class PredictionStage(Stage):
                         # Collect into batch_data and flush once (not per-row add_prediction).
                         batch_data = []
                         batch_emb_data = []
+                        # B11 fix: warn on length mismatch; trailing unmatched rows in
+                        # out_df remain with NaN prediction values (already correct since
+                        # out_df = pending_batch_df.copy() contains all rows).
+                        if len(results) != len(pending_batch_df):
+                            logger.warning(
+                                "process_streaming: API returned %d results for %d items "
+                                "in batch — %d rows will be yielded with NaN predictions",
+                                len(results),
+                                len(pending_batch_df),
+                                len(pending_batch_df) - len(results),
+                            )
                         for (_, row), result in zip(pending_batch_df.iterrows(), results):
                             seq_id = int(row["sequence_id"])
                             idx = row.name
@@ -923,6 +941,16 @@ class PredictionStage(Stage):
         spec = self._structure_output
         val = result.get(spec.key)
         if val is None:
+            # B14 fix: warn instead of silently returning so misconfigured keys are visible
+            logger.warning(
+                "_store_structure: key %r not found in API response for sequence_id %s "
+                "(model=%s) — no structure stored; check structure_key configuration. "
+                "Available keys: %s",
+                spec.key,
+                seq_id,
+                self.model_name,
+                list(result.keys()) if isinstance(result, dict) else type(result),
+            )
             return
         # Handle list-valued keys (e.g. AF2 "pdbs")
         if isinstance(val, list):
@@ -1147,6 +1175,13 @@ class PredictionStage(Stage):
 
                     batch_data = []
                     batch_emb_data = []
+                    # B10 fix: guard against positional drift from length-mismatched responses;
+                    # raising here routes through the existing except block which writes NULLs.
+                    if len(results) != len(batch_seq_ids):
+                        raise ValueError(
+                            f"API returned {len(results)} results for {len(batch_seq_ids)} items — "
+                            "length mismatch; treating batch as failed to prevent positional drift"
+                        )
                     for seq_id, result in zip(batch_seq_ids, results):
                         if (
                             isinstance(result, dict)
@@ -2115,18 +2150,22 @@ class CofoldingPredictionStage(Stage):
         """Run co-folding prediction for each sequence in *df*."""
         start_count = len(df)
         computed = 0
-        df = df.copy()
+        # B4 fix: save full input so cached sequences are included in the returned frame.
+        # df is filtered to uncached-only for the API loop; full_df is returned with
+        # predictions merged back from DuckDB at the end (matching PredictionStage pattern).
+        full_df = df.copy()
+        df = full_df.copy()  # working copy — may be filtered to uncached subset below
 
         # skip already-cached sequences to avoid redundant API calls.
-        if "sequence_id" in df.columns:
-            all_input_ids = df["sequence_id"].tolist()
+        if "sequence_id" in full_df.columns:
+            all_input_ids = full_df["sequence_id"].tolist()
             cached_ids = set(
                 datastore.get_uncached_sequence_ids(all_input_ids, self.prediction_type, self.model_name)
             )
             # get_uncached_sequence_ids returns IDs that are NOT cached — invert to get cached
             cached_set = set(all_input_ids) - cached_ids
             if cached_set:
-                df = df[~df["sequence_id"].isin(cached_set)].copy()
+                df = full_df[~full_df["sequence_id"].isin(cached_set)].copy()
                 if kwargs.get("verbose", True):
                     print(f"  CofoldingStage '{self.name}': {len(cached_set)} sequences already cached, skipping.")
 
@@ -2149,6 +2188,13 @@ class CofoldingPredictionStage(Stage):
                 results = await getattr(api, self.action)(
                     items=items, params=self.params
                 )
+
+                # B12 fix: guard against positional drift from length-mismatched responses
+                if len(results) != len(batch):
+                    raise ValueError(
+                        f"CofoldingPredictionStage.process(): API returned {len(results)} results "
+                        f"for {len(batch)} items — length mismatch; treating batch as failed"
+                    )
 
                 for _j, (result, (idx, row)) in enumerate(
                     zip(results, batch.iterrows())
@@ -2187,10 +2233,23 @@ class CofoldingPredictionStage(Stage):
             if api is not None:
                 await api.shutdown()
 
-        return df, StageResult(
+        # B4 fix: merge predictions back into full_df for all sequence_ids (cached + new).
+        # Mirrors the PredictionStage.process() merge-back pattern.
+        if "sequence_id" in full_df.columns:
+            all_seq_ids = full_df["sequence_id"].tolist()
+            pred_df = datastore.get_predictions_bulk(
+                all_seq_ids, self.prediction_type, self.model_name
+            )
+            if not pred_df.empty:
+                val_map = dict(zip(pred_df["sequence_id"], pred_df["value"]))
+                full_df[self.prediction_type] = full_df["sequence_id"].map(val_map)
+            else:
+                full_df[self.prediction_type] = None
+
+        return full_df, StageResult(
             stage_name=self.name,
             input_count=start_count,
-            output_count=len(df),
+            output_count=len(full_df),
             computed_count=computed,
         )
 
@@ -2241,6 +2300,13 @@ class CofoldingPredictionStage(Stage):
                 results = await getattr(api, self.action)(
                     items=items, params=self.params
                 )
+
+                # B13 fix: guard against positional drift from length-mismatched responses
+                if len(results) != len(chunk):
+                    raise ValueError(
+                        f"CofoldingPredictionStage.process_ws(): API returned {len(results)} results "
+                        f"for {len(chunk)} items — length mismatch; treating batch as failed"
+                    )
 
                 for (seq_id, _seq), result in zip(chunk, results):
                     if not isinstance(result, dict):
