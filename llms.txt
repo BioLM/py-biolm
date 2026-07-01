@@ -1,0 +1,280 @@
+# BioLM Python SDK — LLM Reference
+
+## Package Overview
+
+`biolmai` is an async-first Python SDK for the BioLM API (`api.biolm.ai`),
+which provides access to protein and DNA language models — ESM2, ESMFold,
+ProteinMPNN, DSM, AntiFold, ThermoMPNN-D, Boltz-2, and others — for sequence
+encoding, structure prediction, stability scoring, and sequence generation.
+The SDK ships both a lightweight one-call interface (`biolm()`) and a full
+multi-stage pipeline framework with DuckDB caching, resumability, and
+dependency-aware stage scheduling.
+
+
+## Installation
+
+```
+pip install biolmai
+```
+
+Authentication: set `BIOLMAI_TOKEN` to your API token from
+https://biolm.ai/ui/accounts/user-api-tokens/
+
+
+## Quick API Client Usage
+
+```python
+import biolmai
+
+# One-off call (sync)
+result = biolmai.biolm(
+    entity="esm2-8m",
+    action="encode",
+    type="sequence",
+    items="MSILVTRPSPAGEEL",
+)
+
+# Native async client (use inside pipeline stages or async scripts)
+from biolmai.client import BioLMApiClient
+
+async def main():
+    api = BioLMApiClient("esmfold")
+    result = await api.predict(items=[{"sequence": "MKTAYIAKQRQ"}])
+    await api.shutdown()
+```
+
+
+## Pipeline Design Primitives
+
+The `biolmai.pipeline` module provides a class hierarchy of config objects
+that describe how sequences are generated or scored in a `GenerativePipeline`.
+
+
+### Base classes
+
+```python
+from biolmai.pipeline.generative import ScoringProtocolConfig, GenerativeProtocolConfig
+```
+
+**`ScoringProtocolConfig`**
+  Marker base for stages that enumerate a variant library internally (e.g. all
+  single-point mutants) and score each variant with a prediction model.
+  Output is a ranked subset — no wholly new sequences are created.
+  Branch on: `isinstance(config, ScoringProtocolConfig)`.
+
+**`GenerativeProtocolConfig`**
+  Marker base for stages that produce new sequences via autoregressive sampling
+  (ProteinMPNN, DSM, AntiFold) or greedy-argmax MLM masking (ESM2, ESMC).
+  These are *source* stages — they expand the candidate pool.
+  Branch on: `isinstance(config, GenerativeProtocolConfig)`.
+
+
+### SaturationMutagenesisConfig
+
+Subclass of `ScoringProtocolConfig`.
+Enumerates every single amino-acid substitution at the specified positions,
+scores each variant with a prediction model, and returns the top-N ranked by
+the chosen score field.
+
+```python
+from biolmai.pipeline import SaturationMutagenesisConfig
+
+SaturationMutagenesisConfig(
+    parent_sequence: str,          # Wild-type amino-acid sequence
+    scoring_model: str,            # BioLM model slug, e.g. 'thermompnn-d', 'esm2stabp'
+    positions: list[int] | None,   # 0-indexed positions to enumerate; None = all
+    alphabet: str,                 # AAs to substitute (default: 20 canonical)
+    scoring_action: str,           # 'predict' or 'score' (default: 'predict')
+    scoring_params: dict,          # Extra params forwarded to the scoring API
+    score_field: str,              # Key in API response holding the score (default: 'ddg')
+                                   # Supports dotted access, e.g. 'result.ddg'
+    top_n: int | None,             # Variants to retain (default: 50; None = all)
+    ascending: bool,               # True = lower score is better (default: True)
+    exclude_synonymous: bool,      # Skip WT substitutions (default: True)
+    batch_size: int,               # Sequences per API request (default: 8)
+    label: str | None,             # Stored as source_label in results
+    pdb_str: str | None,           # Raw PDB string for structure-aware models (ThermoMPNN-D)
+    chain: str,                    # Chain ID forwarded in structure-aware items (default: 'A')
+)
+```
+
+Example:
+```python
+config = SaturationMutagenesisConfig(
+    parent_sequence="MKTAYIAKQRQ",
+    scoring_model="thermompnn-d",
+    positions=[3, 7, 10],
+    score_field="ddg",
+    top_n=25,
+    ascending=True,
+    pdb_str=open("protein.pdb").read(),
+)
+```
+
+
+### IterativeMaskingDMSConfig
+
+Subclass of `GenerativeProtocolConfig`.
+Implements a greedy-argmax masking procedure (two rounds by default) using a
+masked language model (e.g. ESM2, ESMC) to build multi-point variants:
+
+- Round 1: for each target position, mask it and collect the argmax residue.
+- Round 2: apply the round-1 substitution, then mask each other target position
+  in that variant and collect the round-2 argmax. Output is all unique 2-point
+  combination variants.
+
+```python
+from biolmai.pipeline import IterativeMaskingDMSConfig
+
+IterativeMaskingDMSConfig(
+    parent_sequence: str,          # Starting sequence
+    model_name: str,               # MLM slug, e.g. 'esm2-650m', 'esmc-300m'
+    positions: list[int] | None,   # 0-indexed positions to probe; None = all
+    rounds: int,                   # Masking rounds: 1 (single-point) or 2 (default)
+    mask_token: str,               # Token inserted at masked positions (default: '<mask>')
+    alphabet: str,                 # Canonical AAs (default: 20 canonical)
+    exclude_synonymous: bool,      # Skip round-1 variants matching WT (default: True)
+    batch_size: int,               # Sequences per API request (default: 32)
+    label: str | None,             # Stored as source_label in results
+    action: str,                   # API action — must be 'predict' (logits required)
+)
+```
+
+Example:
+```python
+config = IterativeMaskingDMSConfig(
+    parent_sequence="MKTAYIAKQRQ",
+    model_name="esm2-650m",
+    positions=[2, 5, 8],
+    rounds=2,
+)
+```
+
+Output DataFrame columns: `sequence, dms_round, dms_pos1, dms_aa1, dms_pos2, dms_aa2`
+
+
+### DirectGenerationConfig
+
+Subclass of `GenerativeProtocolConfig`.
+Calls inherently generative models — ProteinMPNN, DSM, AntiFold, HyperMPNN,
+LigandMPNN, SolubleMPNN — to produce new sequences. The caller is responsible
+for providing the correct `item_field` and `params` for the target model.
+
+```python
+from biolmai.pipeline import DirectGenerationConfig
+
+DirectGenerationConfig(
+    model_name: str,               # BioLM model slug (e.g. 'protein-mpnn', 'dsm-150m-base')
+    structure_path: str | None,    # Path to PDB or CIF file
+    structure_column: str | None,  # DataFrame column holding PDB strings (upstream pipeline)
+    sequence: str | None,          # Parent sequence for sequence-conditioned models (DSM)
+    item_field: str,               # API item key: 'pdb' for MPNN/AntiFold, 'sequence' for DSM
+    params: dict,                  # Model-specific params dict (see model API schema)
+    num_sequences: int,            # Fallback when params is empty (default: 100)
+    temperature: float,            # Fallback when params is empty (default: 1.0)
+    structure_from_stage: str | None,  # Read structures from an upstream stage
+    structure_from_model: str | None,  # Filter structures by upstream model name
+    n_runs: int,                   # Run generation n_runs times in parallel (default: 1)
+    label: str | None,             # Stored as source_label in results
+)
+```
+
+Key `params` keys by model:
+
+| Model             | item_field   | Key params                                          |
+|-------------------|--------------|-----------------------------------------------------|
+| protein-mpnn      | `'pdb'`      | `num_sequences`, `temperature`                      |
+| antifold          | `'pdb'`      | `heavy_chain`, `light_chain`, `num_seq_per_target`  |
+| dsm-150m-base     | `'sequence'` | `num_sequences`, `temperature`, `remasking`         |
+
+Example:
+```python
+# ProteinMPNN from a PDB file
+cfg = DirectGenerationConfig(
+    model_name="protein-mpnn",
+    structure_path="/path/to/protein.pdb",
+    item_field="pdb",
+    params={"num_sequences": 50, "temperature": 0.1},
+)
+
+# DSM from a parent sequence
+cfg = DirectGenerationConfig(
+    model_name="dsm-150m-base",
+    sequence="MKTAYIAKQRQ",
+    item_field="sequence",
+    params={"num_sequences": 100, "temperature": 1.0, "remasking": "low_confidence"},
+)
+```
+
+
+## Pipeline Execution Pattern
+
+```python
+import asyncio
+from biolmai.pipeline import (
+    GenerativePipeline,
+    DirectGenerationConfig,
+    SaturationMutagenesisConfig,
+    IterativeMaskingDMSConfig,
+)
+from biolmai.pipeline.filters import ThresholdFilter
+
+# Build pipeline with one or more configs
+pipeline = GenerativePipeline(
+    configs=[
+        DirectGenerationConfig(
+            "protein-mpnn",
+            structure_path="protein.pdb",
+            item_field="pdb",
+            params={"num_sequences": 200, "temperature": 0.1},
+        ),
+    ]
+)
+
+# Chain prediction and filter stages
+pipeline.add_prediction("esmfold", extractions="mean_plddt", columns="plddt")
+pipeline.add_filter(ThresholdFilter("plddt", min_value=70.0))
+
+# Run synchronously
+results = pipeline.run()
+
+# Or run async
+results = asyncio.run(pipeline.run_async())
+
+# Get results as DataFrame
+df = pipeline.get_final_data()
+```
+
+The `configs=` shorthand is equivalent to `generation_configs=`. Filters can
+also be passed at construction: `GenerativePipeline(configs=[...], filters=ThresholdFilter(...))`.
+
+
+## Serialization: to_spec() / from_db()
+
+Every config class implements `to_spec()` which returns a JSON-serializable
+dict. These are stored in the pipeline's DuckDB database alongside execution
+metadata, enabling exact reconstruction after kernel death.
+
+```python
+# Serialize
+spec = config.to_spec()
+# → {"type": "SaturationMutagenesisConfig", "parent_sequence": "...", ...}
+
+# Reconstruct a pipeline from a stored DB
+pipeline = GenerativePipeline.from_db("pipeline.duckdb", resume=True)
+pipeline.run(resume=True)  # only re-runs incomplete stages; uses cached predictions
+```
+
+Internally, `from_db()` calls `pipeline_from_definition()` in
+`biolmai/pipeline/pipeline_def.py`, which walks the stored `stages_json` and
+calls `_config_from_spec()` for each config entry and `stage_from_spec()` for
+each stage. Large strings (e.g. PDB file contents) are externalized to a
+`pipeline_blobs` table and resolved on load.
+
+
+## ProtocolRun Results
+
+For server-side protocol runs submitted via the BioLM protocol API, results
+can be downloaded as a pandas DataFrame or materialized into a local DuckDB
+database for further analysis. See `biolmai.protocols` and the `ProtocolRun`
+result object for the `.to_duckdb()` convenience method.
