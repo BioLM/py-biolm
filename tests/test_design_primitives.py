@@ -851,6 +851,76 @@ class TestIterativeMaskingDMSConfigDispatch:
         # 3 positions → 3 single-mutant sequences
         assert result.output_count == 3
 
+    def test_short_api_response_round1_padded_not_truncated(self, tmp_ds):
+        """Round-1: if API returns N-1 items for a batch of N, the missing result is
+        padded with an empty dict (→ argmax returns None → position is skipped),
+        not zip-truncated (which would silently shift position-to-result alignment)."""
+        parent = "MKTAY"
+        positions = [0, 1, 2, 3, 4]
+        # API returns only 4 items for the 5-position batch — one is missing
+        short_response = [
+            {"logits": make_logits(5, {0: "A"}), "vocab_tokens": list(ALPHABET)},
+            {"logits": make_logits(5, {1: "L"}), "vocab_tokens": list(ALPHABET)},
+            {"logits": make_logits(5, {2: "G"}), "vocab_tokens": list(ALPHABET)},
+            {"logits": make_logits(5, {3: "V"}), "vocab_tokens": list(ALPHABET)},
+            # position 4 missing
+        ]
+        instance = AsyncMock()
+        instance.predict = AsyncMock(return_value=short_response)
+        instance.shutdown = AsyncMock()
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence=parent, model_name="esm2-650m",
+            positions=positions, rounds=1, batch_size=100,
+        )
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            ws_out, result = asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+        # 4 real results → 4 variants; position 4 dropped (padded {} → argmax None → skipped)
+        assert result.output_count == 4
+
+    def test_short_api_response_round2_padded_not_truncated(self, tmp_ds):
+        """Round-2: if API returns N-1 items for a batch of N, missing result is
+        padded not zip-truncated, so no position-to-result misalignment occurs."""
+        parent = "MKT"
+        positions = [0, 1]
+        vocab = list(ALPHABET)
+        # Round-1: positions 0→A, 1→L
+        r1_resp = [
+            {"logits": make_logits(3, {0: "A"}), "vocab_tokens": vocab},
+            {"logits": make_logits(3, {1: "L"}), "vocab_tokens": vocab},
+        ]
+        # Round-2: 2 r2 items (A at 0, mask pos 1) and (L at 1, mask pos 0)
+        # API returns only 1 result — second is missing
+        r2_resp = [
+            {"logits": make_logits(3, {1: "G"}), "vocab_tokens": vocab},
+            # second item missing
+        ]
+        call_count = 0
+
+        async def side_effect(items, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return r1_resp if call_count == 1 else r2_resp
+
+        instance = AsyncMock()
+        instance.predict = side_effect
+        instance.shutdown = AsyncMock()
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence=parent, model_name="esm2-650m",
+            positions=positions, rounds=2, batch_size=100,
+        )
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            ws_out, result = asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+        # Only 1 round-2 result returned → at most 1 unique variant; no crash or misalignment
+        assert result.output_count <= 1
+
 
 # ---------------------------------------------------------------------------
 # GenerativePipeline constructor shorthands
@@ -1193,3 +1263,45 @@ class TestPipelineDefRoundtrip:
 
         with pytest.raises(ValueError, match="Unknown generation config type"):
             _config_from_spec({"type": "NonExistentConfig"})
+
+
+class TestBaseClassHierarchy:
+    """Verify ScoringProtocolConfig / GenerativeProtocolConfig marker inheritance."""
+
+    def test_saturation_mutagenesis_is_scoring(self):
+        from biolmai.pipeline import SaturationMutagenesisConfig, ScoringProtocolConfig
+        cfg = SaturationMutagenesisConfig(parent_sequence="MKTAY", scoring_model="esm2stabp")
+        assert isinstance(cfg, ScoringProtocolConfig)
+
+    def test_iterative_masking_is_generative(self):
+        from biolmai.pipeline import IterativeMaskingDMSConfig, GenerativeProtocolConfig
+        cfg = IterativeMaskingDMSConfig(parent_sequence="MKTAY", model_name="esm2-650m")
+        assert isinstance(cfg, GenerativeProtocolConfig)
+
+    def test_direct_generation_is_generative(self):
+        from biolmai.pipeline import DirectGenerationConfig, GenerativeProtocolConfig
+        cfg = DirectGenerationConfig(model_name="protein-mpnn")
+        assert isinstance(cfg, GenerativeProtocolConfig)
+
+    def test_saturation_mutagenesis_rejects_generate_action(self):
+        """'generate' was previously allowed by the old shared _ALLOWED_API_ACTIONS; must now be rejected."""
+        from biolmai.pipeline import SaturationMutagenesisConfig
+        with pytest.raises(ValueError, match="scoring_action must be one of"):
+            SaturationMutagenesisConfig(
+                parent_sequence="MKTAY", scoring_model="esm2stabp", scoring_action="generate"
+            )
+
+    def test_iterative_masking_rejects_generate_action(self):
+        """'generate' was previously allowed by the old shared _ALLOWED_API_ACTIONS; must now be rejected."""
+        from biolmai.pipeline import IterativeMaskingDMSConfig
+        with pytest.raises(ValueError, match="action must be one of"):
+            IterativeMaskingDMSConfig(
+                parent_sequence="MKTAY", model_name="esm2-650m", action="generate"
+            )
+
+    def test_iterative_masking_rejects_encode_action(self):
+        from biolmai.pipeline import IterativeMaskingDMSConfig
+        with pytest.raises(ValueError, match="action must be one of"):
+            IterativeMaskingDMSConfig(
+                parent_sequence="MKTAY", model_name="esm2-650m", action="encode"
+            )

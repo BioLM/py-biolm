@@ -1329,6 +1329,14 @@ class GenerationStage(Stage):
                     raw = [raw]
                 elif isinstance(raw, list) and raw and isinstance(raw[0], list):
                     raw = [r[0] if r else {} for r in raw]
+                # Pad to batch length if API returned fewer results than sent
+                if len(raw) < len(batch):
+                    logger.warning(
+                        "IterativeMaskingDMS round-1 batch %d: API returned %d results for %d items; "
+                        "padding missing results with empty dicts",
+                        i // config.batch_size, len(raw), len(batch),
+                    )
+                    raw = raw + [{}] * (len(batch) - len(raw))
                 results_r1.extend(raw)
 
             for pos, result in zip(positions, results_r1):
@@ -1383,6 +1391,14 @@ class GenerationStage(Stage):
                     raw = [raw]
                 elif isinstance(raw, list) and raw and isinstance(raw[0], list):
                     raw = [r[0] if r else {} for r in raw]
+                # Pad to batch length if API returned fewer results than sent
+                if len(raw) < len(batch):
+                    logger.warning(
+                        "IterativeMaskingDMS round-2 batch %d: API returned %d results for %d items; "
+                        "padding missing results with empty dicts",
+                        i // config.batch_size, len(raw), len(batch),
+                    )
+                    raw = raw + [{}] * (len(batch) - len(raw))
                 r2_results.extend(raw)
 
             seen: set[str] = set()
