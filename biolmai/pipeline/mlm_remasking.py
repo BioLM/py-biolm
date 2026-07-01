@@ -355,16 +355,22 @@ class MLMRemasker:
             vocab_tokens = pred_result.get("vocab_tokens")
 
             if logits is not None:
-                # Fallback vocab for ESMC-style responses that return logits without
-                # sequence_tokens / vocab_tokens (20-dim logits, ACDEFGHIKLMNPQRSTVWY order)
                 if seq_tokens is None:
-                    seq_tokens = list(sequence)
-                if vocab_tokens is None and len(logits) > 0 and len(logits[0]) == 20:
-                    vocab_tokens = list("ACDEFGHIKLMNPQRSTVWY")
-                if seq_tokens is not None and vocab_tokens is not None:
-                    return self._decode_logits(
-                        sequence, mask_positions, logits, seq_tokens, vocab_tokens
+                    raise ValueError(
+                        "API response returned 'logits' but is missing 'sequence_tokens'. "
+                        "Cannot decode logits without knowing the token-to-position mapping. "
+                        f"Got keys: {list(pred_result.keys())}"
                     )
+                if vocab_tokens is None:
+                    raise ValueError(
+                        "API response returned 'logits' but is missing 'vocab_tokens'. "
+                        "Cannot decode logits without knowing the vocabulary ordering — "
+                        "vocab column order differs between models (e.g. ESM2 vs ESMC). "
+                        f"Got keys: {list(pred_result.keys())}"
+                    )
+                return self._decode_logits(
+                    sequence, mask_positions, logits, seq_tokens, vocab_tokens
+                )
 
             raise ValueError(
                 f"API result missing both 'logits' and 'sequence'. "
