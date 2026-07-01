@@ -78,8 +78,10 @@ from biolmai.pipeline.generative import (
     DirectGenerationConfig,
     FoldingEntity,
     GenerativePipeline,
+    GenerativeProtocolConfig,
     IterativeMaskingDMSConfig,
     SaturationMutagenesisConfig,
+    ScoringProtocolConfig,
     SequenceSourceConfig,
 )
 from biolmai.pipeline.mlm_remasking import (
@@ -112,6 +114,8 @@ __all__ = [
     "PipelineContext",
     "PipelineMetadata",
     "GenerativePipeline",
+    "ScoringProtocolConfig",
+    "GenerativeProtocolConfig",
     "DirectGenerationConfig",
     "SequenceSourceConfig",
     "FoldingEntity",

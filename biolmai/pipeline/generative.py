@@ -24,12 +24,10 @@ logger = logging.getLogger(__name__)
 # Module-level counter for unique temporary DuckDB table names
 _GENERATIVE_TEMP_COUNTER = _itertools.count()
 
-# Allowlist of legal BioLM API action names.  Used to guard getattr() dispatch
-# in SaturationMutagenesisConfig and IterativeMaskingDMSConfig so that
+# Allowlists for getattr() dispatch — tightly scoped per config type so that
 # user-supplied action strings cannot resolve to arbitrary BioLMApiClient attrs.
-_ALLOWED_API_ACTIONS: frozenset = frozenset(
-    {"predict", "encode", "generate", "search", "score"}
-)
+_ALLOWED_SCORING_ACTIONS: frozenset = frozenset({"predict", "score"})
+_ALLOWED_MLM_ACTIONS: frozenset = frozenset({"predict"})  # IterativeMaskingDMS needs logits
 
 # Reserved column names that must not be used as a score_field key, because they
 # would silently overwrite core sequence/provenance data in the output row dict.
@@ -53,8 +51,33 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 from biolmai.pipeline.mlm_remasking import MLMRemasker, RemaskingConfig
 
 
+class ScoringProtocolConfig:
+    """Marker base class for protocol stages that score sequences and rank them.
+
+    Subclasses call a prediction model to assign numeric scores to candidate
+    sequences, then filter or rank by those scores.  The ``scoring_action``
+    field must be one of :data:`_ALLOWED_SCORING_ACTIONS` (``predict`` or
+    ``score``).
+
+    Use :func:`isinstance(config, ScoringProtocolConfig)` to branch on config
+    type in pipeline runners.
+    """
+
+
+class GenerativeProtocolConfig:
+    """Marker base class for protocol stages that produce new sequences.
+
+    Subclasses drive generative or masked-language models to emit novel
+    sequences — either by autoregressive sampling (ProteinMPNN, DSM) or by
+    greedy-argmax masking over an MLM (ESM2, ESMC).
+
+    Use :func:`isinstance(config, GenerativeProtocolConfig)` to branch on
+    config type in pipeline runners.
+    """
+
+
 @dataclass
-class DirectGenerationConfig:
+class DirectGenerationConfig(GenerativeProtocolConfig):
     """
     Configuration for structure- or sequence-conditioned generation.
 
@@ -204,7 +227,7 @@ class SequenceSourceConfig:
 
 
 @dataclass(frozen=True)
-class SaturationMutagenesisConfig:
+class SaturationMutagenesisConfig(ScoringProtocolConfig):
     """Source config that generates a single-mutant library and filters by a prediction model.
 
     Enumerates every single amino-acid substitution at the specified positions,
@@ -260,10 +283,10 @@ class SaturationMutagenesisConfig:
 
     def __post_init__(self):
         import re as _re
-        if self.scoring_action not in _ALLOWED_API_ACTIONS:
+        if self.scoring_action not in _ALLOWED_SCORING_ACTIONS:
             raise ValueError(
                 f"SaturationMutagenesisConfig.scoring_action must be one of "
-                f"{sorted(_ALLOWED_API_ACTIONS)}, got {self.scoring_action!r}"
+                f"{sorted(_ALLOWED_SCORING_ACTIONS)}, got {self.scoring_action!r}"
             )
         _score_field_pattern = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*){0,2}$")
         if not _score_field_pattern.match(self.score_field):
@@ -309,7 +332,7 @@ class SaturationMutagenesisConfig:
 
 
 @dataclass(frozen=True)
-class IterativeMaskingDMSConfig:
+class IterativeMaskingDMSConfig(GenerativeProtocolConfig):
     """Source config that builds multi-point variants via sequential greedy masking.
 
     Implements an iterative argmax masking procedure using a masked language model:
@@ -352,10 +375,10 @@ class IterativeMaskingDMSConfig:
     action: str = "predict"
 
     def __post_init__(self):
-        if self.action not in _ALLOWED_API_ACTIONS:
+        if self.action not in _ALLOWED_MLM_ACTIONS:
             raise ValueError(
                 f"IterativeMaskingDMSConfig.action must be one of "
-                f"{sorted(_ALLOWED_API_ACTIONS)}, got {self.action!r}"
+                f"{sorted(_ALLOWED_MLM_ACTIONS)}, got {self.action!r}"
             )
         if self.rounds < 1:
             raise ValueError(f"IterativeMaskingDMSConfig.rounds must be >= 1, got {self.rounds}")
