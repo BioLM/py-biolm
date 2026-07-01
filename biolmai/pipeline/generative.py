@@ -6,6 +6,9 @@ Supports:
 - Inherently generative models (ProteinMPNN, ProGen2, etc.)
 - Temperature and sampling parameter scanning
 - Multi-model generation in parallel
+- DMS-style scanning: SaturationMutagenesisConfig (single-mutant library + scoring)
+  and IterativeMaskingDMSConfig (greedy MLM argmax 2-point DMS)
+- Structured config hierarchy: ScoringProtocolConfig / GenerativeProtocolConfig base classes
 """
 
 from __future__ import annotations
@@ -1224,8 +1227,16 @@ class GenerationStage(Stage):
                             batch_scores.append(float(val) if val is not None else None)
                         except (TypeError, ValueError):
                             batch_scores.append(None)
-                    # Pad to batch length if API returned fewer results than sent
-                    if len(batch_scores) < len(batch):
+                    # Cap to batch length if API returned MORE results than sent (avoids score-shift
+                    # that would misalign every subsequent batch).  Pad if fewer results than sent.
+                    if len(batch_scores) > len(batch):
+                        logger.warning(
+                            "SaturationMutagenesis batch %d: API returned %d results for %d items; "
+                            "truncating excess scores",
+                            i // config.batch_size, len(batch_scores), len(batch),
+                        )
+                        batch_scores = batch_scores[:len(batch)]
+                    elif len(batch_scores) < len(batch):
                         logger.warning(
                             "SaturationMutagenesis batch %d: API returned %d results for %d items; "
                             "padding missing scores with None",
