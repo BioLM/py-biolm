@@ -1258,6 +1258,99 @@ class TestPipelineDefRoundtrip:
         restored = _config_from_spec(cfg.to_spec())
         assert restored.label is None
 
+    def test_saturation_mutagenesis_all_nondefault_fields_roundtrip(self):
+        """Every non-default field must survive to_spec() → _config_from_spec()."""
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence="MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEKAVQVKVKALPDAQFEVVHSLAKWKRQTLGQHDFSAGEGLYTHMKALRPDEDRLSPLHSVYVDQWDWERVMGDGERQFSTLKSTVEAIWAGIKATEAAVSEEFGLAPFLPDQIHFVHSQELLSRYPDLDAKGRERAIAKDLGAVFLVGIGGKLSDGHRHDVRAPDYDDWSTPSELGHAGLNGDILVWNPFANSIHSTATAMQKFLALSGEENVQLYNIGGGVLALSNRHLRSQAGLNLALIQREAEIRDLAEVSYQSRLDRLDALRVKLRRQIVDWENAQIKRGLNAFGLALGGAGLSAVGLSMSGSGSGM",
+            scoring_model="thermompnn-d",
+            positions=[1, 5, 10],
+            alphabet="ACDEFGHIKLM",
+            scoring_action="score",
+            scoring_params={"chain": "A", "extra_flag": True},
+            score_field="result.ddg",
+            top_n=25,
+            ascending=False,
+            exclude_synonymous=False,
+            batch_size=16,
+            label="thermo-nondefault",
+            pdb_str="ATOM  1  CA  ALA A   1       1.0   2.0   3.0  1.00  0.00",
+            chain="B",
+        )
+        restored = _config_from_spec(cfg.to_spec())
+        assert isinstance(restored, SaturationMutagenesisConfig)
+        assert restored.alphabet == cfg.alphabet
+        assert restored.scoring_action == cfg.scoring_action
+        assert restored.scoring_params == cfg.scoring_params
+        assert restored.score_field == cfg.score_field
+        assert restored.top_n == cfg.top_n
+        assert restored.ascending == cfg.ascending
+        assert restored.exclude_synonymous == cfg.exclude_synonymous
+        assert restored.batch_size == cfg.batch_size
+        assert restored.pdb_str == cfg.pdb_str
+        assert restored.chain == cfg.chain
+        assert restored.label == cfg.label
+
+    def test_iterative_masking_dms_all_nondefault_fields_roundtrip(self):
+        """Every non-default field must survive to_spec() → _config_from_spec()."""
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence="MKTAYIAKQRQ",
+            model_name="esmc-300m",
+            positions=[0, 3, 7],
+            rounds=1,
+            mask_token="[MASK]",
+            alphabet="ACDEFGHIKLM",
+            exclude_synonymous=False,
+            batch_size=64,
+            label="dms-nondefault",
+            action="predict",
+        )
+        restored = _config_from_spec(cfg.to_spec())
+        assert isinstance(restored, IterativeMaskingDMSConfig)
+        assert restored.rounds == cfg.rounds
+        assert restored.mask_token == cfg.mask_token
+        assert restored.alphabet == cfg.alphabet
+        assert restored.exclude_synonymous == cfg.exclude_synonymous
+        assert restored.batch_size == cfg.batch_size
+        assert restored.label == cfg.label
+        assert restored.action == cfg.action
+
+    def test_direct_generation_config_all_nondefault_fields_roundtrip(self):
+        """Every non-default field must survive to_spec() → _config_from_spec()."""
+        from biolmai.pipeline.pipeline_def import _config_from_spec
+        from biolmai.pipeline import DirectGenerationConfig
+
+        cfg = DirectGenerationConfig(
+            model_name="dsm-150m-base",
+            structure_path="/tmp/test.pdb",
+            structure_column="pdb_col",
+            sequence="MKTAY",
+            item_field="sequence",
+            params={"num_sequences": 50, "temperature": 0.5, "remasking": "random"},
+            num_sequences=50,
+            temperature=0.5,
+            structure_from_stage="fold_stage",
+            structure_from_model="esmfold",
+            n_runs=3,
+            label="dsm-nondefault",
+        )
+        restored = _config_from_spec(cfg.to_spec())
+        assert isinstance(restored, DirectGenerationConfig)
+        assert restored.structure_path == cfg.structure_path
+        assert restored.structure_column == cfg.structure_column
+        assert restored.sequence == cfg.sequence
+        assert restored.item_field == cfg.item_field
+        assert restored.params == cfg.params
+        assert restored.num_sequences == cfg.num_sequences
+        assert restored.temperature == cfg.temperature
+        assert restored.structure_from_stage == cfg.structure_from_stage
+        assert restored.structure_from_model == cfg.structure_from_model
+        assert restored.n_runs == cfg.n_runs
+        assert restored.label == cfg.label
+
     def test_unknown_config_type_raises(self):
         from biolmai.pipeline.pipeline_def import _config_from_spec
 
