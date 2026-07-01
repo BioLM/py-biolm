@@ -980,6 +980,127 @@ class TestIterativeMaskingDMSConfigDispatch:
 
 
 # ---------------------------------------------------------------------------
+# Preflight validation — wrong API response fields caught immediately
+# ---------------------------------------------------------------------------
+
+
+class TestPreflightValidation:
+    """Verify that misconfigured field names raise immediately on the first batch
+    rather than silently producing empty or wrong results after a full run."""
+
+    PARENT = "MKTAY"
+
+    def _dispatch_sat(self, cfg, mock_instance, tmp_ds):
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(mock_instance)):
+            return asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+
+    def _dispatch_dms(self, cfg, mock_instance, tmp_ds):
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(mock_instance)):
+            return asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+
+    def test_wrong_score_field_raises_on_first_batch(self, tmp_ds):
+        """If score_field is misspelled, a ValueError naming the actual response keys
+        must be raised on the first batch — not silently after all batches return None."""
+        instance = AsyncMock()
+        # API returns 'ddg' but config asks for 'wrong_field'
+        instance.score = AsyncMock(
+            side_effect=lambda items, **kw: [{"ddg": -1.0} for _ in items]
+        )
+        instance.shutdown = AsyncMock()
+
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence=self.PARENT,
+            scoring_model="thermompnn-d",
+            scoring_action="score",
+            score_field="wrong_field",
+            positions=[0],
+        )
+        with pytest.raises(ValueError, match="wrong_field"):
+            self._dispatch_sat(cfg, instance, tmp_ds)
+
+    def test_wrong_score_field_error_includes_available_keys(self, tmp_ds):
+        """The ValueError message must name the keys actually present in the response."""
+        instance = AsyncMock()
+        instance.score = AsyncMock(
+            side_effect=lambda items, **kw: [{"ddg": -1.0, "plddt": 90.0} for _ in items]
+        )
+        instance.shutdown = AsyncMock()
+
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence=self.PARENT,
+            scoring_model="thermompnn-d",
+            scoring_action="score",
+            score_field="typo_score",
+            positions=[0],
+        )
+        with pytest.raises(ValueError, match="ddg"):
+            self._dispatch_sat(cfg, instance, tmp_ds)
+
+    def test_missing_vocab_tokens_raises_on_first_batch(self, tmp_ds):
+        """IterativeMaskingDMS must raise immediately if vocab_tokens absent from response."""
+        instance = AsyncMock()
+        # Return logits WITHOUT vocab_tokens
+        instance.predict = AsyncMock(
+            return_value=[{"logits": [[0.1] * 20] * len(self.PARENT)}]
+        )
+        instance.shutdown = AsyncMock()
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence=self.PARENT,
+            model_name="esm2-650m",
+            positions=[0],
+            rounds=1,
+        )
+        with pytest.raises(ValueError, match="vocab_tokens"):
+            self._dispatch_dms(cfg, instance, tmp_ds)
+
+    def test_valid_score_field_passes_preflight_and_runs(self, tmp_ds):
+        """Happy-path: correct score_field passes preflight and produces output."""
+        instance = AsyncMock()
+        instance.score = AsyncMock(
+            side_effect=lambda items, **kw: [{"ddg": -1.0} for _ in items]
+        )
+        instance.shutdown = AsyncMock()
+
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence=self.PARENT,
+            scoring_model="thermompnn-d",
+            scoring_action="score",
+            score_field="ddg",
+            positions=[0],
+        )
+        ws_out, result = self._dispatch_sat(cfg, instance, tmp_ds)
+        assert result.output_count > 0, "correct score_field should produce variants"
+
+    def test_valid_vocab_tokens_passes_preflight_and_runs(self, tmp_ds):
+        """Happy-path: correct vocab_tokens passes preflight and produces output."""
+        from tests.test_design_primitives import ALPHABET, make_logits
+        instance = AsyncMock()
+        instance.predict = AsyncMock(
+            return_value=[{
+                "logits": make_logits(len(self.PARENT), {0: "A"}),
+                "vocab_tokens": list(ALPHABET),
+            }]
+        )
+        instance.shutdown = AsyncMock()
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence=self.PARENT,
+            model_name="esm2-650m",
+            positions=[0],
+            rounds=1,
+        )
+        ws_out, result = self._dispatch_dms(cfg, instance, tmp_ds)
+        assert result.output_count > 0, "correct vocab_tokens should produce output"
+
+
+# ---------------------------------------------------------------------------
 # GenerativePipeline constructor shorthands
 # ---------------------------------------------------------------------------
 

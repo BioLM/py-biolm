@@ -1140,6 +1140,9 @@ class PredictionStage(Stage):
             batch_size = self.batch_size
             n_batches = (len(all_items) + batch_size - 1) // batch_size
             flight_semaphore = asyncio.Semaphore(self.max_concurrent)
+            # Mutable list: first successful API response is appended by _dispatch_batch
+            # and validated after asyncio.gather to catch misspelled extraction keys.
+            _preflight_capture: list = []
 
             async def _dispatch_batch(batch_idx, _items=all_items, _seq_ids=seq_ids):
                 start = batch_idx * batch_size
@@ -1172,6 +1175,17 @@ class PredictionStage(Stage):
                             raise ValueError(str(results))
                         if not isinstance(results, list):
                             results = [results]
+
+                    # Capture first valid dict response for post-gather key validation.
+                    # asyncio is single-threaded so the check+append is atomic.
+                    if (
+                        not _preflight_capture
+                        and results
+                        and isinstance(results[0], dict)
+                        and "error" not in results[0]
+                        and "status_code" not in results[0]
+                    ):
+                        _preflight_capture.append(results[0])
 
                     batch_data = []
                     batch_emb_data = []
@@ -1307,6 +1321,25 @@ class PredictionStage(Stage):
                         break
                 if _first_legacy_exc is not None:
                     raise _first_legacy_exc
+                # Post-gather preflight: validate extraction keys against first captured
+                # response.  Raises before the merge step so the caller sees a specific
+                # error instead of a DataFrame of NaN columns for every sequence.
+                if (
+                    self.action in ("predict", "score")
+                    and self._resolved
+                    and _preflight_capture
+                ):
+                    _pf_r = _preflight_capture[0]
+                    for _spec in self._resolved:
+                        if _spec.response_key not in _pf_r:
+                            raise ValueError(
+                                f"PredictionStage preflight: extraction key "
+                                f"{_spec.response_key!r} (column={_spec.column!r}) "
+                                f"not found in API response for model "
+                                f"{self.model_name!r}. "
+                                f"Available keys: {list(_pf_r.keys())}. "
+                                f"Full response sample: {_pf_r}"
+                            )
             except Exception as e:
                 print(f"  Error during prediction: {e}")
                 raise
@@ -1561,6 +1594,9 @@ class PredictionStage(Stage):
             batch_size = self.batch_size
             n_batches = (len(all_items) + batch_size - 1) // batch_size
             flight_semaphore = asyncio.Semaphore(self.max_concurrent)
+            # Mutable list: first successful API response captured by _dispatch_batch
+            # and validated post-gather to detect misspelled extraction keys.
+            _preflight_capture: list = []
 
             try:
                 from tqdm.auto import tqdm as _tqdm_cls
@@ -1608,6 +1644,16 @@ class PredictionStage(Stage):
                             raise ValueError(str(results))
                         if not isinstance(results, list):
                             results = [results]
+
+                    # Capture first valid dict response for post-gather key validation.
+                    if (
+                        not _preflight_capture
+                        and results
+                        and isinstance(results[0], dict)
+                        and "error" not in results[0]
+                        and "status_code" not in results[0]
+                    ):
+                        _preflight_capture.append(results[0])
 
                     # Alignment check — warn if API returned fewer results than items sent.
                     # Bug C fix: use logger.warning with the count of sequences that will retry.
@@ -1772,6 +1818,25 @@ class PredictionStage(Stage):
                             break
                 if first_exc is not None:
                     raise first_exc
+                # Post-gather preflight: validate extraction keys against the first
+                # captured response.  Raises before WorkingSet construction so callers
+                # see a specific error instead of an empty output set.
+                if (
+                    self.action in ("predict", "score")
+                    and self._resolved
+                    and _preflight_capture
+                ):
+                    _pf_r = _preflight_capture[0]
+                    for _spec in self._resolved:
+                        if _spec.response_key not in _pf_r:
+                            raise ValueError(
+                                f"PredictionStage preflight: extraction key "
+                                f"{_spec.response_key!r} (column={_spec.column!r}) "
+                                f"not found in API response for model "
+                                f"{self.model_name!r}. "
+                                f"Available keys: {list(_pf_r.keys())}. "
+                                f"Full response sample: {_pf_r}"
+                            )
                 computed = len(uncached_ids)
                 if verbose:
                     print(

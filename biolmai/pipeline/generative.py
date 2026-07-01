@@ -1340,6 +1340,7 @@ class GenerationStage(Stage):
         try:
             action_fn = getattr(api, config.scoring_action)
             _score_field_validated = False
+            _preflight_sample: Optional[dict] = None  # first response, captured for validation
             for i in range(0, len(items), config.batch_size):
                 batch = items[i:i + config.batch_size]
                 try:
@@ -1347,17 +1348,8 @@ class GenerationStage(Stage):
                     # Normalize to list
                     if isinstance(raw, dict):
                         raw = [raw]
-                    # Preflight on first batch: validate score_field exists before processing all items
                     if not _score_field_validated and raw and isinstance(raw[0], dict):
-                        _probe_val = self._get_nested(raw[0], config.score_field)
-                        if _probe_val is None:
-                            raise ValueError(
-                                f"SaturationMutagenesisConfig: score_field {config.score_field!r} not found "
-                                f"in API response for model {config.scoring_model!r}. "
-                                f"Available top-level keys: {list(raw[0].keys())}. "
-                                f"Full response sample: {raw[0]}"
-                            )
-                        _score_field_validated = True
+                        _preflight_sample = raw[0]  # captured; validated OUTSIDE this try block
                     if len(raw) != len(batch):
                         raise ValueError(
                             f"SaturationMutagenesis batch {i // config.batch_size}: "
@@ -1377,6 +1369,18 @@ class GenerationStage(Stage):
                 except Exception as e:
                     logger.warning("SaturationMutagenesis scoring batch %d failed: %s", i // config.batch_size, e)
                     scores.extend([None] * len(batch))
+                # Preflight validation OUTSIDE per-batch except — propagates to caller.
+                # Runs once on the first successful response only.
+                if not _score_field_validated and _preflight_sample is not None:
+                    _probe_val = self._get_nested(_preflight_sample, config.score_field)
+                    if _probe_val is None:
+                        raise ValueError(
+                            f"SaturationMutagenesisConfig: score_field {config.score_field!r} not found "
+                            f"in API response for model {config.scoring_model!r}. "
+                            f"Available top-level keys: {list(_preflight_sample.keys())}. "
+                            f"Full response sample: {_preflight_sample}"
+                        )
+                    _score_field_validated = True
         finally:
             await api.shutdown()
 
@@ -1470,6 +1474,7 @@ class GenerationStage(Stage):
 
             results_r1: list[Any] = []
             _logit_format_validated = False
+            _logit_preflight_sample: Optional[dict] = None
             for i in range(0, len(items_r1), config.batch_size):
                 batch = items_r1[i:i + config.batch_size]
                 try:
@@ -1478,18 +1483,8 @@ class GenerationStage(Stage):
                         raw = [raw]
                     elif isinstance(raw, list) and raw and isinstance(raw[0], list):
                         raw = [r[0] if r else {} for r in raw]
-                    # Preflight on first batch: validate vocab_tokens present before full run.
-                    # sequence_tokens is not checked here — DMS uses _argmax_from_response
-                    # which only needs logits + vocab_tokens, not sequence_tokens.
                     if not _logit_format_validated and raw and isinstance(raw[0], dict):
-                        if "logits" in raw[0] and "vocab_tokens" not in raw[0]:
-                            raise ValueError(
-                                f"IterativeMaskingDMSConfig: model {config.model_name!r} returned "
-                                f"'logits' but not 'vocab_tokens' — cannot decode without vocabulary "
-                                f"ordering (differs between models). "
-                                f"Available keys: {list(raw[0].keys())}"
-                            )
-                        _logit_format_validated = True
+                        _logit_preflight_sample = raw[0]  # validated OUTSIDE this try block
                     if len(raw) != len(batch):
                         raise ValueError(
                             f"IterativeMaskingDMS round-1 batch {i // config.batch_size}: "
@@ -1500,6 +1495,17 @@ class GenerationStage(Stage):
                     logger.warning("IterativeMaskingDMS round-1 batch %d failed: %s; skipping batch", i // config.batch_size, e)
                     raw = [{}] * len(batch)
                 results_r1.extend(raw)
+                # Preflight OUTSIDE per-batch except — propagates to caller.
+                # Only runs once on the first response that contains logits.
+                if not _logit_format_validated and _logit_preflight_sample is not None:
+                    if "logits" in _logit_preflight_sample and "vocab_tokens" not in _logit_preflight_sample:
+                        raise ValueError(
+                            f"IterativeMaskingDMSConfig: model {config.model_name!r} returned "
+                            f"'logits' but not 'vocab_tokens' — cannot decode without vocabulary "
+                            f"ordering (differs between models). "
+                            f"Available keys: {list(_logit_preflight_sample.keys())}"
+                        )
+                    _logit_format_validated = True
 
             for pos, result in zip(positions, results_r1):
                 aa = _argmax_from_response(result, pos)

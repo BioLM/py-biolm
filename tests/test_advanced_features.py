@@ -671,5 +671,137 @@ class TestPipelineAPIAuthError:
         assert "temberture-regression" in str(exc_info.value)
 
 
+class TestPredictionStagePreflightValidation:
+    """PredictionStage preflight checks: misspelled extraction keys raise ValueError
+    immediately (before all parallel batches run) rather than silently producing empty
+    results after a full API run.
+
+    Both process() and process_ws() paths are covered for fail and pass cases.
+    """
+
+    @pytest.mark.asyncio
+    async def test_wrong_key_raises_in_process(self, datastore):
+        """process(): misspelled response_key raises ValueError naming the bad key
+        before any batches are written to DuckDB."""
+        stage = PredictionStage(
+            name="preflight_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="plddt",
+            columns="plddt",
+        )
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                # Return 'score' but stage asks for 'plddt'
+                return [{"score": 0.95}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ", "ACDEFGHIKLM"]})
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            with pytest.raises(ValueError, match="plddt"):
+                await stage.process(df, datastore)
+
+    @pytest.mark.asyncio
+    async def test_wrong_key_error_includes_available_keys_in_process(self, datastore):
+        """process(): ValueError message names the keys actually present in the response."""
+        stage = PredictionStage(
+            name="preflight_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="tm",
+            columns="tm",
+        )
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"melting_temperature": 65.0, "confidence": 0.9}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ"]})
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            with pytest.raises(ValueError, match="melting_temperature"):
+                await stage.process(df, datastore)
+
+    @pytest.mark.asyncio
+    async def test_wrong_key_raises_in_process_ws(self, datastore):
+        """process_ws(): same preflight validation as process()."""
+        stage = PredictionStage(
+            name="preflight_test_ws",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="plddt",
+            columns="plddt",
+        )
+
+        seq_ids = [datastore.add_sequence(s) for s in ("MKTAYIAKQRQ", "ACDEFGHIKLM")]
+        ws = WorkingSet(sequence_ids=frozenset(seq_ids))
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"score": 0.95}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            with pytest.raises(ValueError, match="plddt"):
+                await stage.process_ws(ws, datastore, run_id="test-run", verbose=False)
+
+    @pytest.mark.asyncio
+    async def test_correct_key_passes_preflight_in_process(self, datastore):
+        """process(): correct extraction key passes preflight and produces predictions."""
+        stage = PredictionStage(
+            name="preflight_pass",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+        )
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"score": 0.75}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ", "ACDEFGHIKLM"]})
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            df_out, result = await stage.process(df, datastore)
+
+        assert result.output_count > 0, "correct key should produce predictions"
+
+    @pytest.mark.asyncio
+    async def test_correct_key_passes_preflight_in_process_ws(self, datastore):
+        """process_ws(): correct extraction key passes preflight and produces predictions."""
+        stage = PredictionStage(
+            name="preflight_pass_ws",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+        )
+
+        seq_ids = [datastore.add_sequence(s) for s in ("MKTAYIAKQRQ", "ACDEFGHIKLM")]
+        ws = WorkingSet(sequence_ids=frozenset(seq_ids))
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"score": 0.75}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            ws_out, result = await stage.process_ws(ws, datastore, run_id="test-run", verbose=False)
+
+        assert result.output_count > 0, "correct key should produce predictions"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
