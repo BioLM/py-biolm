@@ -852,58 +852,37 @@ class TestIterativeMaskingDMSConfigDispatch:
         assert result.output_count == 3
 
     def test_short_api_response_round1_padded_not_truncated(self, tmp_ds):
-        """Round-1: if API returns N-1 items for a batch of N, the missing result is
-        padded with an empty dict (→ argmax returns None → position is skipped),
-        not zip-truncated (which would silently shift position-to-result alignment)."""
+        """Round-1: if an earlier batch returns N-1 items, the gap is padded with {}
+        so subsequent batches stay position-aligned.
+
+        Setup: 4 positions, batch_size=3 → two batches.
+          Batch 1 (pos 0,1,2): API returns 2 results — pos 2 missing.
+          Batch 2 (pos 3):     API returns 1 result — pos 3 = 'V'.
+
+        With proper padding batch 1 pads to [r0, r1, {}], so results_r1 has
+        4 entries aligned to positions [0,1,2,3].  pos 3 → 'V' → "MKTVY".
+
+        With zip-truncation results_r1 = [r0, r1, r3] (only 3 entries).
+        zip([0,1,2,3], [r0,r1,r3]) produces 3 pairs: pos 2 gets r3's logits
+        (wrong argmax at pos 2) and pos 3 is silently dropped → "MKTVY" absent.
+        """
         parent = "MKTAY"
-        positions = [0, 1, 2, 3, 4]
-        # API returns only 4 items for the 5-position batch — one is missing
-        short_response = [
-            {"logits": make_logits(5, {0: "A"}), "vocab_tokens": list(ALPHABET)},
-            {"logits": make_logits(5, {1: "L"}), "vocab_tokens": list(ALPHABET)},
-            {"logits": make_logits(5, {2: "G"}), "vocab_tokens": list(ALPHABET)},
-            {"logits": make_logits(5, {3: "V"}), "vocab_tokens": list(ALPHABET)},
-            # position 4 missing
-        ]
-        instance = AsyncMock()
-        instance.predict = AsyncMock(return_value=short_response)
-        instance.shutdown = AsyncMock()
-
-        cfg = IterativeMaskingDMSConfig(
-            parent_sequence=parent, model_name="esm2-650m",
-            positions=positions, rounds=1, batch_size=100,
-        )
-        stage = GenerationStage(name="gen", config=cfg)
-        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
-            ws_out, result = asyncio.run(
-                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
-            )
-        # 4 real results → 4 variants; position 4 dropped (padded {} → argmax None → skipped)
-        assert result.output_count == 4
-
-    def test_short_api_response_round2_padded_not_truncated(self, tmp_ds):
-        """Round-2: if API returns N-1 items for a batch of N, missing result is
-        padded not zip-truncated, so no position-to-result misalignment occurs."""
-        parent = "MKT"
-        positions = [0, 1]
+        positions = [0, 1, 2, 3]
         vocab = list(ALPHABET)
-        # Round-1: positions 0→A, 1→L
-        r1_resp = [
-            {"logits": make_logits(3, {0: "A"}), "vocab_tokens": vocab},
-            {"logits": make_logits(3, {1: "L"}), "vocab_tokens": vocab},
+        batch1_resp = [
+            {"logits": make_logits(5, {0: "A"}), "vocab_tokens": vocab},  # pos0→A
+            {"logits": make_logits(5, {1: "L"}), "vocab_tokens": vocab},  # pos1→L
+            # pos2 missing from this batch
         ]
-        # Round-2: 2 r2 items (A at 0, mask pos 1) and (L at 1, mask pos 0)
-        # API returns only 1 result — second is missing
-        r2_resp = [
-            {"logits": make_logits(3, {1: "G"}), "vocab_tokens": vocab},
-            # second item missing
+        batch2_resp = [
+            {"logits": make_logits(5, {3: "V"}), "vocab_tokens": vocab},  # pos3→V
         ]
         call_count = 0
 
         async def side_effect(items, **kwargs):
             nonlocal call_count
             call_count += 1
-            return r1_resp if call_count == 1 else r2_resp
+            return batch1_resp if call_count == 1 else batch2_resp
 
         instance = AsyncMock()
         instance.predict = side_effect
@@ -911,15 +890,93 @@ class TestIterativeMaskingDMSConfigDispatch:
 
         cfg = IterativeMaskingDMSConfig(
             parent_sequence=parent, model_name="esm2-650m",
-            positions=positions, rounds=2, batch_size=100,
+            positions=positions, rounds=1,
+            batch_size=3,  # forces two batches
         )
         stage = GenerationStage(name="gen", config=cfg)
         with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
             ws_out, result = asyncio.run(
                 stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
             )
-        # Only 1 round-2 result returned → at most 1 unique variant; no crash or misalignment
-        assert result.output_count <= 1
+        df = tmp_ds.materialize_working_set(ws_out)
+        sequences = set(df["sequence"])
+        # pos3→V must be present: only reachable if alignment was maintained after the gap
+        assert "MKTVY" in sequences, (
+            "pos3 dropped — zip-truncation regression: batch gap shifted alignment"
+        )
+        # pos2 must NOT have been mis-processed using r3's logits (argmax at pos2 from
+        # make_logits(5,{3:'V'}) is 'A' since row2 is all -10.0 → first AA in alphabet)
+        assert not any(s[2] == "A" and s != "AKTAY" for s in sequences), (
+            "pos2 got wrong argmax from r3 — zip-truncation misalignment"
+        )
+
+    def test_short_api_response_round2_padded_not_truncated(self, tmp_ds):
+        """Round-2: if the first round-2 batch returns empty, the gap is padded
+        so the second batch's item stays aligned to its r2_items entry.
+
+        Setup: parent="MKT", positions=[0,1], batch_size=1 → one API call per r2 item.
+          r2_items: (pos1=0,pos2=1,'A') and (pos1=1,pos2=0,'L').
+          Round-2 batch 0: API returns [] (empty) — item 0 result missing.
+          Round-2 batch 1: API returns logits with pos0→'G'.
+
+        With proper padding r2_results=[{}, r]
+          → item0 → {} → argmax None → skip
+          → item1 → r → argmax at pos0='G' → seq "GLT"
+
+        With zip-truncation r2_results=[r] (1 entry).
+        zip(r2_items, [r]) produces 1 pair: item0 gets item1's logits.
+          argmax at pos1 from make_logits(3,{0:'G'}) row1 = 'A' (all-10.0 tie → first AA).
+          seq_out: pos0='A', pos1='A' → "AAT". Item1 dropped.
+        """
+        parent = "MKT"
+        positions = [0, 1]
+        vocab = list(ALPHABET)
+        # batch_size=1 → 4 total API calls:
+        #   call 1: round-1 batch 0 (pos 0)    → pos0→'A'
+        #   call 2: round-1 batch 1 (pos 1)    → pos1→'L'
+        #   call 3: round-2 batch 0 (item 0)   → EMPTY (the gap we're testing)
+        #   call 4: round-2 batch 1 (item 1)   → pos0→'G'
+        r1_batch0 = [{"logits": make_logits(3, {0: "A"}), "vocab_tokens": vocab}]
+        r1_batch1 = [{"logits": make_logits(3, {1: "L"}), "vocab_tokens": vocab}]
+        r2_item1_resp = [{"logits": make_logits(3, {0: "G"}), "vocab_tokens": vocab}]
+        call_count = 0
+
+        async def side_effect(items, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return r1_batch0    # round-1, pos0
+            elif call_count == 2:
+                return r1_batch1    # round-1, pos1
+            elif call_count == 3:
+                return []           # round-2 batch 0: empty response
+            else:
+                return r2_item1_resp  # round-2 batch 1
+
+        instance = AsyncMock()
+        instance.predict = side_effect
+        instance.shutdown = AsyncMock()
+
+        cfg = IterativeMaskingDMSConfig(
+            parent_sequence=parent, model_name="esm2-650m",
+            positions=positions, rounds=2,
+            batch_size=1,  # each r2 item gets its own API call
+        )
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            ws_out, result = asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+        df = tmp_ds.materialize_working_set(ws_out)
+        sequences = set(df["sequence"])
+        # item1 correctly processed → pos1=1,aa1='L',pos2=0,aa2='G' → "GLT"
+        assert "GLT" in sequences, (
+            "item1 dropped — zip-truncation regression: empty batch gap shifted r2 alignment"
+        )
+        # item0 must NOT have been mis-processed using item1's logits
+        assert "AAT" not in sequences, (
+            "item0 got item1's logits — zip-truncation misalignment in round-2"
+        )
 
 
 # ---------------------------------------------------------------------------

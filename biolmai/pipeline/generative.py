@@ -1324,19 +1324,23 @@ class GenerationStage(Stage):
             results_r1: list[Any] = []
             for i in range(0, len(items_r1), config.batch_size):
                 batch = items_r1[i:i + config.batch_size]
-                raw = await action_fn(items=batch)
-                if isinstance(raw, dict):
-                    raw = [raw]
-                elif isinstance(raw, list) and raw and isinstance(raw[0], list):
-                    raw = [r[0] if r else {} for r in raw]
-                # Pad to batch length if API returned fewer results than sent
-                if len(raw) < len(batch):
-                    logger.warning(
-                        "IterativeMaskingDMS round-1 batch %d: API returned %d results for %d items; "
-                        "padding missing results with empty dicts",
-                        i // config.batch_size, len(raw), len(batch),
-                    )
-                    raw = raw + [{}] * (len(batch) - len(raw))
+                try:
+                    raw = await action_fn(items=batch)
+                    if isinstance(raw, dict):
+                        raw = [raw]
+                    elif isinstance(raw, list) and raw and isinstance(raw[0], list):
+                        raw = [r[0] if r else {} for r in raw]
+                    # Pad to batch length if API returned fewer results than sent
+                    if len(raw) < len(batch):
+                        logger.warning(
+                            "IterativeMaskingDMS round-1 batch %d: API returned %d results for %d items; "
+                            "padding missing results with empty dicts",
+                            i // config.batch_size, len(raw), len(batch),
+                        )
+                        raw = raw + [{}] * (len(batch) - len(raw))
+                except Exception as e:
+                    logger.warning("IterativeMaskingDMS round-1 batch %d failed: %s; skipping batch", i // config.batch_size, e)
+                    raw = [{}] * len(batch)
                 results_r1.extend(raw)
 
             for pos, result in zip(positions, results_r1):
@@ -1386,19 +1390,23 @@ class GenerationStage(Stage):
             r2_results: list[Any] = []
             for i in range(0, len(r2_sequences), config.batch_size):
                 batch = [{"sequence": s} for s in r2_sequences[i:i + config.batch_size]]
-                raw = await action_fn(items=batch)
-                if isinstance(raw, dict):
-                    raw = [raw]
-                elif isinstance(raw, list) and raw and isinstance(raw[0], list):
-                    raw = [r[0] if r else {} for r in raw]
-                # Pad to batch length if API returned fewer results than sent
-                if len(raw) < len(batch):
-                    logger.warning(
-                        "IterativeMaskingDMS round-2 batch %d: API returned %d results for %d items; "
-                        "padding missing results with empty dicts",
-                        i // config.batch_size, len(raw), len(batch),
-                    )
-                    raw = raw + [{}] * (len(batch) - len(raw))
+                try:
+                    raw = await action_fn(items=batch)
+                    if isinstance(raw, dict):
+                        raw = [raw]
+                    elif isinstance(raw, list) and raw and isinstance(raw[0], list):
+                        raw = [r[0] if r else {} for r in raw]
+                    # Pad to batch length if API returned fewer results than sent
+                    if len(raw) < len(batch):
+                        logger.warning(
+                            "IterativeMaskingDMS round-2 batch %d: API returned %d results for %d items; "
+                            "padding missing results with empty dicts",
+                            i // config.batch_size, len(raw), len(batch),
+                        )
+                        raw = raw + [{}] * (len(batch) - len(raw))
+                except Exception as e:
+                    logger.warning("IterativeMaskingDMS round-2 batch %d failed: %s; skipping batch", i // config.batch_size, e)
+                    raw = [{}] * len(batch)
                 r2_results.extend(raw)
 
             seen: set[str] = set()
@@ -1428,7 +1436,13 @@ class GenerationStage(Stage):
                     "dms_aa2": aa2,
                 })
 
-            print(f"  Round 2: {len(output_rows)} unique 2-point variants")
+            if not output_rows:
+                logger.warning(
+                    "IterativeMaskingDMS: round-2 produced 0 unique 2-point variants "
+                    "(all positions may be synonymous or all round-2 batches failed)"
+                )
+            else:
+                logger.debug("  Round 2: %d unique 2-point variants", len(output_rows))
             return output_rows
 
         finally:
