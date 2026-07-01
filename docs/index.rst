@@ -47,6 +47,7 @@ If you're writing or updating documentation, see the :doc:`authoring-guide` for 
    sdk/overview
    sdk/models
    sdk/protocols
+   sdk/pipeline
    sdk/workspaces
    sdk/volumes
    sdk/io

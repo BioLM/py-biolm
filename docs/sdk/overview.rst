@@ -41,6 +41,9 @@ The BioLM Python SDK lets you call BioLM models from Python with minimal setup: 
 **Next steps**
 
 - :doc:`models` — Available models and examples.
+- :doc:`pipeline` — Pipeline design primitives: ``SaturationMutagenesisConfig``,
+  ``IterativeMaskingDMSConfig``, ``DirectGenerationConfig``, and the full
+  ``GenerativePipeline`` execution pattern.
 - :doc:`usage/usage` — Usage patterns and when to use which interface.
 - :doc:`faq` — Common questions.
 - :doc:`api-reference/index` — Full API reference.
