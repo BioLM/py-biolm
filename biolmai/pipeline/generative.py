@@ -383,6 +383,10 @@ class SaturationMutagenesisConfig(ScoringProtocolConfig):
 
     def __post_init__(self):
         import re as _re
+        if not self.parent_sequence:
+            raise ValueError(
+                "SaturationMutagenesisConfig.parent_sequence cannot be empty"
+            )
         if self.scoring_action not in _ALLOWED_SCORING_ACTIONS:
             raise ValueError(
                 f"SaturationMutagenesisConfig.scoring_action must be one of "
@@ -404,6 +408,11 @@ class SaturationMutagenesisConfig(ScoringProtocolConfig):
                 f"column name {_leaf!r}. Choose a different field name."
             )
         if self.positions is not None:
+            if len(self.positions) == 0:
+                raise ValueError(
+                    "SaturationMutagenesisConfig.positions must be None (scan all "
+                    "positions) or a non-empty list of position indices"
+                )
             _bad = [p for p in self.positions if not (0 <= p < len(self.parent_sequence))]
             if _bad:
                 raise ValueError(
@@ -496,6 +505,10 @@ class IterativeMaskingDMSConfig(GenerativeProtocolConfig):
     action: str = "predict"
 
     def __post_init__(self):
+        if not self.parent_sequence:
+            raise ValueError(
+                "IterativeMaskingDMSConfig.parent_sequence cannot be empty"
+            )
         if self.action not in _ALLOWED_MLM_ACTIONS:
             raise ValueError(
                 f"IterativeMaskingDMSConfig.action must be one of: 'predict' "
@@ -1007,6 +1020,14 @@ class GenerationStage(Stage):
                             )
                         else:
                             raw_list.append(_r)
+                    # All runs failed — surface the first exception rather than
+                    # silently returning an empty list with no indication of why.
+                    # Mirrors the multi-config all-failures guard in process().
+                    if not raw_list:
+                        _first_exc = next(
+                            r for r in _all_results if isinstance(r, Exception)
+                        )
+                        raise _first_exc
                 else:
                     raw_list = [await api.generate(items=items, params=params)]
 
@@ -1348,14 +1369,16 @@ class GenerationStage(Stage):
                     # Normalize to list
                     if isinstance(raw, dict):
                         raw = [raw]
-                    if not _score_field_validated and raw and isinstance(raw[0], dict):
-                        _preflight_sample = raw[0]  # captured; validated OUTSIDE this try block
                     if len(raw) != len(batch):
                         raise ValueError(
                             f"SaturationMutagenesis batch {i // config.batch_size}: "
                             f"API returned {len(raw)} results for {len(batch)} items — "
                             "length mismatch would cause positional drift; treating batch as failed"
                         )
+                    # Capture only after confirming correct batch length, so a
+                    # malformed-batch response never poisons the preflight sample.
+                    if not _score_field_validated and raw and isinstance(raw[0], dict):
+                        _preflight_sample = raw[0]
                     batch_scores: list = []
                     for r in raw:
                         val = self._get_nested(r, config.score_field) if isinstance(r, dict) else None

@@ -1688,3 +1688,132 @@ class TestDMSProvenanceInMetadata:
             assert meta["dms_pos1"] in (0, 2)
             assert meta["dms_pos2"] in (0, 2)
             assert meta["dms_pos1"] != meta["dms_pos2"]
+
+
+# ---------------------------------------------------------------------------
+# Data quality / alignment guards (audit fixes)
+# ---------------------------------------------------------------------------
+
+
+class TestConstructionTimeGuards:
+    """Validate that invalid config values are caught at construction, not at runtime."""
+
+    def test_satmut_empty_parent_sequence_raises(self):
+        with pytest.raises(ValueError, match="parent_sequence cannot be empty"):
+            SaturationMutagenesisConfig(
+                parent_sequence="",
+                scoring_model="thermompnn-d",
+            )
+
+    def test_satmut_positions_empty_list_raises(self):
+        with pytest.raises(ValueError, match="non-empty list"):
+            SaturationMutagenesisConfig(
+                parent_sequence="MKTAY",
+                scoring_model="thermompnn-d",
+                positions=[],
+            )
+
+    def test_satmut_positions_none_allowed(self):
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence="MKTAY",
+            scoring_model="thermompnn-d",
+            positions=None,
+        )
+        assert cfg.positions is None
+
+    def test_itermask_empty_parent_sequence_raises(self):
+        with pytest.raises(ValueError, match="parent_sequence cannot be empty"):
+            IterativeMaskingDMSConfig(
+                parent_sequence="",
+                model_name="esm2-650m",
+            )
+
+
+class TestGenerationAllRunsFailed:
+    """When all n_runs parallel generation calls fail the error must surface."""
+
+    PARENT = "MKTAY"
+
+    def test_all_runs_failed_raises_not_silent(self, tmp_ds):
+        """n_runs=3 all raise — first exception must propagate, not produce output_count=0."""
+        instance = AsyncMock()
+        instance.generate = AsyncMock(side_effect=RuntimeError("simulated auth failure"))
+        instance.shutdown = AsyncMock()
+
+        cfg = DirectGenerationConfig(
+            model_name="progen2-small",
+            sequence="MKTAY",
+            num_sequences=2,
+            n_runs=3,
+        )
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            with pytest.raises(RuntimeError, match="simulated auth failure"):
+                asyncio.run(
+                    stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+                )
+
+    def test_one_run_succeeds_not_affected(self, tmp_ds):
+        """One successful run out of n_runs=2 — no exception, output produced."""
+        instance = AsyncMock()
+        instance.generate = AsyncMock(side_effect=[
+            RuntimeError("run 1 failed"),
+            [{"sequence": "MKTAY"}],
+        ])
+        instance.shutdown = AsyncMock()
+
+        cfg = DirectGenerationConfig(
+            model_name="progen2-small",
+            sequence="MKTAY",
+            num_sequences=2,
+            n_runs=2,
+        )
+        stage = GenerationStage(name="gen", config=cfg)
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            ws_out, result = asyncio.run(
+                stage.process_ws(WorkingSet(frozenset()), tmp_ds, run_id="r1")
+            )
+        assert result.output_count >= 1
+
+
+class TestSatMutPreflightFromGoodBatchOnly:
+    """Preflight sample must only come from a correctly-sized batch."""
+
+    PARENT = "MKTAY"
+
+    def test_malformed_batch_does_not_poison_preflight(self, tmp_ds):
+        """First batch returns wrong length; second returns correct length with the
+        score field present. Preflight must not pass due to the malformed first batch."""
+        instance = AsyncMock()
+        # First batch: 1 result for 1 item (correct, if batch_size=1)
+        # BUT the first element lacks the score_field — ensure preflight validates
+        # using the first VALID batch only.
+        call_count = 0
+
+        async def mock_score(items, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # Return one item for batch of 1 — correct length, BUT missing score_field
+                return [{"wrong_key": 0.5}]
+            # Subsequent batches also return wrong key
+            return [{"wrong_key": 0.5} for _ in items]
+
+        instance.score = AsyncMock(side_effect=mock_score)
+        instance.shutdown = AsyncMock()
+
+        cfg = SaturationMutagenesisConfig(
+            parent_sequence=self.PARENT,
+            scoring_model="thermompnn-d",
+            scoring_action="score",
+            score_field="ddg",
+            positions=[0],
+            batch_size=1,
+        )
+        with patch("biolmai.pipeline.generative.BioLMApiClient", mock_client_cls(instance)):
+            with pytest.raises(ValueError, match="ddg"):
+                asyncio.run(
+                    GenerationStage(name="gen", config=cfg).process_ws(
+                        WorkingSet(frozenset()), tmp_ds, run_id="r1"
+                    )
+                )

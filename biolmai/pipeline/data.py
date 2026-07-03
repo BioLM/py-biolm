@@ -756,6 +756,11 @@ class PredictionStage(Stage):
                         if batch_emb_data:
                             datastore.add_embeddings_batch(batch_emb_data)
 
+                        # Drop rows where spec columns are NaN — matches cached-path
+                        # dropna at line 621 so streaming and resume produce identical output.
+                        _spec_cols = [s.column for s in self._resolved if s.column in out_df.columns]
+                        if _spec_cols:
+                            out_df = out_df.dropna(subset=_spec_cols)
                         # Yield batch immediately!
                         yield out_df
 
@@ -926,6 +931,14 @@ class PredictionStage(Stage):
                     "Stage %r received empty embedding for sequence_id=%d "
                     "(model=%s, layer=%s) — dropping",
                     self.name, seq_id, self.model_name, layer,
+                )
+                continue
+            if embedding.ndim != 1:
+                logger.warning(
+                    "Stage %r: sequence_id=%d returned %dD embedding "
+                    "(model=%s, layer=%s) — use reduction='mean' or 'sum' to "
+                    "collapse to 1D; dropping to prevent DuckDB FLOAT[] type error",
+                    self.name, seq_id, embedding.ndim, self.model_name, layer,
                 )
                 continue
             rows.append({
@@ -1297,7 +1310,15 @@ class PredictionStage(Stage):
                             for spec in self._resolved
                         ]
                         if failed:
-                            datastore.add_predictions_batch(failed)
+                            try:
+                                datastore.add_predictions_batch(failed)
+                            except Exception as _fm_err:
+                                # Non-serializable params or other metadata issue must
+                                # not escape the skip_on_error boundary — just warn.
+                                logger.warning(
+                                    "Failed to write failure markers for batch %d: %s",
+                                    batch_idx, _fm_err,
+                                )
                     else:
                         raise
 
@@ -1573,7 +1594,11 @@ class PredictionStage(Stage):
                         "(e.g., item_columns={'sequence': 'heavy_chain'})."
                     )
                 # Bug G fix: check for None/NaN in the default sequence column too.
-                null_seqs = [p[0] for p in id_seq_pairs if p[1] is None or str(p[1]).lower() in ("nan", "none", "")]
+                null_seqs = [
+                    p[0] for p in id_seq_pairs
+                    if p[1] is None or not str(p[1]).strip()
+                    or str(p[1]).strip().lower() in ("nan", "none")
+                ]
                 if null_seqs:
                     raise ValueError(
                         f"Input column 'sequence' has null/NaN values at row(s) "
@@ -1655,21 +1680,16 @@ class PredictionStage(Stage):
                     ):
                         _preflight_capture.append(results[0])
 
-                    # Alignment check — warn if API returned fewer results than items sent.
-                    # Bug C fix: use logger.warning with the count of sequences that will retry.
-                    if len(results) < len(batch_seq_ids):
-                        logger.warning(
-                            "API returned %d results for %d items — %d sequences will be retried",
-                            len(results),
-                            len(batch_seq_ids),
-                            len(batch_seq_ids) - len(results),
-                        )
-                    elif len(results) != len(batch_items):
-                        logger.warning(
-                            "batch %d: API returned %d results for %d items — partial results will be skipped",
-                            batch_idx,
-                            len(results),
-                            len(batch_items),
+                    # B10-mirror for process_ws: raise on length mismatch so the
+                    # except block below writes NULL sentinel rows for all seq_ids
+                    # in this batch, exactly as process() does at line 1194.
+                    # Sequences that disappeared from the API response are recorded
+                    # as failed rather than silently dropped from the WorkingSet.
+                    if len(results) != len(batch_seq_ids):
+                        raise ValueError(
+                            f"API returned {len(results)} results for "
+                            f"{len(batch_seq_ids)} items — length mismatch; "
+                            "treating batch as failed to prevent positional drift"
                         )
 
                     # Process results and write to DuckDB immediately
@@ -1782,7 +1802,15 @@ class PredictionStage(Stage):
                             for spec in self._resolved
                         ]
                         if failed:
-                            datastore.add_predictions_batch(failed)
+                            try:
+                                datastore.add_predictions_batch(failed)
+                            except Exception as _fm_err:
+                                # Non-serializable params or other metadata issue must
+                                # not escape the skip_on_error boundary — just warn.
+                                logger.warning(
+                                    "Failed to write failure markers for batch %d: %s",
+                                    batch_idx, _fm_err,
+                                )
                     else:
                         raise
                 finally:
@@ -2310,6 +2338,11 @@ class CofoldingPredictionStage(Stage):
                 full_df[self.prediction_type] = full_df["sequence_id"].map(val_map)
             else:
                 full_df[self.prediction_type] = None
+
+        # Mirror PredictionStage.process() all_present mask: drop rows where
+        # confidence is NaN so process() semantics match process_ws() output.
+        if self.prediction_type in full_df.columns:
+            full_df = full_df[full_df[self.prediction_type].notna()].copy()
 
         return full_df, StageResult(
             stage_name=self.name,
