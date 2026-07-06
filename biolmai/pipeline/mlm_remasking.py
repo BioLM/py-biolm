@@ -355,16 +355,22 @@ class MLMRemasker:
             vocab_tokens = pred_result.get("vocab_tokens")
 
             if logits is not None:
-                # Fallback vocab for ESMC-style responses that return logits without
-                # sequence_tokens / vocab_tokens (20-dim logits, ACDEFGHIKLMNPQRSTVWY order)
                 if seq_tokens is None:
-                    seq_tokens = list(sequence)
-                if vocab_tokens is None and len(logits) > 0 and len(logits[0]) == 20:
-                    vocab_tokens = list("ACDEFGHIKLMNPQRSTVWY")
-                if seq_tokens is not None and vocab_tokens is not None:
-                    return self._decode_logits(
-                        sequence, mask_positions, logits, seq_tokens, vocab_tokens
+                    raise ValueError(
+                        "API response returned 'logits' but is missing 'sequence_tokens'. "
+                        "Cannot decode logits without knowing the token-to-position mapping. "
+                        f"Got keys: {list(pred_result.keys())}"
                     )
+                if vocab_tokens is None:
+                    raise ValueError(
+                        "API response returned 'logits' but is missing 'vocab_tokens'. "
+                        "Cannot decode logits without knowing the vocabulary ordering — "
+                        "vocab column order differs between models (e.g. ESM2 vs ESMC). "
+                        f"Got keys: {list(pred_result.keys())}"
+                    )
+                return self._decode_logits(
+                    sequence, mask_positions, logits, seq_tokens, vocab_tokens
+                )
 
             raise ValueError(
                 f"API result missing both 'logits' and 'sequence'. "
@@ -401,7 +407,11 @@ class MLMRemasker:
         # seq_tokens mirrors the sequence: ['M', 'K', '<mask>', ...]
         for seq_pos in mask_positions:
             if seq_pos >= len(seq_tokens):
-                continue
+                raise ValueError(
+                    f"mask position {seq_pos} is out of bounds for seq_tokens length "
+                    f"{len(seq_tokens)} — this indicates the mask was built from a different "
+                    f"sequence length than the API returned tokens for"
+                )
 
             pos_logits = logits_arr[seq_pos]
 
@@ -442,9 +452,14 @@ class MLMRemasker:
             chosen_aa = vocab_tokens[chosen_idx]
             confidence = float(probs[chosen_idx])
 
-            if seq_pos < len(seq_list):
-                seq_list[seq_pos] = chosen_aa
-                confidences[seq_pos] = confidence
+            if seq_pos >= len(seq_list):
+                raise ValueError(
+                    f"internal inconsistency: seq_pos {seq_pos} is in-range for "
+                    f"seq_tokens (len={len(seq_tokens)}) but out-of-range for "
+                    f"seq_list (len={len(seq_list)}) — both should derive from the same sequence"
+                )
+            seq_list[seq_pos] = chosen_aa
+            confidences[seq_pos] = confidence
 
         return "".join(seq_list), confidences
 
@@ -526,12 +541,15 @@ class MLMRemasker:
         """
         max_concurrent = min(num_variants, 16)
         semaphore = asyncio.Semaphore(max_concurrent)
+        failure_count = 0
 
         async def _generate_one(attempt_idx: int) -> Optional[tuple[str, dict[str, Any]]]:
+            nonlocal failure_count
             async with semaphore:
                 try:
                     return await self.generate_variant(parent_sequence, attempt_idx)
                 except Exception as e:
+                    failure_count += 1
                     logger.warning(
                         "Variant generation attempt %d failed: %s", attempt_idx, e
                     )
@@ -568,6 +586,13 @@ class MLMRemasker:
                 variants.append((seq, metadata))
                 if len(variants) >= num_variants:
                     break
+
+        if len(variants) == 0 and failure_count > 0:
+            raise RuntimeError(
+                f"All {failure_count} variant generation attempt(s) failed — "
+                "check logged warnings above for per-attempt errors. "
+                "This is likely a transient API error, not a sequence space problem."
+            )
 
         if len(variants) < num_variants:
             warnings.warn(

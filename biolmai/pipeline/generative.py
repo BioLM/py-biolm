@@ -6,6 +6,9 @@ Supports:
 - Inherently generative models (ProteinMPNN, ProGen2, etc.)
 - Temperature and sampling parameter scanning
 - Multi-model generation in parallel
+- DMS-style scanning: SaturationMutagenesisConfig (single-mutant library + scoring)
+  and IterativeMaskingDMSConfig (greedy MLM argmax 2-point DMS)
+- Structured config hierarchy: ScoringProtocolConfig / GenerativeProtocolConfig base classes
 """
 
 from __future__ import annotations
@@ -24,6 +27,25 @@ logger = logging.getLogger(__name__)
 # Module-level counter for unique temporary DuckDB table names
 _GENERATIVE_TEMP_COUNTER = _itertools.count()
 
+# Allowlists for getattr() dispatch — tightly scoped per config type so that
+# user-supplied action strings cannot resolve to arbitrary BioLMApiClient attrs.
+_ALLOWED_SCORING_ACTIONS: frozenset = frozenset({"predict", "score"})
+_ALLOWED_MLM_ACTIONS: frozenset = frozenset({"predict"})  # IterativeMaskingDMS needs logits
+
+# Reserved column names that must not be used as a score_field key, because they
+# would silently overwrite core sequence/provenance data in the output row dict.
+# Includes both core pipeline columns and the provenance columns written by
+# _run_saturation_mutagenesis itself (sat_position, sat_wt_aa, sat_mut_aa).
+_RESERVED_SCORE_COLUMNS: frozenset = frozenset(
+    {
+        "sequence", "model_name", "temperature", "sampling_params",
+        "generation_method", "parent_sequence", "source_label",
+        "sequence_id", "length", "hash",
+        "sat_position", "sat_wt_aa", "sat_mut_aa",
+        "dms_round", "dms_pos1", "dms_aa1", "dms_pos2", "dms_aa2",
+    }
+)
+
 import pandas as pd
 
 from biolmai.client import BioLMApiClient  # Use async client
@@ -32,8 +54,83 @@ from biolmai.pipeline.datastore_duckdb import DuckDBDataStore as DataStore
 from biolmai.pipeline.mlm_remasking import MLMRemasker, RemaskingConfig
 
 
+class ScoringProtocolConfig:
+    """Marker base class for stages that score sequences and return a ranked subset.
+
+    Subclasses call a BioLM prediction model to assign a numeric score to each
+    variant sequence enumerated by the config (e.g. all single-point mutants),
+    then sort and return the top-N results.  They do **not** produce wholly new
+    sequences — the output is a scored, ranked subset of the candidate library
+    built internally by the config (no separate generation step is needed).
+
+    The ``scoring_action`` field on concrete subclasses selects the client
+    method: ``'predict'`` calls :py:meth:`BioLMApiClient.predict` and ``'score'``
+    calls :py:meth:`BioLMApiClient.score`.  Both are allowlisted
+    (``'predict'``, ``'score'``) to prevent arbitrary method dispatch.
+
+    Use :func:`isinstance(config, ScoringProtocolConfig)` to branch on config
+    type in pipeline dispatch functions.
+
+    Example::
+
+        from biolmai.pipeline.generative import (
+            ScoringProtocolConfig,
+            SaturationMutagenesisConfig,
+        )
+
+        def dispatch(config):
+            if isinstance(config, ScoringProtocolConfig):
+                return run_scoring_stage(config)  # returns ranked variant library
+            return run_generative_stage(config)   # returns novel sequences
+
+        config = SaturationMutagenesisConfig(
+            parent_sequence="MKTAYIAKQRQ",
+            scoring_model="thermompnn-d",
+            score_field="ddg",
+        )
+        assert isinstance(config, ScoringProtocolConfig)  # True
+    """
+
+
+class GenerativeProtocolConfig:
+    """Marker base class for stages that produce new amino-acid sequences.
+
+    Subclasses drive generative or masked-language models to emit novel
+    sequences — either via autoregressive sampling (ProteinMPNN, DSM,
+    AntiFold) or by greedy-argmax masking over an MLM (ESM2, ESMC).
+    Unlike :class:`ScoringProtocolConfig` subclasses, these stages expand the
+    candidate pool rather than filtering it; they are the *source* stage in a
+    generative design pipeline.
+
+    Use :func:`isinstance(config, GenerativeProtocolConfig)` to branch on
+    config type in pipeline dispatch functions.
+
+    Example::
+
+        from biolmai.pipeline.generative import (
+            GenerativeProtocolConfig,
+            DirectGenerationConfig,
+            IterativeMaskingDMSConfig,
+        )
+
+        def dispatch(config):
+            if isinstance(config, GenerativeProtocolConfig):
+                return run_generative_stage(config)  # emits new sequences
+            return run_scoring_stage(config)          # returns ranked variants
+
+        cfg_direct = DirectGenerationConfig(
+            "dsm-150m-base", sequence="MKTAYIAKQRQ", num_sequences=50
+        )
+        cfg_dms = IterativeMaskingDMSConfig(
+            parent_sequence="MKTAYIAKQRQ", model_name="esm2-650m"
+        )
+        assert isinstance(cfg_direct, GenerativeProtocolConfig)  # True
+        assert isinstance(cfg_dms, GenerativeProtocolConfig)     # True
+    """
+
+
 @dataclass
-class DirectGenerationConfig:
+class DirectGenerationConfig(GenerativeProtocolConfig):
     """
     Configuration for structure- or sequence-conditioned generation.
 
@@ -55,8 +152,9 @@ class DirectGenerationConfig:
     | antifold               | ``'pdb'``   | ``heavy_chain``, ``light_chain``,         |
     |                        |             | ``num_seq_per_target``, ``sampling_temp`` |
     +------------------------+-------------+-------------------------------------------+
-    | dsm-150m-base, dsm-    | ``'sequence'``| ``num_sequences``, ``temperature``      |
-    | 650m-base              |             |                                           |
+    | dsm-150m-base, dsm-    | ``'sequence'``| ``num_sequences``, ``temperature``,     |
+    | 650m-base              |             | ``remasking`` (``'random'``/``'low_confidence'``/``'high_confidence'``), |
+    |                        |             | ``step_divisor`` (int; lower = more masks per step = higher edit distance from WT) |
     +------------------------+-------------+-------------------------------------------+
 
     Args:
@@ -76,6 +174,34 @@ class DirectGenerationConfig:
             param names.
         num_sequences: Fallback when ``params`` is empty (default 100).
         temperature: Fallback when ``params`` is empty (default 1.0).
+
+    Example::
+
+        from biolmai.pipeline.generative import DirectGenerationConfig, GenerativePipeline
+
+        # Structure-conditioned design with ProteinMPNN
+        cfg_mpnn = DirectGenerationConfig(
+            model_name="protein-mpnn",
+            structure_path="/path/to/protein.pdb",
+            item_field="pdb",
+            params={"num_sequences": 50, "temperature": 0.1},
+        )
+
+        # Sequence-conditioned design with DSM
+        cfg_dsm = DirectGenerationConfig(
+            model_name="dsm-150m-base",
+            sequence="MKTAYIAKQRQ",
+            item_field="sequence",
+            params={
+                "num_sequences": 100,
+                "temperature": 1.0,
+                "remasking": "low_confidence",
+                "step_divisor": 8,
+            },
+        )
+
+        pipeline = GenerativePipeline(configs=[cfg_mpnn])
+        results = pipeline.run()
     """
 
     model_name: str
@@ -93,6 +219,10 @@ class DirectGenerationConfig:
     # Run the same generation call n_runs times in parallel.
     # Total output = (sequences per call) × n_runs, then deduped.
     n_runs: int = 1
+    # Optional human-readable label stored in generation_metadata and surfaced
+    # as the ``source_label`` column in results().  Useful when running many
+    # configs in one pipeline and needing to distinguish e.g. region or method.
+    label: Optional[str] = None
 
 
     def to_spec(self) -> dict:
@@ -110,6 +240,7 @@ class DirectGenerationConfig:
             "structure_from_stage": self.structure_from_stage,
             "structure_from_model": self.structure_from_model,
             "n_runs": self.n_runs,
+            "label": self.label,
         }
 
 
@@ -173,6 +304,248 @@ class SequenceSourceConfig:
             "type": "SequenceSourceConfig",
             "from_db": True,
             "column": self.column,
+        }
+
+
+@dataclass(frozen=True)
+class SaturationMutagenesisConfig(ScoringProtocolConfig):
+    """Source config that generates a single-mutant library and filters by a prediction model.
+
+    Enumerates every single amino-acid substitution at the specified positions,
+    scores each variant with *scoring_model* using *scoring_action*, then returns
+    the top-*top_n* variants ranked by *score_field*.
+
+    Typical use: ThermoMPNN-D or ESM2StabP-guided design — predict ΔΔG for all
+    single-point mutants, keep the most stabilising ones.
+
+    Args:
+        parent_sequence: Wild-type sequence to mutate.
+        scoring_model: BioLM model slug used to score variants (e.g. ``'thermompnn-d'``).
+        positions: 0-indexed positions to enumerate.  If ``None``, all positions
+            in the sequence are enumerated.
+        alphabet: Amino acids to substitute.  Defaults to the 20 canonical AAs.
+        scoring_action: API action for the scoring model (default ``'predict'``).
+        scoring_params: Extra params forwarded to the scoring model API.
+        score_field: Key inside each model response that holds the numeric score
+            (default ``'ddg'``).  Supports nested access with ``'.'`` separator,
+            e.g. ``'result.ddg'``.
+        top_n: Number of top-scoring variants to retain (default 50).  ``None``
+            keeps all variants that receive a valid score.
+        ascending: If ``True``, lower scores are better (e.g. negative ΔΔG means
+            stabilising).  Defaults to ``True``.
+        exclude_synonymous: If ``True`` (default), skip substitutions that are
+            identical to the wild-type residue.
+        batch_size: Sequences per API request when scoring (default 8).
+        label: Optional label stored as ``source_label`` in results.
+        pdb_str: Raw PDB file contents as a string (not a file path).  When
+            provided, each scoring item is built as
+            ``{"pdb": pdb_str, "mutations": ["<WT><pos+1><MUT>"], "chain": chain}``
+            instead of ``{"sequence": mutant_sequence}``.  Required by
+            structure-aware models such as ThermoMPNN-D.  Pass ``None`` (default)
+            for sequence-only models like ESM2StabP.
+        chain: Chain identifier forwarded in structure-aware scoring items
+            (default ``'A'``).
+
+    Example::
+
+        from biolmai.pipeline.generative import SaturationMutagenesisConfig, GenerativePipeline
+
+        # Score all single-mutant variants at three positions with ThermoMPNN-D
+        config = SaturationMutagenesisConfig(
+            parent_sequence="MKTAYIAKQRQ",
+            scoring_model="thermompnn-d",
+            positions=[3, 7, 10],          # 0-indexed; None → all positions
+            score_field="ddg",             # key in API response holding ΔΔG
+            top_n=25,                      # keep top-25 most stabilising variants
+            ascending=True,                # lower ΔΔG = more stabilising
+            pdb_str=open("protein.pdb").read(),  # required by structure-aware models
+        )
+
+        pipeline = GenerativePipeline(configs=[config])
+        pipeline.add_prediction("esmfold", extractions="mean_plddt", columns="plddt")
+        results = pipeline.run()
+    """
+
+    parent_sequence: str
+    scoring_model: str
+    positions: Optional[list[int]] = None
+    alphabet: str = "ACDEFGHIKLMNPQRSTVWY"
+    scoring_action: str = "predict"
+    scoring_params: dict[str, Any] = field(default_factory=dict)
+    score_field: str = "ddg"
+    top_n: Optional[int] = 50
+    ascending: bool = True
+    exclude_synonymous: bool = True
+    batch_size: int = 8
+    label: Optional[str] = None
+    pdb_str: Optional[str] = None
+    chain: str = "A"
+
+    def __post_init__(self):
+        import re as _re
+        if not self.parent_sequence:
+            raise ValueError(
+                "SaturationMutagenesisConfig.parent_sequence cannot be empty"
+            )
+        if self.scoring_action not in _ALLOWED_SCORING_ACTIONS:
+            raise ValueError(
+                f"SaturationMutagenesisConfig.scoring_action must be one of "
+                f"'predict' or 'score' (got {self.scoring_action!r}). "
+                f"'predict' calls api.predict() and expects a response dict; "
+                f"'score' calls api.score() and also expects a response dict."
+            )
+        _score_field_pattern = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*){0,2}$")
+        if not _score_field_pattern.match(self.score_field):
+            raise ValueError(
+                f"SaturationMutagenesisConfig.score_field must match "
+                f"'identifier' or 'identifier.identifier' (max 3 components), "
+                f"got {self.score_field!r}"
+            )
+        _leaf = self.score_field.replace(".", "_")
+        if _leaf in _RESERVED_SCORE_COLUMNS:
+            raise ValueError(
+                f"SaturationMutagenesisConfig.score_field resolves to reserved "
+                f"column name {_leaf!r}. Choose a different field name."
+            )
+        if self.positions is not None:
+            if len(self.positions) == 0:
+                raise ValueError(
+                    "SaturationMutagenesisConfig.positions must be None (scan all "
+                    "positions) or a non-empty list of position indices"
+                )
+            _bad = [p for p in self.positions if not (0 <= p < len(self.parent_sequence))]
+            if _bad:
+                raise ValueError(
+                    f"SaturationMutagenesisConfig.positions contains out-of-range "
+                    f"indices {_bad} for parent_sequence of length "
+                    f"{len(self.parent_sequence)}. All positions must be in "
+                    f"[0, {len(self.parent_sequence) - 1}]."
+                )
+
+    def to_spec(self) -> dict:
+        return {
+            "type": "SaturationMutagenesisConfig",
+            "parent_sequence": self.parent_sequence,
+            "scoring_model": self.scoring_model,
+            "positions": self.positions,
+            "alphabet": self.alphabet,
+            "scoring_action": self.scoring_action,
+            "scoring_params": self.scoring_params,
+            "score_field": self.score_field,
+            "top_n": self.top_n,
+            "ascending": self.ascending,
+            "exclude_synonymous": self.exclude_synonymous,
+            "batch_size": self.batch_size,
+            "label": self.label,
+            "pdb_str": self.pdb_str,
+            "chain": self.chain,
+        }
+
+
+@dataclass(frozen=True)
+class IterativeMaskingDMSConfig(GenerativeProtocolConfig):
+    """Source config that builds multi-point variants via sequential greedy masking.
+
+    Implements an iterative argmax masking procedure using a masked language model:
+
+    1. For each target position, mask it in the parent sequence and query the model
+       for the highest-probability residue (greedy argmax — not sampled).
+    2. If ``rounds > 1``, apply the round-1 preferred substitution at each position
+       and repeat for round 2: mask each *other* target position in the round-1
+       sequence and collect the argmax residue.
+    3. Yield all resulting sequences as pipeline outputs.
+
+    This matches the ESM2 two-round DMS design pattern in the EGF generation notebook.
+
+    Args:
+        parent_sequence: Starting sequence.
+        model_name: MLM model slug (e.g. ``'esm2-650m'``, ``'esmc-300m'``).
+        positions: 0-indexed positions to probe.  Defaults to all positions.
+        rounds: Number of sequential masking rounds (default 2).  Round N uses
+            the variant produced by round N-1 as its starting sequence.
+        mask_token: Token inserted at masked positions (default ``'<mask>'``).
+        alphabet: Vocabulary used to identify valid AA positions in logits.
+            Defaults to the 20 canonical amino acids.
+        exclude_synonymous: Skip round-1 variants where the argmax matches WT
+            (default ``True``).
+        batch_size: Sequences per API request (default 32).
+        label: Optional label stored as ``source_label`` in results.
+        action: API action for the model (default ``'predict'``; the model must
+            return logits).  Only ``'predict'`` is allowed because the
+            greedy-argmax procedure requires per-token logit arrays.
+
+    Example::
+
+        from biolmai.pipeline.generative import IterativeMaskingDMSConfig, GenerativePipeline
+
+        # Two-round greedy DMS at three positions using ESM2-650M
+        config = IterativeMaskingDMSConfig(
+            parent_sequence="MKTAYIAKQRQ",
+            model_name="esm2-650m",
+            positions=[2, 5, 8],   # 0-indexed; None → all positions
+            rounds=2,              # round 1: per-position; round 2: 2-point combos
+            exclude_synonymous=True,
+        )
+
+        pipeline = GenerativePipeline(configs=[config])
+        results = pipeline.run()
+        # results DataFrame has columns:
+        #   sequence, dms_round, dms_pos1, dms_aa1, dms_pos2, dms_aa2
+    """
+
+    parent_sequence: str
+    model_name: str
+    positions: Optional[list[int]] = None
+    rounds: int = 2
+    mask_token: str = "<mask>"
+    alphabet: str = "ACDEFGHIKLMNPQRSTVWY"
+    exclude_synonymous: bool = True
+    batch_size: int = 32
+    label: Optional[str] = None
+    action: str = "predict"
+
+    def __post_init__(self):
+        if not self.parent_sequence:
+            raise ValueError(
+                "IterativeMaskingDMSConfig.parent_sequence cannot be empty"
+            )
+        if self.action not in _ALLOWED_MLM_ACTIONS:
+            raise ValueError(
+                f"IterativeMaskingDMSConfig.action must be one of: 'predict' "
+                f"(got {self.action!r}). Only 'predict' is supported because "
+                f"the greedy-argmax procedure requires per-token logit arrays "
+                f"returned by the model's predict endpoint."
+            )
+        if self.rounds < 1:
+            raise ValueError(f"IterativeMaskingDMSConfig.rounds must be >= 1, got {self.rounds}")
+        if self.rounds > 2:
+            raise ValueError(
+                f"IterativeMaskingDMSConfig.rounds > 2 is not yet supported "
+                f"(got {self.rounds}). Only rounds=1 (single-point) and "
+                f"rounds=2 (two-point DMS) are implemented."
+            )
+        if self.positions is not None:
+            _bad = [p for p in self.positions if not (0 <= p < len(self.parent_sequence))]
+            if _bad:
+                raise ValueError(
+                    f"IterativeMaskingDMSConfig.positions contains out-of-range "
+                    f"indices {_bad} for parent_sequence of length "
+                    f"{len(self.parent_sequence)}."
+                )
+
+    def to_spec(self) -> dict:
+        return {
+            "type": "IterativeMaskingDMSConfig",
+            "parent_sequence": self.parent_sequence,
+            "model_name": self.model_name,
+            "positions": self.positions,
+            "rounds": self.rounds,
+            "mask_token": self.mask_token,
+            "alphabet": self.alphabet,
+            "exclude_synonymous": self.exclude_synonymous,
+            "batch_size": self.batch_size,
+            "label": self.label,
+            "action": self.action,
         }
 
 
@@ -272,9 +645,9 @@ class GenerationStage(Stage):
     def __init__(
         self,
         name: str = "generation",
-        config: Optional[Union[RemaskingConfig, DirectGenerationConfig]] = None,
+        config: Optional[Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]] = None,
         configs: Optional[
-            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
+            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]]
         ] = None,
         deduplicate: bool = True,
         **kwargs,
@@ -647,6 +1020,14 @@ class GenerationStage(Stage):
                             )
                         else:
                             raw_list.append(_r)
+                    # All runs failed — surface the first exception rather than
+                    # silently returning an empty list with no indication of why.
+                    # Mirrors the multi-config all-failures guard in process().
+                    if not raw_list:
+                        _first_exc = next(
+                            r for r in _all_results if isinstance(r, Exception)
+                        )
+                        raise _first_exc
                 else:
                     raw_list = [await api.generate(items=items, params=params)]
 
@@ -670,6 +1051,7 @@ class GenerationStage(Stage):
                                 "sampling_params": params,
                                 "generation_method": "direct",
                                 "parent_sequence": config.sequence,
+                                "source_label": config.label,
                                 **seq_data,
                             }
                         )
@@ -841,8 +1223,13 @@ class GenerationStage(Stage):
                         ).fetchall()
                         sequences = [r[0] for r in rows if r[0]]
                         scoped = True
-                except Exception:
-                    pass
+                except Exception as _scope_err:
+                    logger.warning(
+                        "SequenceSourceConfig: failed to scope sequences to run_id %s, "
+                        "falling back to all sequences in DB: %s",
+                        run_id,
+                        _scope_err,
+                    )
             if not scoped:
                 df_db = datastore.get_all_sequences()
                 sequences = df_db["sequence"].dropna().tolist() if not df_db.empty else []
@@ -906,9 +1293,349 @@ class GenerationStage(Stage):
             if s
         ]
 
+    @staticmethod
+    def _get_nested(obj: dict, dotted_key: str):
+        """Retrieve a value from a dict using a dotted key path, e.g. 'result.ddg'."""
+        parts = dotted_key.split(".")
+        cur = obj
+        for part in parts:
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(part)
+        return cur
+
+    async def _run_saturation_mutagenesis(
+        self, config: "SaturationMutagenesisConfig"
+    ) -> list[dict]:
+        """Enumerate single-mutant library, score with a prediction model, keep top-N."""
+        import numpy as np
+
+        parent = config.parent_sequence
+        positions = config.positions if config.positions is not None else list(range(len(parent)))
+        alphabet = list(config.alphabet)
+
+        # Build all single-point mutant sequences
+        mutants: list[tuple[str, int, str, str]] = []  # (seq, pos, wt_aa, mut_aa)
+        for pos in positions:
+            wt_aa = parent[pos] if pos < len(parent) else None
+            for aa in alphabet:
+                if config.exclude_synonymous and aa == wt_aa:
+                    continue
+                seq_list = list(parent)
+                seq_list[pos] = aa
+                mutants.append(("".join(seq_list), pos, wt_aa or "", aa))
+
+        if not mutants:
+            logger.warning("SaturationMutagenesisConfig: no mutants generated (empty library)")
+            return []
+
+        print(f"  SaturationMutagenesis ({config.scoring_model}): scoring {len(mutants)} variants …")
+
+        seqs, positions_list, wt_aas, mut_aas = zip(*mutants)
+        seqs = list(seqs)
+
+        # Build items — structure-aware models (e.g. ThermoMPNN-D) need pdb + mutations list
+        def _build_item(seq: str, pos: int, wt_aa: str, mut_aa: str) -> dict:
+            item: dict[str, Any] = {}
+            if config.pdb_str:
+                item["pdb"] = config.pdb_str
+                item["mutations"] = [f"{wt_aa}{pos + 1}{mut_aa}"]
+            else:
+                item["sequence"] = seq
+            if config.chain:
+                item["chain"] = config.chain
+            if config.scoring_params:
+                item.update({k: v for k, v in config.scoring_params.items()
+                              if k not in ("pdb", "sequence", "mutations", "chain")})
+            return item
+
+        items = [
+            _build_item(seq, pos, wt, mut)
+            for seq, pos, wt, mut in zip(seqs, positions_list, wt_aas, mut_aas)
+        ]
+
+        # Score in batches
+        scores: list[Optional[float]] = []
+        _example_bad_response: Optional[dict] = None
+        api = BioLMApiClient(config.scoring_model)
+        try:
+            action_fn = getattr(api, config.scoring_action)
+            _score_field_validated = False
+            _preflight_sample: Optional[dict] = None  # first response, captured for validation
+            for i in range(0, len(items), config.batch_size):
+                batch = items[i:i + config.batch_size]
+                try:
+                    raw = await action_fn(items=batch, params=config.scoring_params or {})
+                    # Normalize to list
+                    if isinstance(raw, dict):
+                        raw = [raw]
+                    if len(raw) != len(batch):
+                        raise ValueError(
+                            f"SaturationMutagenesis batch {i // config.batch_size}: "
+                            f"API returned {len(raw)} results for {len(batch)} items — "
+                            "length mismatch would cause positional drift; treating batch as failed"
+                        )
+                    # Capture only after confirming correct batch length, so a
+                    # malformed-batch response never poisons the preflight sample.
+                    if not _score_field_validated and raw and isinstance(raw[0], dict):
+                        _preflight_sample = raw[0]
+                    batch_scores: list = []
+                    for r in raw:
+                        val = self._get_nested(r, config.score_field) if isinstance(r, dict) else None
+                        try:
+                            batch_scores.append(float(val) if val is not None else None)
+                        except (TypeError, ValueError):
+                            batch_scores.append(None)
+                        if val is None and _example_bad_response is None and isinstance(r, dict):
+                            _example_bad_response = r
+                    scores.extend(batch_scores)
+                except Exception as e:
+                    logger.warning("SaturationMutagenesis scoring batch %d failed: %s", i // config.batch_size, e)
+                    scores.extend([None] * len(batch))
+                # Preflight validation OUTSIDE per-batch except — propagates to caller.
+                # Runs once on the first successful response only.
+                if not _score_field_validated and _preflight_sample is not None:
+                    _probe_val = self._get_nested(_preflight_sample, config.score_field)
+                    if _probe_val is None:
+                        raise ValueError(
+                            f"SaturationMutagenesisConfig: score_field {config.score_field!r} not found "
+                            f"in API response for model {config.scoring_model!r}. "
+                            f"Available top-level keys: {list(_preflight_sample.keys())}. "
+                            f"Full response sample: {_preflight_sample}"
+                        )
+                    _score_field_validated = True
+        finally:
+            await api.shutdown()
+
+        # Build result rows
+        rows = []
+        for seq, pos, wt_aa, mut_aa, score in zip(seqs, positions_list, wt_aas, mut_aas, scores):
+            if score is None:
+                continue
+            rows.append({
+                "sequence": seq,
+                "model_name": config.scoring_model,
+                "temperature": None,
+                "sampling_params": {},
+                "generation_method": "saturation_mutagenesis",
+                "parent_sequence": parent,
+                "source_label": config.label,
+                "sat_position": pos,
+                "sat_wt_aa": wt_aa,
+                "sat_mut_aa": mut_aa,
+                config.score_field.replace(".", "_"): score,
+            })
+
+        if not rows:
+            logger.warning(
+                "SaturationMutagenesisConfig: no variants received valid scores "
+                "(score_field=%r). Example API response where score extraction returned "
+                "None: %r",
+                config.score_field,
+                _example_bad_response,
+            )
+            return []
+
+        # Rank and keep top-N
+        import operator
+        rows.sort(key=lambda r: r.get(config.score_field.replace(".", "_"), 0), reverse=not config.ascending)
+        if config.top_n is not None:
+            rows = rows[: config.top_n]
+
+        print(f"  SaturationMutagenesis: kept {len(rows)} top-{config.top_n} variants")
+        return rows
+
+    async def _run_iterative_masking_dms(
+        self, config: "IterativeMaskingDMSConfig"
+    ) -> list[dict]:
+        """Greedy argmax masking across positions for N sequential rounds."""
+        import numpy as np
+
+        parent = config.parent_sequence
+        positions = config.positions if config.positions is not None else list(range(len(parent)))
+        alphabet = list(config.alphabet)
+
+        def _argmax_from_response(result: Any, pos: int) -> Optional[str]:
+            """Extract the argmax amino acid at *pos* from a model response dict."""
+            if not isinstance(result, dict):
+                return None
+            logits = result.get("logits")
+            vocab = result.get("vocab_tokens")
+            if logits is None:
+                return None
+            try:
+                logits_arr = np.array(logits, dtype=np.float64)
+                # Strip BOS/EOS if present (ESMC/ESM3 style)
+                if logits_arr.ndim == 2 and logits_arr.shape[0] == len(parent) + 2:
+                    logits_arr = logits_arr[1:-1]
+                row = logits_arr[pos]
+                if vocab:
+                    # Map to alphabet indices
+                    aa_indices = [vocab.index(aa) for aa in alphabet if aa in vocab]
+                    best_idx = aa_indices[int(np.argmax(row[aa_indices]))]
+                    return vocab[best_idx]
+                else:
+                    # Assume first 20 positions correspond to canonical AAs
+                    return alphabet[int(np.argmax(row[:20]))]
+            except Exception as e:
+                logger.warning("DMS argmax extraction failed at pos %d: %s", pos, e)
+                return None
+
+        print(f"  IterativeMaskingDMS ({config.model_name}): {config.rounds} round(s) × {len(positions)} positions …")
+
+        # Round-1: for each position, mask it in parent, get argmax AA
+        round1_preferred: dict[int, str] = {}  # pos → preferred AA
+        api = BioLMApiClient(config.model_name)
+        try:
+            action_fn = getattr(api, config.action)
+            # Batch all round-1 queries together
+            items_r1 = []
+            for pos in positions:
+                seq_list = list(parent)
+                seq_list[pos] = config.mask_token
+                items_r1.append({"sequence": "".join(seq_list)})
+
+            results_r1: list[Any] = []
+            _logit_format_validated = False
+            _logit_preflight_sample: Optional[dict] = None
+            for i in range(0, len(items_r1), config.batch_size):
+                batch = items_r1[i:i + config.batch_size]
+                try:
+                    raw = await action_fn(items=batch)
+                    if isinstance(raw, dict):
+                        raw = [raw]
+                    elif isinstance(raw, list) and raw and isinstance(raw[0], list):
+                        raw = [r[0] if r else {} for r in raw]
+                    if not _logit_format_validated and raw and isinstance(raw[0], dict):
+                        _logit_preflight_sample = raw[0]  # validated OUTSIDE this try block
+                    if len(raw) != len(batch):
+                        raise ValueError(
+                            f"IterativeMaskingDMS round-1 batch {i // config.batch_size}: "
+                            f"API returned {len(raw)} results for {len(batch)} items — "
+                            "length mismatch would cause positional drift; treating batch as failed"
+                        )
+                except Exception as e:
+                    logger.warning("IterativeMaskingDMS round-1 batch %d failed: %s; skipping batch", i // config.batch_size, e)
+                    raw = [{}] * len(batch)
+                results_r1.extend(raw)
+                # Preflight OUTSIDE per-batch except — propagates to caller.
+                # Only runs once on the first response that contains logits.
+                if not _logit_format_validated and _logit_preflight_sample is not None:
+                    if "logits" in _logit_preflight_sample and "vocab_tokens" not in _logit_preflight_sample:
+                        raise ValueError(
+                            f"IterativeMaskingDMSConfig: model {config.model_name!r} returned "
+                            f"'logits' but not 'vocab_tokens' — cannot decode without vocabulary "
+                            f"ordering (differs between models). "
+                            f"Available keys: {list(_logit_preflight_sample.keys())}"
+                        )
+                    _logit_format_validated = True
+
+            for pos, result in zip(positions, results_r1):
+                aa = _argmax_from_response(result, pos)
+                if aa is not None:
+                    if not config.exclude_synonymous or aa != parent[pos]:
+                        round1_preferred[pos] = aa
+
+            print(f"  Round 1: {len(round1_preferred)}/{len(positions)} positions have a preferred substitution")
+
+            if config.rounds == 1:
+                # Each position yields one single-mutant sequence
+                output_rows = []
+                for pos, aa in round1_preferred.items():
+                    seq_list = list(parent)
+                    seq_list[pos] = aa
+                    output_rows.append({
+                        "sequence": "".join(seq_list),
+                        "model_name": config.model_name,
+                        "temperature": None,
+                        "sampling_params": {},
+                        "generation_method": "iterative_masking_dms",
+                        "parent_sequence": parent,
+                        "source_label": config.label,
+                        "dms_round": 1,
+                        "dms_pos1": pos,
+                        "dms_aa1": aa,
+                    })
+                return output_rows
+
+            # Round-2: for each round-1 variant, mask each other position and get argmax
+            output_rows = []
+            r2_items: list[tuple[int, int, str, str]] = []  # (pos1, pos2, aa1, starting_seq)
+            for pos1, aa1 in round1_preferred.items():
+                seq1 = list(parent)
+                seq1[pos1] = aa1
+                seq1_str = "".join(seq1)
+                for pos2 in positions:
+                    if pos2 == pos1:
+                        continue
+                    seq2 = list(seq1_str)
+                    seq2[pos2] = config.mask_token
+                    r2_items.append((pos1, pos2, aa1, "".join(seq2)))
+
+            # Batch round-2 API calls
+            r2_sequences = [item[3] for item in r2_items]
+            r2_results: list[Any] = []
+            for i in range(0, len(r2_sequences), config.batch_size):
+                batch = [{"sequence": s} for s in r2_sequences[i:i + config.batch_size]]
+                try:
+                    raw = await action_fn(items=batch)
+                    if isinstance(raw, dict):
+                        raw = [raw]
+                    elif isinstance(raw, list) and raw and isinstance(raw[0], list):
+                        raw = [r[0] if r else {} for r in raw]
+                    if len(raw) != len(batch):
+                        raise ValueError(
+                            f"IterativeMaskingDMS round-2 batch {i // config.batch_size}: "
+                            f"API returned {len(raw)} results for {len(batch)} items — "
+                            "length mismatch would cause positional drift; treating batch as failed"
+                        )
+                except Exception as e:
+                    logger.warning("IterativeMaskingDMS round-2 batch %d failed: %s; skipping batch", i // config.batch_size, e)
+                    raw = [{}] * len(batch)
+                r2_results.extend(raw)
+
+            seen: set[str] = set()
+            for (pos1, pos2, aa1, _), result in zip(r2_items, r2_results):
+                aa2 = _argmax_from_response(result, pos2)
+                if aa2 is None:
+                    continue
+                seq_out = list(parent)
+                seq_out[pos1] = aa1
+                seq_out[pos2] = aa2
+                seq_str = "".join(seq_out)
+                if seq_str in seen:
+                    continue
+                seen.add(seq_str)
+                output_rows.append({
+                    "sequence": seq_str,
+                    "model_name": config.model_name,
+                    "temperature": None,
+                    "sampling_params": {},
+                    "generation_method": "iterative_masking_dms",
+                    "parent_sequence": parent,
+                    "source_label": config.label,
+                    "dms_round": 2,
+                    "dms_pos1": pos1,
+                    "dms_aa1": aa1,
+                    "dms_pos2": pos2,
+                    "dms_aa2": aa2,
+                })
+
+            if not output_rows:
+                logger.warning(
+                    "IterativeMaskingDMS: round-2 produced 0 unique 2-point variants "
+                    "(all positions may be synonymous or all round-2 batches failed)"
+                )
+            else:
+                logger.debug("  Round 2: %d unique 2-point variants", len(output_rows))
+            return output_rows
+
+        finally:
+            await api.shutdown()
+
     async def _dispatch_config(
         self,
-        cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, SequenceSourceConfig],
+        cfg: Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, SequenceSourceConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"],
         datastore: DataStore,
         df_input: pd.DataFrame,
         context=None,
@@ -918,6 +1645,10 @@ class GenerationStage(Stage):
         """Dispatch a single config to the appropriate generation method."""
         if isinstance(cfg, SequenceSourceConfig):
             return await self._run_sequence_source(cfg, datastore, run_id=run_id)
+        elif isinstance(cfg, SaturationMutagenesisConfig):
+            return await self._run_saturation_mutagenesis(cfg)
+        elif isinstance(cfg, IterativeMaskingDMSConfig):
+            return await self._run_iterative_masking_dms(cfg)
         elif isinstance(cfg, RemaskingConfig):
             # RemaskingConfig takes one parent → N variants.  The parent_sequence must
             # be supplied by the caller (set as a dynamic attribute on the config), because
@@ -1079,15 +1810,82 @@ class GenerationStage(Stage):
 
             # Store generation metadata in one batched INSERT
             run_id = kwargs.get("run_id", "")
+
+            # Detect the dynamic score column added by SaturationMutagenesisConfig
+            # (e.g. 'ddg', 'result_ddg').  It is the only column in df_generated
+            # that is not part of the standard or DMS-provenance column sets.
+            _KNOWN_GEN_COLS = frozenset({
+                "sequence", "model_name", "temperature", "sampling_params",
+                "generation_method", "parent_sequence", "source_label",
+                "sat_position", "sat_wt_aa", "sat_mut_aa",
+                "dms_round", "dms_pos1", "dms_aa1", "dms_pos2", "dms_aa2",
+                "global_score", "score", "seq_recovery",
+                "sequence_id", "heavy_chain", "light_chain",
+            })
+            _sat_score_cols = [
+                c for c in df_generated.columns if c not in _KNOWN_GEN_COLS
+            ]
+            _sat_score_col = _sat_score_cols[0] if _sat_score_cols else None
+
             meta_rows = []
             for seq_id, row in zip(seq_ids, df_generated.itertuples(index=False)):
                 sampling_params = getattr(row, "sampling_params", None) or {}
+
+                # Pack DMS provenance into the metadata JSON field so it survives
+                # session end and pipeline resume.
+                dms_meta: dict = {}
+
+                # SaturationMutagenesisConfig provenance
+                sat_pos = getattr(row, "sat_position", None)
+                if sat_pos is not None and not (
+                    isinstance(sat_pos, float) and pd.isna(sat_pos)
+                ):
+                    dms_meta["sat_position"] = int(sat_pos)
+                    sat_wt = getattr(row, "sat_wt_aa", None)
+                    sat_mut = getattr(row, "sat_mut_aa", None)
+                    if sat_wt is not None:
+                        dms_meta["sat_wt_aa"] = sat_wt
+                    if sat_mut is not None:
+                        dms_meta["sat_mut_aa"] = sat_mut
+                    # Capture the dynamic score column value (e.g. ddg, result_ddg)
+                    if _sat_score_col is not None:
+                        score_val = getattr(row, _sat_score_col, None)
+                        if score_val is not None and not (
+                            isinstance(score_val, float) and pd.isna(score_val)
+                        ):
+                            dms_meta[_sat_score_col] = float(score_val)
+
+                # IterativeMaskingDMSConfig provenance
+                dms_round = getattr(row, "dms_round", None)
+                if dms_round is not None and not (
+                    isinstance(dms_round, float) and pd.isna(dms_round)
+                ):
+                    dms_meta["dms_round"] = int(dms_round)
+                    dms_pos1 = getattr(row, "dms_pos1", None)
+                    dms_aa1 = getattr(row, "dms_aa1", None)
+                    if dms_pos1 is not None:
+                        dms_meta["dms_pos1"] = int(dms_pos1)
+                    if dms_aa1 is not None:
+                        dms_meta["dms_aa1"] = dms_aa1
+                    dms_pos2 = getattr(row, "dms_pos2", None)
+                    dms_aa2 = getattr(row, "dms_aa2", None)
+                    if dms_pos2 is not None and not (
+                        isinstance(dms_pos2, float) and pd.isna(dms_pos2)
+                    ):
+                        dms_meta["dms_pos2"] = int(dms_pos2)
+                    if dms_aa2 is not None and not (
+                        isinstance(dms_aa2, float) and pd.isna(dms_aa2)
+                    ):
+                        dms_meta["dms_aa2"] = dms_aa2
+
                 meta_rows.append({
                     "sequence_id": seq_id,
                     "run_id": run_id,
                     "model_name": row.model_name,
                     "temperature": getattr(row, "temperature", None),
                     "sampling_params": sampling_params,
+                    "label": getattr(row, "source_label", None),
+                    "metadata": dms_meta if dms_meta else None,
                 })
             datastore.add_generation_metadata_batch(meta_rows)
 
@@ -1170,14 +1968,33 @@ class GenerativePipeline(BasePipeline):
     def __init__(
         self,
         generation_configs: Optional[
-            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig]]
+            list[Union[GenerationConfig, RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]]
         ] = None,
         deduplicate: bool = True,
+        # ---- convenience aliases ----
+        configs: Optional[
+            list[Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]]
+        ] = None,
+        filters=None,
+        data_store=None,
         **kwargs,
     ):
+        # data_store= is an alias for datastore= (BasePipeline kwarg)
+        if data_store is not None and "datastore" not in kwargs:
+            kwargs["datastore"] = data_store
+
         super().__init__(**kwargs)
 
-        self.generation_configs = generation_configs or []
+        # configs= is a shorthand alias for generation_configs=.
+        # Use `is not None` so an explicit generation_configs=[] is respected
+        # rather than silently falling through to the alias.
+        if generation_configs is not None:
+            resolved_configs = generation_configs
+        elif configs is not None:
+            resolved_configs = configs
+        else:
+            resolved_configs = []
+        self.generation_configs = resolved_configs
         self.deduplicate = deduplicate
         self._generated_ws = None  # set by run_async() after generation stage
 
@@ -1189,6 +2006,10 @@ class GenerativePipeline(BasePipeline):
                 deduplicate=self.deduplicate,
             )
             self.stages.insert(0, gen_stage)
+
+        # filters= is a shorthand for calling add_filter() at construction
+        if filters is not None:
+            self.add_filter(filters)
 
     async def __aenter__(self):
         return self
@@ -1231,7 +2052,7 @@ class GenerativePipeline(BasePipeline):
 
     def set_generation(
         self,
-        *configs: Union[RemaskingConfig, DirectGenerationConfig],
+        *configs: Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"],
         stage_name: str = "generation",
         deduplicate: bool = True,
     ) -> "GenerativePipeline":
@@ -1277,7 +2098,7 @@ class GenerativePipeline(BasePipeline):
     # Keep replace_generation as a convenience alias for single-config swaps
     def replace_generation(
         self,
-        config: Union[RemaskingConfig, DirectGenerationConfig],
+        config: Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"],
         stage_name: Optional[str] = None,
         deduplicate: bool = True,
     ) -> "GenerativePipeline":
@@ -1335,7 +2156,7 @@ class GenerativePipeline(BasePipeline):
         )
 
     def add_generation_config(
-        self, config: Union[RemaskingConfig, DirectGenerationConfig]
+        self, config: Union[RemaskingConfig, DirectGenerationConfig, "SaturationMutagenesisConfig", "IterativeMaskingDMSConfig"]
     ) -> "GenerativePipeline":
         """Append a config to the existing generation slot.
 

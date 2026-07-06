@@ -671,5 +671,337 @@ class TestPipelineAPIAuthError:
         assert "temberture-regression" in str(exc_info.value)
 
 
+class TestPredictionStagePreflightValidation:
+    """PredictionStage preflight checks: misspelled extraction keys raise ValueError
+    immediately (before all parallel batches run) rather than silently producing empty
+    results after a full API run.
+
+    Both process() and process_ws() paths are covered for fail and pass cases.
+    """
+
+    @pytest.mark.asyncio
+    async def test_wrong_key_raises_in_process(self, datastore):
+        """process(): misspelled response_key raises ValueError naming the bad key
+        before any batches are written to DuckDB."""
+        stage = PredictionStage(
+            name="preflight_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="plddt",
+            columns="plddt",
+        )
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                # Return 'score' but stage asks for 'plddt'
+                return [{"score": 0.95}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ", "ACDEFGHIKLM"]})
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            with pytest.raises(ValueError, match="plddt"):
+                await stage.process(df, datastore)
+
+    @pytest.mark.asyncio
+    async def test_wrong_key_error_includes_available_keys_in_process(self, datastore):
+        """process(): ValueError message names the keys actually present in the response."""
+        stage = PredictionStage(
+            name="preflight_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="tm",
+            columns="tm",
+        )
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"melting_temperature": 65.0, "confidence": 0.9}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ"]})
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            with pytest.raises(ValueError, match="melting_temperature"):
+                await stage.process(df, datastore)
+
+    @pytest.mark.asyncio
+    async def test_wrong_key_raises_in_process_ws(self, datastore):
+        """process_ws(): same preflight validation as process()."""
+        stage = PredictionStage(
+            name="preflight_test_ws",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="plddt",
+            columns="plddt",
+        )
+
+        seq_ids = [datastore.add_sequence(s) for s in ("MKTAYIAKQRQ", "ACDEFGHIKLM")]
+        ws = WorkingSet(sequence_ids=frozenset(seq_ids))
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"score": 0.95}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            with pytest.raises(ValueError, match="plddt"):
+                await stage.process_ws(ws, datastore, run_id="test-run", verbose=False)
+
+    @pytest.mark.asyncio
+    async def test_correct_key_passes_preflight_in_process(self, datastore):
+        """process(): correct extraction key passes preflight and produces predictions."""
+        stage = PredictionStage(
+            name="preflight_pass",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+        )
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"score": 0.75}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        df = pd.DataFrame({"sequence": ["MKTAYIAKQRQ", "ACDEFGHIKLM"]})
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            df_out, result = await stage.process(df, datastore)
+
+        assert result.output_count > 0, "correct key should produce predictions"
+
+    @pytest.mark.asyncio
+    async def test_correct_key_passes_preflight_in_process_ws(self, datastore):
+        """process_ws(): correct extraction key passes preflight and produces predictions."""
+        stage = PredictionStage(
+            name="preflight_pass_ws",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+        )
+
+        seq_ids = [datastore.add_sequence(s) for s in ("MKTAYIAKQRQ", "ACDEFGHIKLM")]
+        ws = WorkingSet(sequence_ids=frozenset(seq_ids))
+
+        class MockClient:
+            async def predict(self, items, params=None):
+                return [{"score": 0.75}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=MockClient()):
+            ws_out, result = await stage.process_ws(ws, datastore, run_id="test-run", verbose=False)
+
+        assert result.output_count > 0, "correct key should produce predictions"
+
+
+class TestAuditFixes:
+    """Tests for data-quality and alignment issues found in audit workflows."""
+
+    @pytest.mark.asyncio
+    async def test_process_ws_length_mismatch_raises_not_silent(self, datastore):
+        """API returning fewer results than items sent must raise ValueError (not silently
+        drop sequences), so the except block writes NULL sentinels for all seq_ids."""
+        stage = PredictionStage(
+            name="len_mismatch_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+            skip_on_error=True,
+        )
+
+        class TruncatingMockClient:
+            async def predict(self, items, params=None):
+                # Return only 1 result for however many items were sent
+                return [{"score": 0.9}]
+
+            async def shutdown(self):
+                pass
+
+        seqs = ["MKTAYIAKQRQ", "ACDEFGHIKLM", "LMNPQRSTVWY"]
+        ids = []
+        for s in seqs:
+            ids.append(datastore.add_sequence(s))
+
+        ws = WorkingSet.from_ids(set(ids))
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=TruncatingMockClient()):
+            ws_out, result = await stage.process_ws(ws, datastore, run_id="len-test", verbose=False)
+
+        # With skip_on_error=True and a length-mismatch raise, all sequences in the
+        # mismatched batch are written as NULL sentinels — so they appear in DuckDB
+        # as failed rather than simply vanishing from the WorkingSet.
+        null_rows = datastore.conn.execute(
+            "SELECT COUNT(*) FROM predictions WHERE value IS NULL AND model_name = 'esm2-8m'"
+        ).fetchone()[0]
+        assert null_rows > 0, (
+            "Length-mismatch batch must write NULL sentinel rows so sequences "
+            "are failure-cached rather than silently disappearing"
+        )
+
+    @pytest.mark.asyncio
+    async def test_failure_marker_write_survives_nonserializable_params(self, datastore):
+        """A non-JSON-serializable self.params must not escape the skip_on_error boundary.
+        The failure-marker write should be swallowed with a warning, not propagate."""
+        import numpy as np
+
+        stage = PredictionStage(
+            name="params_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+            skip_on_error=True,
+        )
+        # Inject a non-serializable params value
+        stage.params = {"weights": np.array([1.0, 2.0])}
+
+        class AlwaysFailingClient:
+            async def predict(self, items, params=None):
+                raise RuntimeError("simulated API failure")
+
+            async def shutdown(self):
+                pass
+
+        seqs = ["MKTAYIAKQRQ", "ACDEFGHIKLM"]
+        for s in seqs:
+            datastore.add_sequence(s)
+        ws = WorkingSet.from_ids(
+            set(datastore.conn.execute("SELECT sequence_id FROM sequences").df()["sequence_id"].tolist())
+        )
+        # Must not raise even though self.params has a numpy array
+        ws_out, result = await stage.process_ws.__wrapped__(
+            stage, ws, datastore, run_id="params-test", verbose=False
+        ) if hasattr(stage.process_ws, "__wrapped__") else (
+            await stage.process_ws(ws, datastore, run_id="params-test", verbose=False)
+        )
+        # Test passes if no exception is raised; result may be empty
+
+    @pytest.mark.asyncio
+    async def test_embedding_2d_array_dropped_with_warning(self, datastore, caplog):
+        """Per-residue embeddings (2D arrays) must be dropped with a warning rather
+        than crashing DuckDB with a FLOAT[] type error."""
+        import logging
+        import numpy as np
+        from biolmai.pipeline.data import EmbeddingSpec
+
+        stage = PredictionStage(
+            name="embed_test",
+            model_name="esm2-8m",
+            action="encode",
+            embedding_extractor=EmbeddingSpec("embedding"),
+        )
+
+        class PerResidueEmbedClient:
+            async def encode(self, items, params=None):
+                # Return 2D (per-residue) embeddings — no reduction applied
+                return [{"embedding": [[0.1, 0.2, 0.3]] * len(item["sequence"])} for item in items]
+
+            async def shutdown(self):
+                pass
+
+        seqs = ["MKTAY", "ACDEF"]
+        for s in seqs:
+            datastore.add_sequence(s)
+        ws = WorkingSet.from_ids(
+            set(datastore.conn.execute("SELECT sequence_id FROM sequences").df()["sequence_id"].tolist())
+        )
+
+        with caplog.at_level(logging.WARNING, logger="biolmai.pipeline.data"):
+            with patch("biolmai.pipeline.data.BioLMApiClient", return_value=PerResidueEmbedClient()):
+                ws_out, result = await stage.process_ws(ws, datastore, run_id="embed-test", verbose=False)
+
+        # Should not crash; warning should name the dimensionality
+        assert any("2D" in rec.message or "ndim" in rec.message.lower() or "reduction" in rec.message
+                   for rec in caplog.records), (
+            "Expected a warning about per-residue (2D) embedding being dropped"
+        )
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_sequence_caught_by_null_guard(self, datastore):
+        """Whitespace-only sequences must be treated as null/invalid and raise before dispatch."""
+        stage = PredictionStage(
+            name="whitespace_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+        )
+
+        class DummyClient:
+            async def predict(self, items, params=None):
+                return [{"score": 0.5}] * len(items)
+
+            async def shutdown(self):
+                pass
+
+        # Insert a whitespace-only sequence directly into DuckDB to bypass DataPipeline cleaning
+        ws_id = datastore.add_sequence("   ")
+        ws = WorkingSet.from_ids({ws_id})
+
+        with patch("biolmai.pipeline.data.BioLMApiClient", return_value=DummyClient()):
+            with pytest.raises(ValueError, match="null/NaN"):
+                await stage.process_ws(ws, datastore, run_id="ws-test", verbose=False)
+
+    def test_streaming_nan_rows_dropped_before_yield(self, tmp_path):
+        """process_streaming must drop NaN rows from the uncached path (matching the
+        cached path dropna at line 621) so downstream stages don't see missing predictions."""
+        import asyncio
+        import numpy as np
+
+        stage = PredictionStage(
+            name="stream_nan_test",
+            model_name="esm2-8m",
+            action="predict",
+            extractions="score",
+            columns="score",
+        )
+
+        from biolmai.pipeline.datastore_duckdb import DuckDBDataStore
+        ds = DuckDBDataStore(db_path=tmp_path / "stream.duckdb", data_dir=tmp_path / "data")
+        try:
+            seqs = ["MKTAY", "ACDEF", "LMNPQ"]
+            for s in seqs:
+                ds.add_sequence(s)
+            df_in = ds.get_all_sequences()
+
+            call_count = 0
+
+            class TruncatingClient:
+                async def predict(self, items, params=None):
+                    nonlocal call_count
+                    call_count += 1
+                    # Return 1 result for every batch regardless of batch size
+                    return [{"score": 0.88}]
+
+                async def shutdown(self):
+                    pass
+
+            yielded_dfs = []
+            with patch("biolmai.pipeline.data.BioLMApiClient", return_value=TruncatingClient()):
+                async def collect():
+                    async for chunk in stage.process_streaming(df_in, ds):
+                        yielded_dfs.append(chunk)
+                asyncio.run(collect())
+
+            # Any chunk that was yielded must not contain NaN in the score column
+            for chunk in yielded_dfs:
+                if "score" in chunk.columns:
+                    assert chunk["score"].notna().all(), (
+                        "process_streaming yielded rows with NaN score — "
+                        "dropna guard not applied before yield"
+                    )
+        finally:
+            ds.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

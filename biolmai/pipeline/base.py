@@ -1495,12 +1495,33 @@ class BasePipeline(ABC):
             ],
         }
 
+    def results(self) -> pd.DataFrame:
+        """Return the final output DataFrame.  Alias for :meth:`get_final_data`.
+
+        The returned DataFrame always contains at minimum:
+
+        - ``sequence_id``, ``sequence``, ``length``, ``hash``
+        - ``source_label`` — the label set on the generation config
+          (e.g. ``DirectGenerationConfig.label``).  ``None`` when no label
+          was set.  **Always present** — do not guard on
+          ``"source_label" in df.columns``.
+        - One column per prediction type computed by any prediction stages.
+        """
+        return self.get_final_data()
+
     def get_final_data(self) -> pd.DataFrame:
         """Get the final output DataFrame.
 
         Materializes from the merged final WorkingSet via DuckDB.  In a
         branched DAG the last-added stage is not necessarily the last
         executed sink, so we prefer ``_final_ws`` (set at end of run()).
+
+        The returned DataFrame always contains at minimum:
+
+        - ``sequence_id``, ``sequence``, ``length``, ``hash``
+        - ``source_label`` — label from the generation config; ``None`` when
+          unset.  **Always present** regardless of whether any labels were set.
+        - One column per prediction type from upstream prediction stages.
         """
         if not self._working_sets and not self._stage_data and self._final_df is None:
             raise RuntimeError("Pipeline has not been run yet")

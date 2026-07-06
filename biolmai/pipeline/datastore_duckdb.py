@@ -309,6 +309,8 @@ class DuckDBDataStore:
                 repetition_penalty DOUBLE,
                 max_length INTEGER,
                 sampling_params VARCHAR,
+                label VARCHAR,
+                metadata VARCHAR,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (sequence_id, run_id)
             )
@@ -321,6 +323,29 @@ class DuckDBDataStore:
             )
         except Exception:
             pass
+        # Add label column to existing DBs
+        try:
+            self.conn.execute(
+                "ALTER TABLE generation_metadata ADD COLUMN IF NOT EXISTS label VARCHAR"
+            )
+        except Exception as _migration_err:
+            logger.warning(
+                "generation_metadata schema migration failed: could not add 'label' column "
+                "(%s). Subsequent generation_metadata inserts that include a label will "
+                "fail with a schema error. Check that the DuckDB file is writable.",
+                _migration_err,
+            )
+        # Add metadata column to existing DBs (DMS provenance JSON blob)
+        try:
+            self.conn.execute(
+                "ALTER TABLE generation_metadata ADD COLUMN IF NOT EXISTS metadata VARCHAR"
+            )
+        except Exception as _migration_err:
+            logger.warning(
+                "generation_metadata schema migration failed: could not add 'metadata' column "
+                "(%s). DMS provenance will not be persisted for existing databases.",
+                _migration_err,
+            )
         self.conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_gen_meta_seq
@@ -909,11 +934,19 @@ class DuckDBDataStore:
         df["prediction_id"] = range(start_id, start_id + len(df))
         df["created_at"] = datetime.now()
 
-        # Ensure metadata is JSON string
+        # Ensure metadata is JSON string — B9 fix: apply json.dumps to any non-str
+        # value (lists, numpy arrays, tuples) not just dicts.
         if "metadata" in df.columns:
-            df["metadata"] = df["metadata"].apply(
-                lambda x: json.dumps(x) if isinstance(x, dict) else x
-            )
+            def _serialize_meta(x):
+                if x is None or isinstance(x, str):
+                    return x
+                try:
+                    return json.dumps(x)
+                except (TypeError, ValueError) as _e:
+                    raise ValueError(
+                        f"metadata value is not JSON-serializable: {type(x)} — {_e}"
+                    ) from _e
+            df["metadata"] = df["metadata"].apply(_serialize_meta)
         else:
             df["metadata"] = None
 
@@ -1333,7 +1366,18 @@ class DuckDBDataStore:
             ],
         )
         self._generation_metadata_counter += 1
-        return metadata_id
+        # B8 fix: query back actual stored row ID — ON CONFLICT DO NOTHING means the
+        # pre-assigned counter ID may not match what's in the DB (conflict keeps old row).
+        actual = self.conn.execute(
+            "SELECT metadata_id FROM generation_metadata WHERE sequence_id = ? AND run_id = ?",
+            [sequence_id, run_id],
+        ).fetchone()
+        if actual is None:
+            raise RuntimeError(
+                f"Failed to retrieve metadata_id after insert for "
+                f"sequence_id={sequence_id}, run_id={run_id}"
+            )
+        return actual[0]
 
     def add_generation_metadata_batch(self, rows: list[dict]) -> None:
         """Batch-insert generation metadata — one DuckDB round-trip.
@@ -1353,6 +1397,9 @@ class DuckDBDataStore:
             sp = row.get("sampling_params") or {}
             # GEN-04: serialize sampling_params as JSON string for storage
             sampling_params_json = json.dumps(sp) if sp else None
+            # Serialize DMS provenance (or any extra metadata) as a JSON string
+            extra_meta = row.get("metadata")
+            metadata_json = json.dumps(extra_meta) if extra_meta else None
             records.append({
                 "metadata_id": metadata_id,
                 "sequence_id": int(row["sequence_id"]),
@@ -1366,6 +1413,8 @@ class DuckDBDataStore:
                 "repetition_penalty": row.get("repetition_penalty", sp.get("repetition_penalty")),
                 "max_length": row.get("max_length", sp.get("max_length")),
                 "sampling_params": sampling_params_json,
+                "label": row.get("label"),
+                "metadata": metadata_json,
                 "created_at": now,
             })
         df = pd.DataFrame(records)
@@ -1377,10 +1426,10 @@ class DuckDBDataStore:
                 INSERT INTO generation_metadata
                 (metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
                  num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
-                 created_at)
+                 label, metadata, created_at)
                 SELECT metadata_id, sequence_id, run_id, model_name, temperature, top_k, top_p,
                        num_return_sequences, do_sample, repetition_penalty, max_length, sampling_params,
-                       created_at
+                       label, metadata, created_at
                 FROM {_tmp}
                 ON CONFLICT DO NOTHING
                 """
@@ -2215,6 +2264,14 @@ class DuckDBDataStore:
 
         Returns:
             Wide-format DataFrame: one row per sequence, one column per prediction type.
+            Always includes the following columns regardless of pipeline configuration:
+
+            - ``sequence_id``, ``sequence``, ``length``, ``hash`` — core sequence data.
+            - ``source_label`` — label set on the generation config (e.g.
+              ``DirectGenerationConfig.label``, ``SaturationMutagenesisConfig.label``).
+              ``NULL`` / ``None`` when no label was supplied.  This column is **always
+              present** even when no labels have been set, so downstream code should
+              not branch on ``"source_label" in df.columns`` — it is always there.
         """
         if not ws:
             return pd.DataFrame(columns=["sequence_id", "sequence", "length"])
@@ -2298,14 +2355,39 @@ class DuckDBDataStore:
             seq_select = ", ".join(f's."{c}"' for c in seq_col_names)
             seq_group = ", ".join(f's."{c}"' for c in seq_col_names)
 
+            # Always include source_label from generation_metadata.
+            # Use a ranked subquery (most recent metadata_id per sequence) to
+            # avoid fan-out when a sequence has multiple generation_metadata rows
+            # (e.g. generated under different run_ids). NULL when no label was set.
+            # MAX() is an aggregate because the outer query has GROUP BY.
+            # The subquery guarantees at most one row per sequence, so MAX() is
+            # equivalent to ANY_VALUE() and returns the single label or NULL.
+            label_col_sql = ",\n                MAX(gm_label.label) AS source_label"
+            label_join_sql = (
+                f"LEFT JOIN ("
+                f"    SELECT sequence_id, label"
+                f"    FROM ("
+                f"        SELECT sequence_id, label,"
+                f"               ROW_NUMBER() OVER ("
+                f"                   PARTITION BY sequence_id"
+                f"                   ORDER BY metadata_id DESC"
+                f"               ) AS _rn"
+                f"        FROM generation_metadata"
+                f"        WHERE sequence_id IN (SELECT sequence_id FROM {_ws_tmp})"
+                f"    ) _ranked"
+                f"    WHERE _rn = 1"
+                f") gm_label ON s.sequence_id = gm_label.sequence_id"
+            )
+
             cte_clause = f"WITH{pred_cte_sql}" if pred_cte_sql else ""
             query = f"""
                 {cte_clause}
                 SELECT
-                    {seq_select}{pred_cols_sql}
+                    {seq_select}{pred_cols_sql}{label_col_sql}
                 FROM sequences s
                 INNER JOIN {_ws_tmp} w ON s.sequence_id = w.sequence_id
                 {pred_join_sql}
+                {label_join_sql}
                 GROUP BY {seq_group}
             """
             return self.conn.execute(query).df()

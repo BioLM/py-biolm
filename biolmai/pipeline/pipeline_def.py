@@ -145,7 +145,7 @@ def filter_from_spec(spec: dict) -> "BaseFilter":
     elif ftype == "ConservedResidueFilter":
         # Keys were stored as strings for JSON compat; convert back to int
         conserved_positions = {
-            int(k): v for k, v in spec.get("conserved_positions", {}).items()
+            int(k): v for k, v in spec["conserved_positions"].items()
         }
         return ConservedResidueFilter(
             conserved_positions=conserved_positions,
@@ -167,6 +167,11 @@ def filter_from_spec(spec: dict) -> "BaseFilter":
         )
     elif ftype == "CompositeFilter":
         from biolmai.pipeline.filters import CompositeFilter
+        if not spec.get("filters"):
+            raise ValueError(
+                "CompositeFilter spec is missing 'filters' key or has an empty sub-filter list — "
+                "a CompositeFilter with no sub-filters is a no-op and is likely a corrupt spec"
+            )
         sub_filters = [filter_from_spec(f) for f in spec.get("filters", [])]
         return CompositeFilter(*sub_filters)
     else:
@@ -178,7 +183,12 @@ def filter_from_spec(spec: dict) -> "BaseFilter":
 
 def _config_from_spec(spec: dict) -> Any:
     """Reconstruct a generation config object from its ``to_spec()`` dict."""
-    from biolmai.pipeline.generative import DirectGenerationConfig, SequenceSourceConfig
+    from biolmai.pipeline.generative import (
+        DirectGenerationConfig,
+        IterativeMaskingDMSConfig,
+        SaturationMutagenesisConfig,
+        SequenceSourceConfig,
+    )
     from biolmai.pipeline.mlm_remasking import RemaskingConfig
 
     ctype = spec.get("type")
@@ -213,10 +223,41 @@ def _config_from_spec(spec: dict) -> Any:
             structure_from_stage=spec.get("structure_from_stage"),
             structure_from_model=spec.get("structure_from_model"),
             n_runs=spec.get("n_runs", 1),
+            label=spec.get("label"),
+        )
+    elif ctype == "SaturationMutagenesisConfig":
+        return SaturationMutagenesisConfig(
+            parent_sequence=spec["parent_sequence"],
+            scoring_model=spec["scoring_model"],
+            positions=spec.get("positions"),
+            alphabet=spec.get("alphabet", "ACDEFGHIKLMNPQRSTVWY"),
+            scoring_action=spec.get("scoring_action", "predict"),
+            scoring_params=spec.get("scoring_params", {}),
+            score_field=spec.get("score_field", "ddg"),
+            top_n=spec.get("top_n", 50),
+            ascending=spec.get("ascending", True),
+            exclude_synonymous=spec.get("exclude_synonymous", True),
+            batch_size=spec.get("batch_size", 8),
+            label=spec.get("label"),
+            pdb_str=spec.get("pdb_str"),
+            chain=spec.get("chain", "A"),
+        )
+    elif ctype == "IterativeMaskingDMSConfig":
+        return IterativeMaskingDMSConfig(
+            parent_sequence=spec["parent_sequence"],
+            model_name=spec["model_name"],
+            positions=spec.get("positions"),
+            rounds=spec.get("rounds", 2),
+            mask_token=spec.get("mask_token", "<mask>"),
+            alphabet=spec.get("alphabet", "ACDEFGHIKLMNPQRSTVWY"),
+            exclude_synonymous=spec.get("exclude_synonymous", True),
+            batch_size=spec.get("batch_size", 32),
+            label=spec.get("label"),
+            action=spec.get("action", "predict"),
         )
     elif ctype == "RemaskingConfig":
         return RemaskingConfig(
-            model_name=spec.get("model_name", "esm-150m"),
+            model_name=spec["model_name"],
             action=spec.get("action", "predict"),
             mask_fraction=spec.get("mask_fraction", 0.15),
             mask_positions=spec.get("mask_positions", "auto"),
@@ -236,8 +277,9 @@ def _config_from_spec(spec: dict) -> Any:
     else:
         raise ValueError(
             f"Unknown generation config type '{ctype}'. "
-            "Only SequenceSourceConfig, RemaskingConfig, and DirectGenerationConfig "
-            "are reconstructable."
+            "Supported types: SequenceSourceConfig, RemaskingConfig, "
+            "DirectGenerationConfig, SaturationMutagenesisConfig, "
+            "IterativeMaskingDMSConfig."
         )
 
 
@@ -389,7 +431,7 @@ def stage_from_spec(spec: dict) -> "Stage":
         # algorithm parameters (e.g. eps for DBSCAN) are restored.
         return ClusteringStage(
             name=spec["name"],
-            method=spec.get("method", "kmeans"),
+            method=spec["method"],
             n_clusters=spec.get("n_clusters"),
             similarity_metric=spec.get("similarity_metric", "embedding"),
             embedding_model=spec.get("embedding_model"),

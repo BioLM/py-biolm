@@ -276,6 +276,13 @@ class EmbeddingSpec:
             return []
         val = result.get(self.key)
         if val is None:
+            # B15 fix: warn on wrong key so misconfigured EmbeddingSpec surfaces immediately
+            logger.warning(
+                "EmbeddingSpec: key %r not found in API response — "
+                "embedding will not be stored. Available keys: %s",
+                self.key,
+                list(result.keys()) if isinstance(result, dict) else type(result),
+            )
             return []
 
         # Case 1: flat list of floats or a nested numeric array
@@ -690,6 +697,17 @@ class PredictionStage(Stage):
                         # Collect into batch_data and flush once (not per-row add_prediction).
                         batch_data = []
                         batch_emb_data = []
+                        # B11 fix: warn on length mismatch; trailing unmatched rows in
+                        # out_df remain with NaN prediction values (already correct since
+                        # out_df = pending_batch_df.copy() contains all rows).
+                        if len(results) != len(pending_batch_df):
+                            logger.warning(
+                                "process_streaming: API returned %d results for %d items "
+                                "in batch — %d rows will be yielded with NaN predictions",
+                                len(results),
+                                len(pending_batch_df),
+                                len(pending_batch_df) - len(results),
+                            )
                         for (_, row), result in zip(pending_batch_df.iterrows(), results):
                             seq_id = int(row["sequence_id"])
                             idx = row.name
@@ -738,6 +756,11 @@ class PredictionStage(Stage):
                         if batch_emb_data:
                             datastore.add_embeddings_batch(batch_emb_data)
 
+                        # Drop rows where spec columns are NaN — matches cached-path
+                        # dropna at line 621 so streaming and resume produce identical output.
+                        _spec_cols = [s.column for s in self._resolved if s.column in out_df.columns]
+                        if _spec_cols:
+                            out_df = out_df.dropna(subset=_spec_cols)
                         # Yield batch immediately!
                         yield out_df
 
@@ -910,6 +933,14 @@ class PredictionStage(Stage):
                     self.name, seq_id, self.model_name, layer,
                 )
                 continue
+            if embedding.ndim != 1:
+                logger.warning(
+                    "Stage %r: sequence_id=%d returned %dD embedding "
+                    "(model=%s, layer=%s) — use reduction='mean' or 'sum' to "
+                    "collapse to 1D; dropping to prevent DuckDB FLOAT[] type error",
+                    self.name, seq_id, embedding.ndim, self.model_name, layer,
+                )
+                continue
             rows.append({
                 "sequence_id": seq_id,
                 "model_name": self.model_name,
@@ -923,6 +954,16 @@ class PredictionStage(Stage):
         spec = self._structure_output
         val = result.get(spec.key)
         if val is None:
+            # B14 fix: warn instead of silently returning so misconfigured keys are visible
+            logger.warning(
+                "_store_structure: key %r not found in API response for sequence_id %s "
+                "(model=%s) — no structure stored; check structure_key configuration. "
+                "Available keys: %s",
+                spec.key,
+                seq_id,
+                self.model_name,
+                list(result.keys()) if isinstance(result, dict) else type(result),
+            )
             return
         # Handle list-valued keys (e.g. AF2 "pdbs")
         if isinstance(val, list):
@@ -1112,6 +1153,9 @@ class PredictionStage(Stage):
             batch_size = self.batch_size
             n_batches = (len(all_items) + batch_size - 1) // batch_size
             flight_semaphore = asyncio.Semaphore(self.max_concurrent)
+            # Mutable list: first successful API response is appended by _dispatch_batch
+            # and validated after asyncio.gather to catch misspelled extraction keys.
+            _preflight_capture: list = []
 
             async def _dispatch_batch(batch_idx, _items=all_items, _seq_ids=seq_ids):
                 start = batch_idx * batch_size
@@ -1145,8 +1189,26 @@ class PredictionStage(Stage):
                         if not isinstance(results, list):
                             results = [results]
 
+                    # Capture first valid dict response for post-gather key validation.
+                    # asyncio is single-threaded so the check+append is atomic.
+                    if (
+                        not _preflight_capture
+                        and results
+                        and isinstance(results[0], dict)
+                        and "error" not in results[0]
+                        and "status_code" not in results[0]
+                    ):
+                        _preflight_capture.append(results[0])
+
                     batch_data = []
                     batch_emb_data = []
+                    # B10 fix: guard against positional drift from length-mismatched responses;
+                    # raising here routes through the existing except block which writes NULLs.
+                    if len(results) != len(batch_seq_ids):
+                        raise ValueError(
+                            f"API returned {len(results)} results for {len(batch_seq_ids)} items — "
+                            "length mismatch; treating batch as failed to prevent positional drift"
+                        )
                     for seq_id, result in zip(batch_seq_ids, results):
                         if (
                             isinstance(result, dict)
@@ -1248,7 +1310,15 @@ class PredictionStage(Stage):
                             for spec in self._resolved
                         ]
                         if failed:
-                            datastore.add_predictions_batch(failed)
+                            try:
+                                datastore.add_predictions_batch(failed)
+                            except Exception as _fm_err:
+                                # Non-serializable params or other metadata issue must
+                                # not escape the skip_on_error boundary — just warn.
+                                logger.warning(
+                                    "Failed to write failure markers for batch %d: %s",
+                                    batch_idx, _fm_err,
+                                )
                     else:
                         raise
 
@@ -1272,6 +1342,25 @@ class PredictionStage(Stage):
                         break
                 if _first_legacy_exc is not None:
                     raise _first_legacy_exc
+                # Post-gather preflight: validate extraction keys against first captured
+                # response.  Raises before the merge step so the caller sees a specific
+                # error instead of a DataFrame of NaN columns for every sequence.
+                if (
+                    self.action in ("predict", "score")
+                    and self._resolved
+                    and _preflight_capture
+                ):
+                    _pf_r = _preflight_capture[0]
+                    for _spec in self._resolved:
+                        if _spec.response_key not in _pf_r:
+                            raise ValueError(
+                                f"PredictionStage preflight: extraction key "
+                                f"{_spec.response_key!r} (column={_spec.column!r}) "
+                                f"not found in API response for model "
+                                f"{self.model_name!r}. "
+                                f"Available keys: {list(_pf_r.keys())}. "
+                                f"Full response sample: {_pf_r}"
+                            )
             except Exception as e:
                 print(f"  Error during prediction: {e}")
                 raise
@@ -1505,7 +1594,11 @@ class PredictionStage(Stage):
                         "(e.g., item_columns={'sequence': 'heavy_chain'})."
                     )
                 # Bug G fix: check for None/NaN in the default sequence column too.
-                null_seqs = [p[0] for p in id_seq_pairs if p[1] is None or str(p[1]).lower() in ("nan", "none", "")]
+                null_seqs = [
+                    p[0] for p in id_seq_pairs
+                    if p[1] is None or not str(p[1]).strip()
+                    or str(p[1]).strip().lower() in ("nan", "none")
+                ]
                 if null_seqs:
                     raise ValueError(
                         f"Input column 'sequence' has null/NaN values at row(s) "
@@ -1526,6 +1619,9 @@ class PredictionStage(Stage):
             batch_size = self.batch_size
             n_batches = (len(all_items) + batch_size - 1) // batch_size
             flight_semaphore = asyncio.Semaphore(self.max_concurrent)
+            # Mutable list: first successful API response captured by _dispatch_batch
+            # and validated post-gather to detect misspelled extraction keys.
+            _preflight_capture: list = []
 
             try:
                 from tqdm.auto import tqdm as _tqdm_cls
@@ -1574,21 +1670,26 @@ class PredictionStage(Stage):
                         if not isinstance(results, list):
                             results = [results]
 
-                    # Alignment check — warn if API returned fewer results than items sent.
-                    # Bug C fix: use logger.warning with the count of sequences that will retry.
-                    if len(results) < len(batch_seq_ids):
-                        logger.warning(
-                            "API returned %d results for %d items — %d sequences will be retried",
-                            len(results),
-                            len(batch_seq_ids),
-                            len(batch_seq_ids) - len(results),
-                        )
-                    elif len(results) != len(batch_items):
-                        logger.warning(
-                            "batch %d: API returned %d results for %d items — partial results will be skipped",
-                            batch_idx,
-                            len(results),
-                            len(batch_items),
+                    # Capture first valid dict response for post-gather key validation.
+                    if (
+                        not _preflight_capture
+                        and results
+                        and isinstance(results[0], dict)
+                        and "error" not in results[0]
+                        and "status_code" not in results[0]
+                    ):
+                        _preflight_capture.append(results[0])
+
+                    # B10-mirror for process_ws: raise on length mismatch so the
+                    # except block below writes NULL sentinel rows for all seq_ids
+                    # in this batch, exactly as process() does at line 1194.
+                    # Sequences that disappeared from the API response are recorded
+                    # as failed rather than silently dropped from the WorkingSet.
+                    if len(results) != len(batch_seq_ids):
+                        raise ValueError(
+                            f"API returned {len(results)} results for "
+                            f"{len(batch_seq_ids)} items — length mismatch; "
+                            "treating batch as failed to prevent positional drift"
                         )
 
                     # Process results and write to DuckDB immediately
@@ -1701,7 +1802,15 @@ class PredictionStage(Stage):
                             for spec in self._resolved
                         ]
                         if failed:
-                            datastore.add_predictions_batch(failed)
+                            try:
+                                datastore.add_predictions_batch(failed)
+                            except Exception as _fm_err:
+                                # Non-serializable params or other metadata issue must
+                                # not escape the skip_on_error boundary — just warn.
+                                logger.warning(
+                                    "Failed to write failure markers for batch %d: %s",
+                                    batch_idx, _fm_err,
+                                )
                     else:
                         raise
                 finally:
@@ -1737,6 +1846,25 @@ class PredictionStage(Stage):
                             break
                 if first_exc is not None:
                     raise first_exc
+                # Post-gather preflight: validate extraction keys against the first
+                # captured response.  Raises before WorkingSet construction so callers
+                # see a specific error instead of an empty output set.
+                if (
+                    self.action in ("predict", "score")
+                    and self._resolved
+                    and _preflight_capture
+                ):
+                    _pf_r = _preflight_capture[0]
+                    for _spec in self._resolved:
+                        if _spec.response_key not in _pf_r:
+                            raise ValueError(
+                                f"PredictionStage preflight: extraction key "
+                                f"{_spec.response_key!r} (column={_spec.column!r}) "
+                                f"not found in API response for model "
+                                f"{self.model_name!r}. "
+                                f"Available keys: {list(_pf_r.keys())}. "
+                                f"Full response sample: {_pf_r}"
+                            )
                 computed = len(uncached_ids)
                 if verbose:
                     print(
@@ -2115,18 +2243,22 @@ class CofoldingPredictionStage(Stage):
         """Run co-folding prediction for each sequence in *df*."""
         start_count = len(df)
         computed = 0
-        df = df.copy()
+        # B4 fix: save full input so cached sequences are included in the returned frame.
+        # df is filtered to uncached-only for the API loop; full_df is returned with
+        # predictions merged back from DuckDB at the end (matching PredictionStage pattern).
+        full_df = df.copy()
+        df = full_df.copy()  # working copy — may be filtered to uncached subset below
 
         # skip already-cached sequences to avoid redundant API calls.
-        if "sequence_id" in df.columns:
-            all_input_ids = df["sequence_id"].tolist()
+        if "sequence_id" in full_df.columns:
+            all_input_ids = full_df["sequence_id"].tolist()
             cached_ids = set(
                 datastore.get_uncached_sequence_ids(all_input_ids, self.prediction_type, self.model_name)
             )
             # get_uncached_sequence_ids returns IDs that are NOT cached — invert to get cached
             cached_set = set(all_input_ids) - cached_ids
             if cached_set:
-                df = df[~df["sequence_id"].isin(cached_set)].copy()
+                df = full_df[~full_df["sequence_id"].isin(cached_set)].copy()
                 if kwargs.get("verbose", True):
                     print(f"  CofoldingStage '{self.name}': {len(cached_set)} sequences already cached, skipping.")
 
@@ -2149,6 +2281,13 @@ class CofoldingPredictionStage(Stage):
                 results = await getattr(api, self.action)(
                     items=items, params=self.params
                 )
+
+                # B12 fix: guard against positional drift from length-mismatched responses
+                if len(results) != len(batch):
+                    raise ValueError(
+                        f"CofoldingPredictionStage.process(): API returned {len(results)} results "
+                        f"for {len(batch)} items — length mismatch; treating batch as failed"
+                    )
 
                 for _j, (result, (idx, row)) in enumerate(
                     zip(results, batch.iterrows())
@@ -2187,10 +2326,28 @@ class CofoldingPredictionStage(Stage):
             if api is not None:
                 await api.shutdown()
 
-        return df, StageResult(
+        # B4 fix: merge predictions back into full_df for all sequence_ids (cached + new).
+        # Mirrors the PredictionStage.process() merge-back pattern.
+        if "sequence_id" in full_df.columns:
+            all_seq_ids = full_df["sequence_id"].tolist()
+            pred_df = datastore.get_predictions_bulk(
+                all_seq_ids, self.prediction_type, self.model_name
+            )
+            if not pred_df.empty:
+                val_map = dict(zip(pred_df["sequence_id"], pred_df["value"]))
+                full_df[self.prediction_type] = full_df["sequence_id"].map(val_map)
+            else:
+                full_df[self.prediction_type] = None
+
+        # Mirror PredictionStage.process() all_present mask: drop rows where
+        # confidence is NaN so process() semantics match process_ws() output.
+        if self.prediction_type in full_df.columns:
+            full_df = full_df[full_df[self.prediction_type].notna()].copy()
+
+        return full_df, StageResult(
             stage_name=self.name,
             input_count=start_count,
-            output_count=len(df),
+            output_count=len(full_df),
             computed_count=computed,
         )
 
@@ -2241,6 +2398,13 @@ class CofoldingPredictionStage(Stage):
                 results = await getattr(api, self.action)(
                     items=items, params=self.params
                 )
+
+                # B13 fix: guard against positional drift from length-mismatched responses
+                if len(results) != len(chunk):
+                    raise ValueError(
+                        f"CofoldingPredictionStage.process_ws(): API returned {len(results)} results "
+                        f"for {len(chunk)} items — length mismatch; treating batch as failed"
+                    )
 
                 for (seq_id, _seq), result in zip(chunk, results):
                     if not isinstance(result, dict):
