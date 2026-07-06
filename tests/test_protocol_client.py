@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Tests for ProtocolClient, ProtocolRun, and the top-level run_protocol() function.
 
 HTTP calls are mocked entirely via unittest.mock.patch on httpx.Client so no real
